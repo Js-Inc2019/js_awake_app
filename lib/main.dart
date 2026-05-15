@@ -6,7 +6,8 @@
 
 import 'dart:convert';
 import 'dart:io';
-
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -77,7 +78,12 @@ class JsAwakeApp extends StatelessWidget {
       title: "J's Inc. 日報報告APP",
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      home: const GateScreen(),
+      home: const LoginScreen(),
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/gate': (_) => const GateScreen(),
+        '/register': (_) => const RegisterScreen(),
+      },
     );
   }
 
