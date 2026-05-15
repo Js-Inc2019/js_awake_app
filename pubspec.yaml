@@ -1,0 +1,48 @@
+name: js_awake_app
+description: "株式会社J's 電気工事業 日報アプリ v1.0.0"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 音声認識
+  speech_to_text: ^7.0.0
+
+  # ローカル通知
+  flutter_local_notifications: ^17.2.4
+
+  # タイムゾーン（通知スケジューリング用）
+  timezone: ^0.9.4
+
+  # 位置情報（GPS）
+  geolocator: ^12.0.0
+
+  # カメラ・画像ピッカー
+  image_picker: ^1.1.2
+
+  # 生体認証
+  local_auth: ^2.3.0
+
+  # 権限管理
+  permission_handler: ^11.3.1
+
+  # SNS共有（LINE等）
+  share_plus: ^10.0.2
+
+  # ローカルデータ保存
+  shared_preferences: ^2.3.3
+  http: ^1.6.0
+  geocoding: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
