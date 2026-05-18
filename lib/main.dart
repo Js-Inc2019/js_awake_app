@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // J's Awake App v1.1.1 — main.dart 完全版
 // 株式会社J's 電気工事業 日報アプリ
 // v1.1.1変更点：プレビュー画面に写真表示追加
@@ -294,7 +294,7 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
     try {
       for (final item in items) {
         final response = await http.post(
-          Uri.parse('$API_URL/daily-reports'),
+          Uri.parse('$API_URL/reports'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(item.toJson()),
         ).timeout(const Duration(seconds: 10));
