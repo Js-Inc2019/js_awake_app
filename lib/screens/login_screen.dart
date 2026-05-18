@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,7 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _tryBiometricAuth();
+    // _tryBiometricAuth(); // 生体認証は手動のみ
   }
 
   @override
@@ -58,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // ============================================================
+// ============================================================
   // PIN認証
   // ============================================================
 
@@ -82,15 +83,13 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // TODO: バックエンド API にPINを送信して検証
-      // 現在は、デフォルトPIN "1234" でテスト
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (pin == '1234' && mounted) {
+      final result = await AuthService().loginWithPin(pin);
+      
+      if (result['success'] && mounted) {
         _navigateToGate();
       } else {
         setState(() {
-          _errorMessage = 'PINが間違っています';
+          _errorMessage = result['message'] ?? 'ログインに失敗しました';
           _pinController.clear();
         });
       }

@@ -8,6 +8,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/site_select_screen.dart';
+import 'screens/inbox_screen.dart';
+import 'screens/share_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -649,7 +652,7 @@ class GateScreen extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => _pushBoss(context),
                 icon:  const Icon(Icons.supervisor_account),
-                label: const Text('親 方 用'),
+                label: const Text('職長・管理者用'),
               ),
               const Spacer(),
               const Text("職人 × AI × J's ＝ 覚醒",
@@ -673,7 +676,7 @@ class GateScreen extends StatelessWidget {
       final supported = await auth.isDeviceSupported();
       if (supported) {
         ok = await auth.authenticate(
-          localizedReason: '親方用へアクセスするには認証が必要です',
+          localizedReason: '職長・管理者用へアクセスするには認証が必要です',
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
       } else { ok = true; }
@@ -681,7 +684,7 @@ class GateScreen extends StatelessWidget {
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
           builder: (_) => const SharedWorkerForm(
-            screenTitle: '親方用 — 日報管理', isBossMode: true)));
+            screenTitle: '職長・管理者用 — 日報管理', isBossMode: true)));
     }
   }
 }
@@ -718,6 +721,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   bool          _isListening  = false;
   bool          _submitting   = false;
   bool          _voiceMode    = false;
+  Map<String, dynamic>? _selectedSite;
 
   List<String> _nameSuggestions = [];
   bool         _showSuggestions = false;
@@ -966,6 +970,21 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       appBar: AppBar(
         title: Text(widget.screenTitle),
         actions: widget.isBossMode ? [
+          IconButton(
+            icon: const Icon(Icons.inbox),
+            tooltip: '受信トレイ',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => InboxScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.location_on),
+            tooltip: '現場選択',
+            onPressed: () async {
+              final site = await Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => SiteSelectScreen()));
+              if (site != null) setState(() => _selectedSite = site);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.people),
             tooltip: '職人名管理',
