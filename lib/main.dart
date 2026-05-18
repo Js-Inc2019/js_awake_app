@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // J's Awake App v1.1.1 — main.dart 完全版
 // 株式会社J's 電気工事業 日報アプリ
 // v1.1.1変更点：プレビュー画面に写真表示追加
@@ -200,6 +200,7 @@ class WorkerReportItem {
     DateTime? timestamp,
     this.isActive = true,
     String? id,
+    this.apiReportId,
   }) : timestamp = timestamp ?? DateTime.now(),
        id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
 
@@ -213,6 +214,7 @@ class WorkerReportItem {
   final String gpsAddress;
   final DateTime timestamp;
   bool isActive;
+  String? apiReportId;
 
   String get timeLabel {
     final h = timestamp.hour.toString().padLeft(2, '0');
@@ -231,6 +233,7 @@ class WorkerReportItem {
     'gpsAddress':       gpsAddress,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
+    'apiReportId':      apiReportId,
   };
 
   static WorkerReportItem fromJson(Map<String, dynamic> j) => WorkerReportItem(
@@ -247,7 +250,7 @@ class WorkerReportItem {
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
     isActive: j['isActive'] as bool? ?? true,
-  );
+  )..apiReportId = j['apiReportId'] as String?;
 }
 
 // ============================================================
@@ -314,7 +317,9 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
         if (response.statusCode != 200 && response.statusCode != 201) {
           debugPrint('API エラー: ${response.statusCode} - ${response.body}');
         } else {
-          debugPrint('API 送信成功: ${item.name}');
+          final resBody = jsonDecode(response.body);
+          item.apiReportId = resBody['report_id'] as String?;
+          debugPrint('API 送信成功: ${item.name} id=${item.apiReportId}');
         }
       }
     } catch (e) {
@@ -561,12 +566,6 @@ Future<String> fetchGpsAddress() async {
 );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          if (p.street != null && p.street!.isNotEmpty) {
-            final s = p.street!;
-            final sub = p.subLocality ?? '';
-            final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
-            if (idx >= 0) return '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
-          }
           final parts = [
             p.administrativeArea, p.locality,
             p.subLocality, p.thoroughfare, p.subThoroughfare,
@@ -1645,7 +1644,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
   Future<void> _shareItem(WorkerReportItem item) async {
     if (!mounted) return;
-    final reportId = item.id;
+    final reportId = item.apiReportId ?? item.id;
     await Navigator.push(context, MaterialPageRoute(builder: (_) => ShareScreen(
       reportId: reportId,
       workerName: item.name,
