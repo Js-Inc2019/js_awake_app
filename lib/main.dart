@@ -35,7 +35,7 @@ import 'package:geocoding/geocoding.dart'
 // API設定
 // ============================================================
 
-const String API_URL = 'http://192.168.0.59:3000/api/v1';
+const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
 // ============================================================
 // エントリーポイント
@@ -268,6 +268,7 @@ class ReportStore {
   static final ReportStore instance = ReportStore._();
   ReportStore._();
 
+
   Future<List<WorkerReportItem>> loadAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw   = prefs.getString(_K.reports);
@@ -295,8 +296,20 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
       for (final item in items) {
         final response = await http.post(
           Uri.parse('$API_URL/reports'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(item.toJson()),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${(await SharedPreferences.getInstance()).getString('auth_token') ?? ""}',
+          },
+          body: jsonEncode({
+            'worker_name': item.name,
+            'worker_company': '',
+            'report_date': item.timestamp.toIso8601String().substring(0, 10),
+            'clock_in_time': item.timeLabel + ':00',
+            'transport_type': item.transport.name,
+            'parking_fee': item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+            'gps_address': item.gpsAddress,
+            'work_content': item.workContent,
+          }),
         ).timeout(const Duration(seconds: 10));
         if (response.statusCode != 200 && response.statusCode != 201) {
           debugPrint('API エラー: ${response.statusCode} - ${response.body}');
