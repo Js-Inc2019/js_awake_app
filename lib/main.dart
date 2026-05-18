@@ -1637,6 +1637,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
     await ReportStore.instance.saveAll(_all);
   }
 
+  Future<void> _shareItem(WorkerReportItem item) async {
+    if (!mounted) return;
+    final reportId = item.id;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ShareScreen(
+      reportId: reportId,
+      workerName: item.name,
+      reportDate: item.timestamp.toIso8601String().substring(0, 10),
+    )));
+  }
   Future<void> _clearAll() async {
     final ok = await showConfirmDialog(context,
       title: '⚠️ 全件削除',
@@ -1862,6 +1871,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                             item:     _shown[i],
                             onToggle: () => _toggleActive(_shown[i]),
                             onDelete: () => _deleteItem(_shown[i]),
+                            onShare:  () => _shareItem(_shown[i]),
                           ),
                         ),
                       ),
@@ -2004,10 +2014,11 @@ class _StatItem extends StatelessWidget {
 // ============================================================
 
 class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.item, required this.onToggle, required this.onDelete});
+  const _ReportCard({required this.item, required this.onToggle, required this.onDelete, required this.onShare});
   final WorkerReportItem item;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback onShare;
 
   void _showPhoto(BuildContext context, String path) {
     showDialog(
@@ -2104,6 +2115,10 @@ class _ReportCard extends StatelessWidget {
                   ),
               ],
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.share, color: JsColors.gold, size: 20),
+            onPressed: onShare,
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline, color: JsColors.error, size: 20),
