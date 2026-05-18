@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // J's Awake App v1.1.1 — main.dart 完全版
 // 株式会社J's 電気工事業 日報アプリ
 // v1.1.1変更点：プレビュー画面に写真表示追加
@@ -285,13 +285,13 @@ class ReportStore {
   Future<void> saveAll(List<WorkerReportItem> items) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_K.reports, jsonEncode(items.map((e) => e.toJson()).toList()));
-    await _sendToAPI(items);
   }
 
   Future<void> addReport(WorkerReportItem item) async {
     final all = await loadAll();
     all.add(item);
     await saveAll(all);
+    await _sendToAPI([item]);
   }
 
 Future<void> _sendToAPI(List<WorkerReportItem> items) async {
