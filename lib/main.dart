@@ -570,6 +570,12 @@ Future<String> fetchGpsAddress() async {
             p.administrativeArea, p.locality,
             p.subLocality, p.thoroughfare, p.subThoroughfare,
           ].where((e) => e != null && e.isNotEmpty).toList();
+          if (p.street != null && p.street!.isNotEmpty) {
+            final s = p.street!;
+            final sub = p.subLocality ?? '';
+            final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
+            if (idx >= 0) return '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
+          }
           if (parts.isNotEmpty) return parts.join('');
         }
       } catch (_) {}
