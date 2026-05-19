@@ -11,6 +11,9 @@ import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/share_screen.dart';
+import 'screens/profile_screen.dart';
+import 'services/routes_service.dart';
+import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -650,6 +653,19 @@ class GateScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+       appBar: AppBar(  
+        backgroundColor: JsColors.black,
+        foregroundColor: JsColors.gold,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person),
+            tooltip: 'プロフィール',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen())),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 36),
@@ -746,6 +762,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   bool          _submitting   = false;
   bool          _voiceMode    = false;
   Map<String, dynamic>? _selectedSite;
+  final RoutesService _routesService = RoutesService();
+  Map<String, RouteCalculationResult> _routeComparisons = {};
+  bool _loadingRoutes = false;
 
   List<String> _nameSuggestions = [];
   bool         _showSuggestions = false;
@@ -782,6 +801,26 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   void _onNameChanged() {
     setState(() => _showSuggestions =
         _nameCtrl.text.isNotEmpty && _nameSuggestions.isNotEmpty);
+  }
+
+  Future<void> _calculateRoutes() async {
+    if (_gpsAddress.isEmpty) return;
+    var homeAddr = await ProfileService().getHomeAddress();
+    homeAddr = homeAddr ?? '兵庫県神戸市中央区三宮町1丁目';
+    setState(() => _loadingRoutes = true);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token') ?? '';
+    print('🔍 ルート計算: token=$token homeAddr=$homeAddr gpsAddress=$_gpsAddress');
+    final routes = await _routesService.compareRoutes(
+      origin: homeAddr,
+      destination: _gpsAddress,
+      authToken: token,
+    );
+    if (mounted) setState(() {
+      print('✅ ルート比較結果: $routes');
+      _routeComparisons = routes;
+      _loadingRoutes = false;
+    });
   }
 
   List<String> get _filtered {
@@ -1069,10 +1108,13 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
               const SizedBox(height: 8),
               _TransportSelector(
                 selected: _transport,
-                onChanged: (t) => setState(() {
-                  _transport = t;
-                  if (t != TransportType.car) { _feeCtrl.clear(); _photoPath = null; }
-                }),
+                onChanged: (t) async {
+                  setState(() {
+                    _transport = t;
+                    if (t != TransportType.car) { _feeCtrl.clear(); _photoPath = null; }
+                  });
+                  await _calculateRoutes();
+                },
               ),
               const SizedBox(height: 16),
 

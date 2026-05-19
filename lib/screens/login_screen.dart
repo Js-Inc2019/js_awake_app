@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // lib/screens/login_screen.dart - ログイン画面
 // PIN入力と生体認証対応
 // ============================================================
@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import '../services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
