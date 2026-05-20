@@ -20,7 +20,7 @@ class RouteCalculationResult {
     return RouteCalculationResult(
       distance: json['distance'] as String? ?? '',
       duration: json['duration'] as String? ?? '',
-      estimatedGasCost: json['estimatedGasCost'] as int?,
+      estimatedGasCost: json['estimated_gas_cost'] as int?,
       fare: json['fare'] as String?,
     );
   }

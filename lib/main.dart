@@ -646,69 +646,31 @@ Future<bool> showConfirmDialog(
 // ============================================================
 // 【画面0】GateScreen
 // ============================================================
-
-class GateScreen extends StatelessWidget {
+class GateScreen extends StatefulWidget {
   const GateScreen({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-       appBar: AppBar(  
-        backgroundColor: JsColors.black,
-        foregroundColor: JsColors.gold,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person),
-            tooltip: 'プロフィール',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen())),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 36),
-          child: Column(
-            children: [
-              const Spacer(flex: 2),
-              const Text('日報報告',
-                  style: TextStyle(
-                    fontSize: 40,
-                    fontWeight: FontWeight.bold,
-                    color: JsColors.gold,
-                    letterSpacing: 4,
-                  )),
-              const SizedBox(height: 8),
-              const Text("J's Inc.",
-                  style: TextStyle(color: JsColors.silver, fontSize: 14)),
-              const Spacer(flex: 2),
-              ElevatedButton.icon(
-                onPressed: () => _pushWorker(context),
-                icon:  const Icon(Icons.engineering),
-                label: const Text('職 人 用'),
-              ),
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: () => _pushBoss(context),
-                icon:  const Icon(Icons.supervisor_account),
-                label: const Text('職長・管理者用'),
-              ),
-              const Spacer(),
-              const Text("職人 × AI × J's ＝ 覚醒",
-                  style: TextStyle(color: JsColors.silver, fontSize: 11)),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
+  State<GateScreen> createState() => _GateScreenState();
+}
+class _GateScreenState extends State<GateScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoNavigate());
   }
-
+  Future<void> _autoNavigate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString('user_role') ?? 'worker';
+    if (!mounted) return;
+    if (role == 'boss' || role == 'admin') { _pushBoss(context); }
+    else { _pushWorker(context); }
+  }
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    backgroundColor: Color(0xFF1A1A1A),
+    body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
   void _pushWorker(BuildContext context) => Navigator.push(context,
       MaterialPageRoute(builder: (_) => const SharedWorkerForm(
         screenTitle: '職人用 — 日報報告', isBossMode: false)));
-
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
     bool ok = false;
@@ -728,6 +690,44 @@ class GateScreen extends StatelessWidget {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // ============================================================
 // 【画面1】SharedWorkerForm
