@@ -26,6 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>現場写真の撮影に使用します</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>現場の位置情報を取得するために使用します</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>現場の位置情報を取得するために使用します</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>マイクを音声入力に使用します</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>音声入力機能のために使用します</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
