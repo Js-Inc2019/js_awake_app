@@ -2,6 +2,7 @@
 // lib/screens/login_screen.dart - デバイス認証＋生体認証
 // ============================================================
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:local_auth/local_auth.dart';
@@ -68,8 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return result;
     } catch (e) {
-      print('生体認証エラー: $e');
-      return true; // エラー時はスキップ
+      debugPrint('生体認証エラー: $e');
+      return false; // キャンセル・エラー時はログイン不可
     }
   }
 
