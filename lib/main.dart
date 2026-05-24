@@ -788,7 +788,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Map<String, RouteCalculationResult> _routeComparisons = {};
   bool _loadingRoutes = false;
   WorkModeSettings _workSettings = const WorkModeSettings();
-  bool _submitted = false;
 
   List<String> _nameSuggestions = [];
   bool         _showSuggestions = false;
@@ -1026,7 +1025,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _otherCtrl.clear();
       await _loadNames();
       if (!mounted) return;
-      setState(() => _submitted = true);
       showJsSnackbar(context, '✅ \${name}の報告を送信しました');
       if (!mounted) return;
       await Navigator.push(context, MaterialPageRoute(
@@ -1367,57 +1365,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 ),
               ),
 
-              if (_submitted) ...[
-                const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 12),
-                const Text('次のアクションを選択してください',
-                    style: TextStyle(color: JsColors.silver, fontSize: 13),
-                    textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                _SlideActionButton(
-                  icon: Icons.directions_car,
-                  label: '🚗 現場移動',
-                  subtitle: '別の現場へ移動してGPS再取得',
-                  color: JsColors.gold,
-                  onTap: () {
-                    setState(() {
-                      _submitted = false;
-                      _gpsAddress = '';
-                      _transport = TransportType.train;
-                      _photoPath = null;
-                      _workPhotoPath = null;
-                      _routeComparisons = {};
-                    });
-                    _nameCtrl.clear();
-                    _feeCtrl.clear();
-                    _workContentCtrl.clear();
-                    _otherCtrl.clear();
-                    _fetchGps();
-                  },
-                ),
-                const SizedBox(height: 10),
-                _SlideActionButton(
-                  icon: Icons.nightlight_round,
-                  label: '🌙 夜勤継続',
-                  subtitle: 'そのまま夜勤へ移行',
-                  color: const Color(0xFF3949AB),
-                  onTap: () {
-                    setState(() {
-                      _submitted = false;
-                      _transport = TransportType.train;
-                      _photoPath = null;
-                      _workPhotoPath = null;
-                      _routeComparisons = {};
-                    });
-                    _nameCtrl.clear();
-                    _feeCtrl.clear();
-                    _workContentCtrl.clear();
-                    _otherCtrl.clear();
-                    showJsSnackbar(context, '🌙 夜勤モードで継続します');
-                  },
-                ),
-              ],
             ],
           ),
         ),
@@ -1435,85 +1382,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 // スライドアクションボタン
 // ============================================================
 
-class _SlideActionButton extends StatefulWidget {
-  const _SlideActionButton({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
 
-  @override
-  State<_SlideActionButton> createState() => _SlideActionButtonState();
-}
-
-class _SlideActionButtonState extends State<_SlideActionButton> {
-  double _offset = 0;
-  bool _done = false;
-  static const _maxOffset = 200.0;
-
-  void _onDragUpdate(DragUpdateDetails d) {
-    if (_done) return;
-    setState(() => _offset = (_offset + d.delta.dx).clamp(0.0, _maxOffset));
-  }
-
-  void _onDragEnd(DragEndDetails d) {
-    if (_done) return;
-    if (_offset > _maxOffset * 0.6) {
-      setState(() { _done = true; _offset = _maxOffset; });
-      Future.delayed(const Duration(milliseconds: 300), widget.onTap);
-    } else {
-      setState(() => _offset = 0);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: JsColors.gunmetal,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: widget.color.withValues(alpha: 0.4)),
-      ),
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(widget.label, style: TextStyle(
-                color: widget.color, fontWeight: FontWeight.bold, fontSize: 15)),
-              Text(widget.subtitle, style: const TextStyle(
-                color: JsColors.silver, fontSize: 11)),
-            ]),
-          ),
-          GestureDetector(
-            onHorizontalDragUpdate: _onDragUpdate,
-            onHorizontalDragEnd: _onDragEnd,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: EdgeInsets.only(left: _offset, top: 6, bottom: 6, right: 6),
-              width: 52,
-              decoration: BoxDecoration(
-                color: widget.color,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                _done ? Icons.check : widget.icon,
-                color: Colors.white, size: 26),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _Label extends StatelessWidget {
   const _Label({required this.text});
@@ -1784,47 +1653,6 @@ class _RouteResultCard extends StatelessWidget {
 }
 
 
-class _RouteRow extends StatelessWidget {
-  const _RouteRow({required this.label, required this.result, required this.isHighlight});
-  final String label;
-  final RouteCalculationResult result;
-  final bool isHighlight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: isHighlight ? JsColors.gold.withValues(alpha: 0.12) : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        border: isHighlight ? Border.all(color: JsColors.gold.withValues(alpha: 0.5)) : null,
-      ),
-      child: Row(children: [
-        Expanded(child: Text(label, style: TextStyle(
-          color: isHighlight ? JsColors.gold : JsColors.silver,
-          fontSize: 13,
-          fontWeight: isHighlight ? FontWeight.bold : FontWeight.normal,
-        ))),
-        Text(result.distance, style: TextStyle(
-            color: isHighlight ? JsColors.offWhite : JsColors.silver, fontSize: 13)),
-        const SizedBox(width: 8),
-        Text(result.duration, style: TextStyle(
-            color: isHighlight ? JsColors.offWhite : JsColors.silver, fontSize: 13)),
-        if (result.estimatedGasCost != null) ...[
-          const SizedBox(width: 8),
-          Text('¥${result.estimatedGasCost}', style: const TextStyle(
-              color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
-        if (result.fare != null) ...[
-          const SizedBox(width: 8),
-          Text(result.fare!, style: const TextStyle(
-              color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
-      ]),
-    );
-  }
-}
 
 class _CameraBtn extends StatelessWidget {
   const _CameraBtn({required this.hasPhoto, required this.onTap});
