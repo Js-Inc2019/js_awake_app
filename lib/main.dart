@@ -1164,6 +1164,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Text(widget.screenTitle),
         actions: widget.isBossMode ? [
           IconButton(
