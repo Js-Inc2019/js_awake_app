@@ -716,6 +716,9 @@ class _GateScreenState extends State<GateScreen> {
       Navigator.push(context, MaterialPageRoute(
           builder: (_) => const SharedWorkerForm(
             screenTitle: '職長・管理者用 — 日報管理', isBossMode: true)));
+    } else if (!ok && context.mounted) {
+      // 認証失敗・キャンセル時はログイン画面に戻す
+      Navigator.pushReplacementNamed(context, '/login');
     }
   }
 }
