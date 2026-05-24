@@ -1528,36 +1528,39 @@ class _RouteResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     final selectedKey = _modeMap[selectedTransport] ?? 'driving';
+    final result = comparisons[selectedKey];
+    if (result == null) return const SizedBox.shrink();
+    final showCost = selectedTransport == TransportType.car;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: JsColors.gunmetal,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(children: [
-            Icon(Icons.route, color: JsColors.gold, size: 16),
-            SizedBox(width: 6),
-            Text('現場までのルート', style: TextStyle(
-                color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
-          ]),
-          const SizedBox(height: 10),
-          ...comparisons.entries.map((e) => _RouteRow(
-            label: _modeLabel[e.key] ?? e.key,
-            result: e.value,
-            isHighlight: e.key == selectedKey,
-          )),
-        ],
-      ),
+      child: Row(children: [
+        const Icon(Icons.route, color: JsColors.gold, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '${selectedTransport.label}  ${result.distance}  ${result.duration}',
+            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+          ),
+        ),
+        if (showCost && result.estimatedGasCost != null)
+          Text(
+            'ガス代 ¥${result.estimatedGasCost}',
+            style: const TextStyle(
+                color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+      ]),
     );
   }
 }
-
 class _RouteRow extends StatelessWidget {
   const _RouteRow({required this.label, required this.result, required this.isHighlight});
   final String label;
