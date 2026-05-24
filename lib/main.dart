@@ -14,6 +14,7 @@ import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
 import 'services/work_mode_service.dart';
 import 'screens/work_mode_screen.dart';
+import 'screens/after_report_screen.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -1026,7 +1027,61 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       await _loadNames();
       if (!mounted) return;
       setState(() => _submitted = true);
-      showJsSnackbar(context, '✅ ${name}の報告を送信しました');
+      showJsSnackbar(context, '✅ \${name}の報告を送信しました');
+      if (!mounted) return;
+      await Navigator.push(context, MaterialPageRoute(
+        builder: (_) => AfterReportScreen(
+          workerName: name,
+          onMoveToNextSite: () {
+            Navigator.pop(context);
+            setState(() {
+              _gpsAddress = '';
+              _transport = TransportType.train;
+              _photoPath = null;
+              _workPhotoPath = null;
+              _routeComparisons = {};
+            });
+            _nameCtrl.clear();
+            _feeCtrl.clear();
+            _workContentCtrl.clear();
+            _otherCtrl.clear();
+            _fetchGps();
+          },
+          onNightShift: () {
+            Navigator.pop(context);
+            setState(() {
+              _transport = TransportType.train;
+              _photoPath = null;
+              _workPhotoPath = null;
+              _routeComparisons = {};
+            });
+            _nameCtrl.clear();
+            _feeCtrl.clear();
+            _workContentCtrl.clear();
+            _otherCtrl.clear();
+            if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
+          },
+          onOvertime: () async {
+            await Navigator.pushReplacement(context, MaterialPageRoute(
+              builder: (ctx) => OvertimeScreen(
+                workerName: name,
+                onSubmit: (start, end, overtime) async {
+                  await ReportStore.instance.addReport(WorkerReportItem(
+                    name: name,
+                    transport: TransportType.other,
+                    workContent: '【残業】\$start〜\$end \$overtime',
+                    gpsAddress: _gpsAddress,
+                  ));
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    if (mounted) showJsSnackbar(context, '✅ 残業報告を送信しました');
+                  }
+                },
+              ),
+            ));
+          },
+        ),
+      ));
     }
   }
 
