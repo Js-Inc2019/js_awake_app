@@ -19,7 +19,6 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
@@ -839,14 +838,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   }
 
   Future<void> _startVoiceReport() async {
-    var perm = await Permission.microphone.status;
-    debugPrint('🎤 マイク権限: $perm isGranted=${perm.isGranted} isLimited=${perm.isLimited}');
-    if (!perm.isGranted && !perm.isLimited) perm = await Permission.microphone.request();
-    if (!perm.isGranted && !perm.isLimited) {
-      if (!mounted) return;
-      showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
-      return;
-    }
     setState(() { _isListening = true; _voiceMode = false; });
     await showDialog(
       context: context,
@@ -878,13 +869,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   }
 
   Future<void> _startVoiceWork() async {
-    var perm = await Permission.microphone.status;
-    if (!perm.isGranted && !perm.isLimited) perm = await Permission.microphone.request();
-    if (!perm.isGranted && !perm.isLimited) {
-      if (!mounted) return;
-      showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
-      return;
-    }
     setState(() { _isListening = true; _voiceMode = true; });
     await showDialog(
       context: context,
@@ -910,14 +894,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   }
 
   Future<void> _takeParkingPhoto() async {
-    var status = await Permission.camera.status;
-    debugPrint('📷 カメラ権限: $status isGranted=${status.isGranted} isLimited=${status.isLimited}');
-    if (!status.isGranted && !status.isLimited) status = await Permission.camera.request();
-    if (!status.isGranted && !status.isLimited) {
-      if (!mounted) return;
-      showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
-      return;
-    }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _photoPath = f.path);
@@ -927,13 +903,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   }
 
   Future<void> _takeWorkPhoto() async {
-    var status = await Permission.camera.status;
-    if (!status.isGranted && !status.isLimited) status = await Permission.camera.request();
-    if (!status.isGranted && !status.isLimited) {
-      if (!mounted) return;
-      showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
-      return;
-    }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _workPhotoPath = f.path);
