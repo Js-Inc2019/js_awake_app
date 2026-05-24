@@ -700,7 +700,7 @@ class _GateScreenState extends State<GateScreen> {
       if (supported) {
         ok = await auth.authenticate(
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
-          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
+          options: const AuthenticationOptions(biometricOnly: true, stickyAuth: true),
         );
       } else { ok = true; }
     } catch (_) { ok = true; }
@@ -800,6 +800,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _fetchGps();
     _loadNames();
     _loadWorkMode();
+    _loadUserName();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -824,6 +825,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Future<void> _loadWorkMode() async {
     final s = await WorkModeService.instance.load();
     if (mounted) setState(() => _workSettings = s);
+  }
+
+  Future<void> _loadUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('user_name') ?? '';
+    if (mounted && name.isNotEmpty) {
+      _nameCtrl.text = name;
+    }
   }
 
   Future<void> _fetchGps() async {
@@ -1203,14 +1212,25 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
               const _DividerLabel(label: 'または手動入力'),
 
-              _NameField(
-                controller: _nameCtrl,
-                suggestions: _filtered,
-                showSuggestions: _showSuggestions && _filtered.isNotEmpty,
-                onSelect: (n) => setState(() {
-                  _nameCtrl.text = n;
-                  _showSuggestions = false;
-                }),
+              // 名前（デバイス登録から自動取得・編集不可）
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  color: JsColors.gunmetal,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: JsColors.divider),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.lock, color: JsColors.silver, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    _nameCtrl.text.isEmpty ? '名前を読み込み中...' : _nameCtrl.text,
+                    style: TextStyle(
+                      color: _nameCtrl.text.isEmpty ? JsColors.silver : JsColors.offWhite,
+                      fontSize: 15,
+                    ),
+                  ),
+                ]),
               ),
               const SizedBox(height: 16),
 
