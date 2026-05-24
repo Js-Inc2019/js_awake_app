@@ -696,14 +696,21 @@ class _GateScreenState extends State<GateScreen> {
     final auth = LocalAuthentication();
     bool ok = false;
     try {
+      final canCheck = await auth.canCheckBiometrics;
       final supported = await auth.isDeviceSupported();
-      if (supported) {
+      if (canCheck && supported) {
         ok = await auth.authenticate(
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
           options: const AuthenticationOptions(biometricOnly: true, stickyAuth: true),
         );
-      } else { ok = true; }
-    } catch (_) { ok = true; }
+      } else {
+        // 生体認証未対応の場合は拒否
+        ok = false;
+        if (context.mounted) {
+          showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
+        }
+      }
+    } catch (_) { ok = false; }
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
           builder: (_) => const SharedWorkerForm(
