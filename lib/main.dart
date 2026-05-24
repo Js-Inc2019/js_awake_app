@@ -840,8 +840,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _startVoiceReport() async {
     var perm = await Permission.microphone.status;
-    if (!perm.isGranted) perm = await Permission.microphone.request();
-    if (!perm.isGranted) {
+    debugPrint('🎤 マイク権限: \$perm isGranted=\${perm.isGranted} isLimited=\${perm.isLimited}');
+    if (!perm.isGranted && !perm.isLimited) perm = await Permission.microphone.request();
+    if (!perm.isGranted && !perm.isLimited) {
       if (!mounted) return;
       showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
       return;
@@ -878,8 +879,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _startVoiceWork() async {
     var perm = await Permission.microphone.status;
-    if (!perm.isGranted) perm = await Permission.microphone.request();
-    if (!perm.isGranted) {
+    if (!perm.isGranted && !perm.isLimited) perm = await Permission.microphone.request();
+    if (!perm.isGranted && !perm.isLimited) {
       if (!mounted) return;
       showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
       return;
@@ -910,8 +911,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _takeParkingPhoto() async {
     var status = await Permission.camera.status;
-    if (!status.isGranted) status = await Permission.camera.request();
-    if (!status.isGranted) {
+    if (!status.isGranted && !status.isLimited) status = await Permission.camera.request();
+    if (!status.isGranted && !status.isLimited) {
       if (!mounted) return;
       showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
       return;
@@ -926,8 +927,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _takeWorkPhoto() async {
     var status = await Permission.camera.status;
-    if (!status.isGranted) status = await Permission.camera.request();
-    if (!status.isGranted) {
+    if (!status.isGranted && !status.isLimited) status = await Permission.camera.request();
+    if (!status.isGranted && !status.isLimited) {
       if (!mounted) return;
       showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
       return;
