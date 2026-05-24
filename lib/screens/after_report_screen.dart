@@ -31,87 +31,93 @@ class AfterReportScreen extends StatefulWidget {
 }
 
 class _AfterReportScreenState extends State<AfterReportScreen> {
-  // 残業スライドをリセットするためのキー
-  Key _overtimeKey = UniqueKey();
+  bool _overtimeDone = false;  // 残業送信後に丸ボタンを消す
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _C.black,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 40),
-              Container(
-                width: 100, height: 100,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _C.success.withValues(alpha: 0.15),
-                  border: Border.all(color: _C.success, width: 2),
-                ),
-                child: const Icon(Icons.check, color: _C.success, size: 52),
-              ),
-              const SizedBox(height: 24),
-              const Text('報告完了！',
-                  style: TextStyle(color: _C.offWhite, fontSize: 26, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text('${widget.workerName}さんの報告を送信しました',
-                  style: const TextStyle(color: _C.silver, fontSize: 14)),
-              const SizedBox(height: 48),
-              const Text('次のアクションを選択してください',
-                  style: TextStyle(color: _C.silver, fontSize: 13)),
-              const SizedBox(height: 16),
-
-              // 🚗 現場移動 （スライド）
-              _SlideBtn(
-                icon: Icons.directions_car,
-                label: '🚗  現場移動',
-                subtitle: '別の現場へ移動してGPS再取得',
-                color: _C.gold,
-                onSlide: widget.onMoveToNextSite,
-              ),
-              const SizedBox(height: 12),
-
-              // 🌙 夜勤継続（スライド）
-              _SlideBtn(
-                icon: Icons.nightlight_round,
-                label: '🌙  夜勤継続',
-                subtitle: 'そのまま夜勤へ移行',
-                color: _C.navy,
-                onSlide: widget.onNightShift,
-              ),
-              const SizedBox(height: 16),
-
-              // ⏰ 残業（ボタン式）
-              SizedBox(
-                width: double.infinity,
-                height: 64,
-                child: ElevatedButton.icon(
-                  onPressed: widget.onOvertime,
-                  icon: const Icon(Icons.more_time, size: 24),
-                  label: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('⏰  残業', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text('残業時間と内容を入力', style: TextStyle(fontSize: 11)),
-                    ],
+    return PopScope(
+      canPop: false,  // バックボタンで報告画面に戻れないようにする
+      child: Scaffold(
+        backgroundColor: _C.black,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const SizedBox(height: 32),
+                Container(
+                  width: 90, height: 90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _C.success.withValues(alpha: 0.15),
+                    border: Border.all(color: _C.success, width: 2),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _C.warning,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
+                  child: const Icon(Icons.check, color: _C.success, size: 48),
                 ),
-              ),
+                const SizedBox(height: 20),
+                const Text('報告完了！',
+                    style: TextStyle(color: _C.offWhite, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text('${widget.workerName}さんの報告を送信しました',
+                    style: const TextStyle(color: _C.silver, fontSize: 13)),
+                const SizedBox(height: 40),
+                const Text('次のアクションを選択してください',
+                    style: TextStyle(color: _C.silver, fontSize: 13)),
+                const SizedBox(height: 16),
 
-              const Spacer(),
-              const Text('← スライドして選択（残業はタップ）',
-                  style: TextStyle(color: _C.silver, fontSize: 11)),
-              const SizedBox(height: 8),
-            ],
+                // ⏰ 残業（丸ボタン・最上段）送信後に消える
+                if (!_overtimeDone) ...[
+                  GestureDetector(
+                    onTap: () async {
+                      await widget.onOvertime();
+                      if (mounted) setState(() => _overtimeDone = true);
+                    },
+                    child: Container(
+                      width: 80, height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _C.warning.withValues(alpha: 0.15),
+                        border: Border.all(color: _C.warning, width: 2),
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.more_time, color: _C.warning, size: 28),
+                          SizedBox(height: 2),
+                          Text('残業', style: TextStyle(color: _C.warning, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                // 🚗 現場移動（スライド）
+                _SlideBtn(
+                  icon: Icons.directions_car,
+                  label: '🚗  現場移動',
+                  subtitle: '別の現場へ移動してGPS再取得',
+                  color: _C.gold,
+                  onSlide: widget.onMoveToNextSite,
+                ),
+                const SizedBox(height: 12),
+
+                // 🌙 夜勤継続（スライド）
+                _SlideBtn(
+                  icon: Icons.nightlight_round,
+                  label: '🌙  夜勤継続',
+                  subtitle: 'そのまま夜勤へ移行',
+                  color: _C.navy,
+                  onSlide: widget.onNightShift,
+                ),
+
+                const Spacer(),
+                const Text('← スライドして選択',
+                    style: TextStyle(color: _C.silver, fontSize: 11)),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -119,9 +125,6 @@ class _AfterReportScreenState extends State<AfterReportScreen> {
   }
 }
 
-// ============================================================
-// スライドボタン（現場移動・夜勤のみ）
-// ============================================================
 class _SlideBtn extends StatefulWidget {
   const _SlideBtn({
     required this.icon,
@@ -202,151 +205,5 @@ class _SlideBtnState extends State<_SlideBtn> {
   }
 }
 
-// ============================================================
-// OvertimeScreen — 残業入力画面
-// ============================================================
-class OvertimeScreen extends StatefulWidget {
-  const OvertimeScreen({super.key, required this.workerName, required this.onSubmit});
-  final String workerName;
-  final void Function(String startTime, String endTime, String content) onSubmit;
-
-  @override
-  State<OvertimeScreen> createState() => _OvertimeScreenState();
-}
-
-class _OvertimeScreenState extends State<OvertimeScreen> {
-  TimeOfDay _startTime = TimeOfDay.now();
-  TimeOfDay? _endTime;
-  final _contentCtrl = TextEditingController();
-  bool _submitting = false;
-
-  @override
-  void dispose() { _contentCtrl.dispose(); super.dispose(); }
-
-  String _fmt(TimeOfDay t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-
-  Future<void> _pickTime(bool isStart) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: isStart ? _startTime : (_endTime ?? TimeOfDay.now()),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(colorScheme: const ColorScheme.dark(
-            primary: _C.gold, onSurface: _C.offWhite, surface: _C.gunmetal)),
-        child: child!,
-      ),
-    );
-    if (picked != null) setState(() { if (isStart) _startTime = picked; else _endTime = picked; });
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    if (_endTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('残業終了時刻を入力してください'),
-          backgroundColor: Color(0xFFB71C1C)));
-      return;
-    }
-    setState(() => _submitting = true);
-    widget.onSubmit(_fmt(_startTime), _fmt(_endTime!), _contentCtrl.text.trim());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _C.black,
-      appBar: AppBar(
-        backgroundColor: _C.black,
-        foregroundColor: _C.gold,
-        title: const Text('⏰ 残業報告',
-            style: TextStyle(color: _C.gold, fontWeight: FontWeight.bold)),
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${widget.workerName}さんの残業を報告',
-                  style: const TextStyle(color: _C.silver, fontSize: 13)),
-              const SizedBox(height: 24),
-              const Text('残業開始時刻', style: TextStyle(color: _C.silver, fontSize: 13)),
-              const SizedBox(height: 8),
-              _TimeField(label: _fmt(_startTime), onTap: () => _pickTime(true)),
-              const SizedBox(height: 16),
-              const Text('残業終了時刻（予定）', style: TextStyle(color: _C.silver, fontSize: 13)),
-              const SizedBox(height: 8),
-              _TimeField(
-                  label: _endTime != null ? _fmt(_endTime!) : '-- : --',
-                  onTap: () => _pickTime(false),
-                  isEmpty: _endTime == null),
-              const SizedBox(height: 16),
-              const Text('残業内容', style: TextStyle(color: _C.silver, fontSize: 13)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _contentCtrl,
-                maxLines: 3,
-                style: const TextStyle(color: _C.offWhite),
-                decoration: InputDecoration(
-                  hintText: '例：2階電気配線追加工事',
-                  hintStyle: const TextStyle(color: Color(0xFF666666)),
-                  filled: true, fillColor: _C.gunmetal,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _C.divider)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _C.divider)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _C.gold, width: 2)),
-                ),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity, height: 56,
-                child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _C.warning, foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  child: _submitting
-                      ? const SizedBox(width: 22, height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                      : const Text('残業を報告する'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TimeField extends StatelessWidget {
-  const _TimeField({required this.label, required this.onTap, this.isEmpty = false});
-  final String label;
-  final VoidCallback onTap;
-  final bool isEmpty;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(color: _C.gunmetal, borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: _C.divider)),
-        child: Row(children: [
-          const Icon(Icons.access_time, color: _C.gold, size: 20),
-          const SizedBox(width: 12),
-          Text(label, style: TextStyle(
-              color: isEmpty ? _C.silver : _C.offWhite, fontSize: 18, fontWeight: FontWeight.bold)),
-          const Spacer(),
-          const Icon(Icons.edit, color: _C.silver, size: 16),
-        ]),
-      ),
-    );
-  }
-}
+// OvertimeScreenはmain.dartの_OvertimeDialogに移行済み
+// このファイルには不要
