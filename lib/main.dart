@@ -701,7 +701,7 @@ class _GateScreenState extends State<GateScreen> {
       if (canCheck && supported) {
         ok = await auth.authenticate(
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
-          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: false),
+          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
         debugPrint('🔐 認証結果: ok=\$ok');
       } else {
