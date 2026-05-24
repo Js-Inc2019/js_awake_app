@@ -11,7 +11,6 @@ import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/share_screen.dart';
-import 'screens/profile_screen.dart';
 import 'services/routes_service.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -101,13 +100,11 @@ class JsAwakeApp extends StatelessWidget {
       colorScheme: const ColorScheme.dark(
         primary:      JsColors.gold,
         secondary:    JsColors.silver,
-        surface:      JsColors.gunmetal,
-        background:   JsColors.black,
+        surface:      JsColors.black,
         error:        JsColors.error,
         onPrimary:    Colors.black,
         onSecondary:  JsColors.offWhite,
         onSurface:    JsColors.offWhite,
-        onBackground: JsColors.offWhite,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: JsColors.black,
@@ -551,9 +548,12 @@ class SpeechManager {
 
 Future<String> fetchGpsAddress() async {
   try {
-    var status = await Permission.location.status;
-    if (!status.isGranted) status = await Permission.location.request();
-    if (!status.isGranted) return '位置情報の権限がありません';
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.deniedForever) return '位置情報の権限がありません';
+    if (permission == LocationPermission.denied) return '位置情報の権限がありません';
     if (!await Geolocator.isLocationServiceEnabled()) return 'GPS が無効です';
 
     final pos = await Geolocator.getCurrentPosition(
@@ -746,7 +746,7 @@ class SharedWorkerForm extends StatefulWidget {
   State<SharedWorkerForm> createState() => _SharedWorkerFormState();
 }
 
-class _SharedWorkerFormState extends State<SharedWorkerForm> {
+class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBindingObserver {
   final _nameCtrl        = TextEditingController();
   final _feeCtrl         = TextEditingController();
   final _workContentCtrl = TextEditingController();
@@ -772,6 +772,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _speechMgr.initialize();
     _fetchGps();
     _loadNames();
@@ -784,7 +785,15 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
     _nameCtrl.dispose();
     _feeCtrl.dispose();
     _workContentCtrl.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchGps();
+    }
   }
 
   Future<void> _fetchGps() async {
@@ -830,9 +839,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   }
 
   Future<void> _startVoiceReport() async {
-    final perm = await Permission.microphone.request();
+    var perm = await Permission.microphone.status;
+    if (!perm.isGranted) perm = await Permission.microphone.request();
     if (!perm.isGranted) {
-      showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
+      if (!mounted) return;
+      showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
       return;
     }
     setState(() { _isListening = true; _voiceMode = false; });
@@ -866,9 +877,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   }
 
   Future<void> _startVoiceWork() async {
-    final perm = await Permission.microphone.request();
+    var perm = await Permission.microphone.status;
+    if (!perm.isGranted) perm = await Permission.microphone.request();
     if (!perm.isGranted) {
-      showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
+      if (!mounted) return;
+      showJsSnackbar(context, 'マイクの権限が必要です。設定から許可してください', isError: true);
       return;
     }
     setState(() { _isListening = true; _voiceMode = true; });
@@ -896,33 +909,40 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   }
 
   Future<void> _takeParkingPhoto() async {
-    final status = await Permission.camera.request();
+    var status = await Permission.camera.status;
+    if (!status.isGranted) status = await Permission.camera.request();
     if (!status.isGranted) {
-      showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
+      if (!mounted) return;
+      showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
       return;
     }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _photoPath = f.path);
+      if (!mounted) return;
       showJsSnackbar(context, '✅ 領収書の写真を撮影しました');
     }
   }
 
   Future<void> _takeWorkPhoto() async {
-    final status = await Permission.camera.request();
+    var status = await Permission.camera.status;
+    if (!status.isGranted) status = await Permission.camera.request();
     if (!status.isGranted) {
-      showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
+      if (!mounted) return;
+      showJsSnackbar(context, 'カメラの権限が必要です。設定から許可してください', isError: true);
       return;
     }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _workPhotoPath = f.path);
+      if (!mounted) return;
       showJsSnackbar(context, '✅ 作業写真を撮影しました');
     }
   }
 
   Future<bool> _validate() async {
     if (_nameCtrl.text.trim().isEmpty) {
+      if (!mounted) return false;
       showJsSnackbar(context, '名前を入力してください', isError: true);
       return false;
     }
@@ -930,7 +950,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       final fee      = _feeCtrl.text.trim();
       final hasPhoto = _photoPath != null;
       if (fee.isEmpty && !hasPhoto) {
-        showJsSnackbar(context, '車の場合は駐車料金または領収書写真が必要です', isError: true);
+        if (!mounted) return false;
+      showJsSnackbar(context, '車の場合は駐車料金または領収書写真が必要です', isError: true);
         return false;
       }
       if (fee.isNotEmpty && !hasPhoto) {
@@ -972,12 +993,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       _feeCtrl.clear();
       _workContentCtrl.clear();
       await _loadNames();
+      if (!mounted) return;
       showJsSnackbar(context, '✅ ${name}の報告を送信しました');
     }
   }
 
   void _openNotifSettings() {
     if (kIsWeb) {
+      if (!mounted) return;
       showJsSnackbar(context, '通知設定はAndroid/iOSのみ対応しています', isWarning: true);
       return;
     }
@@ -1017,7 +1040,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
               onPressed: () async {
                 await nm.setHours(current.toList());
                 if (ctx.mounted) Navigator.pop(ctx);
-                showJsSnackbar(context, '✅ 通知時刻を更新しました');
+                if (!mounted) return;
+      showJsSnackbar(context, '✅ 通知時刻を更新しました');
               },
               child: const Text('保存'),
             ),
@@ -1503,7 +1527,7 @@ class _VoiceDialogState extends State<_VoiceDialog>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _listening
-                  ? JsColors.gold.withOpacity(0.15 + _pulse.value * 0.15)
+                  ? JsColors.gold.withValues(alpha: 0.15 + _pulse.value * 0.15)
                   : JsColors.gunmetal,
             ),
             child: Icon(
@@ -1639,7 +1663,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorder: (oldIndex, newIndex) async {
+                onReorderItem: (oldIndex, newIndex) async {
                   if (newIndex > oldIndex) newIndex--;
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
