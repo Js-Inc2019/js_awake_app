@@ -29,7 +29,6 @@ dependencies:
   local_auth: ^2.3.0
 
   # 権限管理
-  permission_handler: ^11.3.1
 
   # SNS共有（LINE等）
   share_plus: ^10.0.2
