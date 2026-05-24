@@ -1062,9 +1062,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
           },
           onOvertime: () async {
-            await Navigator.pushReplacement(context, MaterialPageRoute(
-              builder: (ctx) => OvertimeScreen(
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => _OvertimeDialog(
                 workerName: name,
+                gpsAddress: _gpsAddress,
                 onSubmit: (start, end, overtime) async {
                   await ReportStore.instance.addReport(WorkerReportItem(
                     name: name,
@@ -1072,13 +1075,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                     workContent: '【残業】\$start〜\$end \$overtime',
                     gpsAddress: _gpsAddress,
                   ));
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    if (mounted) showJsSnackbar(context, '✅ 残業報告を送信しました');
-                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) showJsSnackbar(context, '✅ 残業報告を送信しました');
                 },
               ),
-            ));
+            );
           },
         ),
       ));
@@ -1845,6 +1846,136 @@ class _CameraBtn extends StatelessWidget {
         hasPhoto ? Icons.check_circle : Icons.camera_alt,
         color: hasPhoto ? Colors.white : JsColors.silver,
       ),
+    ),
+  );
+}
+
+
+// ============================================================
+// 残業入力ダイアログ
+// ============================================================
+
+class _OvertimeDialog extends StatefulWidget {
+  const _OvertimeDialog({
+    required this.workerName,
+    required this.gpsAddress,
+    required this.onSubmit,
+  });
+  final String workerName;
+  final String gpsAddress;
+  final Future<void> Function(String start, String end, String content) onSubmit;
+
+  @override
+  State<_OvertimeDialog> createState() => _OvertimeDialogState();
+}
+
+class _OvertimeDialogState extends State<_OvertimeDialog> {
+  TimeOfDay _start = TimeOfDay.now();
+  TimeOfDay? _end;
+  final _ctrl = TextEditingController();
+  bool _submitting = false;
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  String _fmt(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}';
+
+  Future<void> _pick(bool isStart) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isStart ? _start : (_end ?? TimeOfDay.now()),
+    );
+    if (picked != null && mounted) {
+      setState(() { if (isStart) _start = picked; else _end = picked; });
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    if (_end == null) {
+      showJsSnackbar(context, '残業終了時刻を入力してください', isError: true);
+      return;
+    }
+    setState(() => _submitting = true);
+    await widget.onSubmit(_fmt(_start), _fmt(_end!), _ctrl.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    backgroundColor: JsColors.gunmetal,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    title: const Text('⏰ 残業報告', style: TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold)),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('${widget.workerName}さんの残業', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+          const SizedBox(height: 16),
+          const Text('残業開始時刻', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const SizedBox(height: 6),
+          _TimeTile(label: _fmt(_start), onTap: () => _pick(true)),
+          const SizedBox(height: 12),
+          const Text('残業終了時刻（予定）', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const SizedBox(height: 6),
+          _TimeTile(label: _end != null ? _fmt(_end!) : '-- : --', onTap: () => _pick(false), isEmpty: _end == null),
+          const SizedBox(height: 12),
+          const Text('残業内容', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _ctrl,
+            maxLines: 2,
+            style: const TextStyle(color: JsColors.offWhite),
+            decoration: const InputDecoration(
+              hintText: '例：2階配線追加工事',
+              hintStyle: TextStyle(color: Color(0xFF666666)),
+            ),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
+      ),
+      ElevatedButton(
+        onPressed: _submitting ? null : _submit,
+        child: _submitting
+            ? const SizedBox(width: 18, height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+            : const Text('送信'),
+      ),
+    ],
+  );
+}
+
+class _TimeTile extends StatelessWidget {
+  const _TimeTile({required this.label, required this.onTap, this.isEmpty = false});
+  final String label;
+  final VoidCallback onTap;
+  final bool isEmpty;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: JsColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Row(children: [
+        const Icon(Icons.access_time, color: JsColors.gold, size: 18),
+        const SizedBox(width: 8),
+        Text(label, style: TextStyle(
+            color: isEmpty ? JsColors.silver : JsColors.offWhite,
+            fontSize: 16, fontWeight: FontWeight.bold)),
+        const Spacer(),
+        const Icon(Icons.edit, color: JsColors.silver, size: 14),
+      ]),
     ),
   );
 }
