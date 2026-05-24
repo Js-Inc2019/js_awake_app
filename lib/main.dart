@@ -12,6 +12,8 @@ import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
+import 'services/work_mode_service.dart';
+import 'screens/work_mode_screen.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -661,15 +663,34 @@ class _GateScreenState extends State<GateScreen> {
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
     if (role == 'boss' || role == 'admin') { _pushBoss(context); }
-    else { _pushWorker(context); }
+    else { await _pushWorker(context); }
   }
   @override
   Widget build(BuildContext context) => const Scaffold(
     backgroundColor: Color(0xFF1A1A1A),
     body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
-  void _pushWorker(BuildContext context) => Navigator.push(context,
-      MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-        screenTitle: '職人用 — 日報報告', isBossMode: false)));
+  Future<void> _pushWorker(BuildContext context) async {
+    final settings = await WorkModeService.instance.fetchFromServer();
+    if (!context.mounted) return;
+    if (settings.mode == WorkModeType.actual) {
+      final checkedIn = await WorkModeService.instance.isCheckedIn();
+      if (!context.mounted) return;
+      if (!checkedIn) {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => WorkModeScreen(
+            screenTitle: '職人用 — 出勤',
+            isBossMode: false,
+            onCheckedIn: () => Navigator.pushReplacement(context,
+              MaterialPageRoute(builder: (_) => const SharedWorkerForm(
+                screenTitle: '職人用 — 日報報告', isBossMode: false))),
+          ),
+        ));
+        return;
+      }
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const SharedWorkerForm(
+      screenTitle: '職人用 — 日報報告', isBossMode: false)));
+  }
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
     bool ok = false;
@@ -765,6 +786,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final RoutesService _routesService = RoutesService();
   Map<String, RouteCalculationResult> _routeComparisons = {};
   bool _loadingRoutes = false;
+  WorkModeSettings _workSettings = const WorkModeSettings();
+  bool _submitted = false;
 
   List<String> _nameSuggestions = [];
   bool         _showSuggestions = false;
@@ -776,6 +799,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _speechMgr.initialize();
     _fetchGps();
     _loadNames();
+    _loadWorkMode();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -795,6 +819,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (state == AppLifecycleState.resumed) {
       _fetchGps();
     }
+  }
+
+  Future<void> _loadWorkMode() async {
+    final s = await WorkModeService.instance.load();
+    if (mounted) setState(() => _workSettings = s);
   }
 
   Future<void> _fetchGps() async {
@@ -996,6 +1025,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _otherCtrl.clear();
       await _loadNames();
       if (!mounted) return;
+      setState(() => _submitted = true);
       showJsSnackbar(context, '✅ ${name}の報告を送信しました');
     }
   }
@@ -1280,6 +1310,58 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                       : const Text('報告を送信する'),
                 ),
               ),
+
+              if (_submitted) ...[
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 12),
+                const Text('次のアクションを選択してください',
+                    style: TextStyle(color: JsColors.silver, fontSize: 13),
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                _SlideActionButton(
+                  icon: Icons.directions_car,
+                  label: '🚗 現場移動',
+                  subtitle: '別の現場へ移動してGPS再取得',
+                  color: JsColors.gold,
+                  onTap: () {
+                    setState(() {
+                      _submitted = false;
+                      _gpsAddress = '';
+                      _transport = TransportType.train;
+                      _photoPath = null;
+                      _workPhotoPath = null;
+                      _routeComparisons = {};
+                    });
+                    _nameCtrl.clear();
+                    _feeCtrl.clear();
+                    _workContentCtrl.clear();
+                    _otherCtrl.clear();
+                    _fetchGps();
+                  },
+                ),
+                const SizedBox(height: 10),
+                _SlideActionButton(
+                  icon: Icons.nightlight_round,
+                  label: '🌙 夜勤継続',
+                  subtitle: 'そのまま夜勤へ移行',
+                  color: const Color(0xFF3949AB),
+                  onTap: () {
+                    setState(() {
+                      _submitted = false;
+                      _transport = TransportType.train;
+                      _photoPath = null;
+                      _workPhotoPath = null;
+                      _routeComparisons = {};
+                    });
+                    _nameCtrl.clear();
+                    _feeCtrl.clear();
+                    _workContentCtrl.clear();
+                    _otherCtrl.clear();
+                    showJsSnackbar(context, '🌙 夜勤モードで継続します');
+                  },
+                ),
+              ],
             ],
           ),
         ),
@@ -1291,6 +1373,91 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 // ============================================================
 // サブウィジェット
 // ============================================================
+
+
+// ============================================================
+// スライドアクションボタン
+// ============================================================
+
+class _SlideActionButton extends StatefulWidget {
+  const _SlideActionButton({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  State<_SlideActionButton> createState() => _SlideActionButtonState();
+}
+
+class _SlideActionButtonState extends State<_SlideActionButton> {
+  double _offset = 0;
+  bool _done = false;
+  static const _maxOffset = 200.0;
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    if (_done) return;
+    setState(() => _offset = (_offset + d.delta.dx).clamp(0.0, _maxOffset));
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    if (_done) return;
+    if (_offset > _maxOffset * 0.6) {
+      setState(() { _done = true; _offset = _maxOffset; });
+      Future.delayed(const Duration(milliseconds: 300), widget.onTap);
+    } else {
+      setState(() => _offset = 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: widget.color.withValues(alpha: 0.4)),
+      ),
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(widget.label, style: TextStyle(
+                color: widget.color, fontWeight: FontWeight.bold, fontSize: 15)),
+              Text(widget.subtitle, style: const TextStyle(
+                color: JsColors.silver, fontSize: 11)),
+            ]),
+          ),
+          GestureDetector(
+            onHorizontalDragUpdate: _onDragUpdate,
+            onHorizontalDragEnd: _onDragEnd,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: EdgeInsets.only(left: _offset, top: 6, bottom: 6, right: 6),
+              width: 52,
+              decoration: BoxDecoration(
+                color: widget.color,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                _done ? Icons.check : widget.icon,
+                color: Colors.white, size: 26),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _Label extends StatelessWidget {
   const _Label({required this.text});
