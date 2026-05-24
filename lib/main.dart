@@ -749,6 +749,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final _nameCtrl        = TextEditingController();
   final _feeCtrl         = TextEditingController();
   final _workContentCtrl = TextEditingController();
+  final _otherCtrl        = TextEditingController();
   final _speechMgr       = SpeechManager();
   final _imagePicker     = ImagePicker();
 
@@ -784,6 +785,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _nameCtrl.dispose();
     _feeCtrl.dispose();
     _workContentCtrl.dispose();
+    _otherCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -868,6 +870,25 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (r.warning != null) showJsSnackbar(context, '⚠️ ${r.warning}', isWarning: true);
   }
 
+  Future<void> _startVoiceOther() async {
+    setState(() { _isListening = true; });
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _VoiceDialog(
+        manager:   _speechMgr,
+        title:     '🎤 交通手段の詳細 音声入力',
+        hint:      '例：「バイクで来ました」「社用車で来ました」',
+        onConfirm: (text) {
+          Navigator.pop(ctx);
+          setState(() => _otherCtrl.text = text);
+        },
+        onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); },
+      ),
+    );
+    setState(() => _isListening = false);
+  }
+
   Future<void> _startVoiceWork() async {
     setState(() { _isListening = true; _voiceMode = true; });
     await showDialog(
@@ -933,6 +954,13 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         if (!ok) return false;
       }
     }
+    if (_transport == TransportType.other) {
+      if (_otherCtrl.text.trim().isEmpty) {
+        if (!mounted) return false;
+        showJsSnackbar(context, 'その他の場合は交通手段の詳細を入力してください', isError: true);
+        return false;
+      }
+    }
     return true;
   }
 
@@ -949,7 +977,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       transport:        _transport,
       parkingFee:       _transport == TransportType.car ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
-      workContent:      _workContentCtrl.text.trim(),
+      workContent:      _transport == TransportType.other
+          ? '[その他:${_otherCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
+          : _workContentCtrl.text.trim(),
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
     ));
@@ -963,6 +993,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _nameCtrl.clear();
       _feeCtrl.clear();
       _workContentCtrl.clear();
+      _otherCtrl.clear();
       await _loadNames();
       if (!mounted) return;
       showJsSnackbar(context, '✅ ${name}の報告を送信しました');
@@ -1111,7 +1142,26 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                   await _calculateRoutes();
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
+
+              if (_loadingRoutes)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Row(children: [
+                    SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+                    SizedBox(width: 10),
+                    Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 13)),
+                  ]),
+                ),
+
+              if (!_loadingRoutes && _routeComparisons.isNotEmpty)
+                _RouteResultCard(
+                  comparisons: _routeComparisons,
+                  selectedTransport: _transport,
+                ),
+
+              const SizedBox(height: 8),
 
               if (_transport == TransportType.car) ...[
                 _ParkingSection(
@@ -1120,6 +1170,42 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                   onTakePhoto:  _takeParkingPhoto,
                   onClearPhoto: () => setState(() => _photoPath = null),
                 ),
+                const SizedBox(height: 16),
+              ],
+
+              // その他交通手段 入力欄
+              if (_transport == TransportType.other) ...[
+                const _Label(text: '交通手段の詳細 *'),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _otherCtrl,
+                      decoration: const InputDecoration(
+                        labelText: '例：バイク、社用車、送迎など',
+                        prefixIcon: Icon(Icons.more_horiz, color: JsColors.silver),
+                      ),
+                      style: const TextStyle(color: JsColors.offWhite),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _isListening ? null : () => _startVoiceOther(),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 56, height: 56,
+                      decoration: BoxDecoration(
+                        color: _isListening ? JsColors.gold : JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _isListening ? JsColors.gold : JsColors.divider),
+                      ),
+                      child: Icon(
+                        _isListening ? Icons.mic : Icons.mic_none,
+                        color: _isListening ? Colors.black : JsColors.silver,
+                      ),
+                    ),
+                  ),
+                ]),
                 const SizedBox(height: 16),
               ],
 
@@ -1412,6 +1498,106 @@ class _ParkingSection extends StatelessWidget {
         ),
     ],
   );
+}
+
+
+// ============================================================
+// ルート計算結果カード
+// ============================================================
+
+class _RouteResultCard extends StatelessWidget {
+  const _RouteResultCard({required this.comparisons, required this.selectedTransport});
+  final Map<String, RouteCalculationResult> comparisons;
+  final TransportType selectedTransport;
+
+  static const _modeMap = {
+    TransportType.train:  'transit',
+    TransportType.bus:    'transit',
+    TransportType.car:    'driving',
+    TransportType.bike:   'bicycling',
+    TransportType.walk:   'walking',
+    TransportType.other:  'driving',
+  };
+
+  static const _modeLabel = {
+    'driving':   '🚗 車',
+    'transit':   '🚃 電車/バス',
+    'bicycling': '🚲 自転車',
+    'walking':   '🚶 徒歩',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedKey = _modeMap[selectedTransport] ?? 'driving';
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.route, color: JsColors.gold, size: 16),
+            SizedBox(width: 6),
+            Text('現場までのルート', style: TextStyle(
+                color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 10),
+          ...comparisons.entries.map((e) => _RouteRow(
+            label: _modeLabel[e.key] ?? e.key,
+            result: e.value,
+            isHighlight: e.key == selectedKey,
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouteRow extends StatelessWidget {
+  const _RouteRow({required this.label, required this.result, required this.isHighlight});
+  final String label;
+  final RouteCalculationResult result;
+  final bool isHighlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isHighlight ? JsColors.gold.withValues(alpha: 0.12) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        border: isHighlight ? Border.all(color: JsColors.gold.withValues(alpha: 0.5)) : null,
+      ),
+      child: Row(children: [
+        Expanded(child: Text(label, style: TextStyle(
+          color: isHighlight ? JsColors.gold : JsColors.silver,
+          fontSize: 13,
+          fontWeight: isHighlight ? FontWeight.bold : FontWeight.normal,
+        ))),
+        Text(result.distance, style: TextStyle(
+            color: isHighlight ? JsColors.offWhite : JsColors.silver, fontSize: 13)),
+        const SizedBox(width: 8),
+        Text(result.duration, style: TextStyle(
+            color: isHighlight ? JsColors.offWhite : JsColors.silver, fontSize: 13)),
+        if (result.estimatedGasCost != null) ...[
+          const SizedBox(width: 8),
+          Text('¥${result.estimatedGasCost}', style: const TextStyle(
+              color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
+        ],
+        if (result.fare != null) ...[
+          const SizedBox(width: 8),
+          Text(result.fare!, style: const TextStyle(
+              color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
+        ],
+      ]),
+    );
+  }
 }
 
 class _CameraBtn extends StatelessWidget {
