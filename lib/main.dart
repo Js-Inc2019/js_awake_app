@@ -840,7 +840,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _startVoiceReport() async {
     var perm = await Permission.microphone.status;
-    debugPrint('🎤 マイク権限: \$perm isGranted=\${perm.isGranted} isLimited=\${perm.isLimited}');
+    debugPrint('🎤 マイク権限: $perm isGranted=${perm.isGranted} isLimited=${perm.isLimited}');
     if (!perm.isGranted && !perm.isLimited) perm = await Permission.microphone.request();
     if (!perm.isGranted && !perm.isLimited) {
       if (!mounted) return;
@@ -911,6 +911,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _takeParkingPhoto() async {
     var status = await Permission.camera.status;
+    debugPrint('📷 カメラ権限: $status isGranted=${status.isGranted} isLimited=${status.isLimited}');
     if (!status.isGranted && !status.isLimited) status = await Permission.camera.request();
     if (!status.isGranted && !status.isLimited) {
       if (!mounted) return;
