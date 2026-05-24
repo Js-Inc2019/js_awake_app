@@ -711,7 +711,10 @@ class _GateScreenState extends State<GateScreen> {
           showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
         }
       }
-    } catch (_) { ok = false; }
+    } catch (e) { 
+      ok = false;
+      debugPrint('🔐 catch: \$e ok=\$ok');
+    }
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
           builder: (_) => const SharedWorkerForm(
