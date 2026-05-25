@@ -852,7 +852,10 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Future<void> _fetchGps() async {
     setState(() => _gpsLoading = true);
     final addr = await fetchGpsAddress();
-    if (mounted) setState(() { _gpsAddress = addr; _gpsLoading = false; });
+    if (mounted) {
+      setState(() { _gpsAddress = addr; _gpsLoading = false; });
+      await _calculateRoutes();
+    }
   }
 
   Future<void> _loadNames() async {
