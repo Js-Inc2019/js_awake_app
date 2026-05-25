@@ -790,6 +790,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final _imagePicker     = ImagePicker();
 
   TransportType _transport    = TransportType.train;
+  String _carType = 'own'; // 'own'=社用車・自家用車 'carpool'=相乗り
+  final _carpoolCtrl = TextEditingController();
   String?       _photoPath;
   String?       _workPhotoPath;
   String        _gpsAddress   = '';
@@ -825,6 +827,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _feeCtrl.dispose();
     _workContentCtrl.dispose();
     _otherCtrl.dispose();
+    _carpoolCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1030,10 +1033,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     await ReportStore.instance.addReport(WorkerReportItem(
       name:             name,
       transport:        _transport,
-      parkingFee:       _transport == TransportType.car ? _feeCtrl.text.trim() : null,
+      parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
       workContent:      _transport == TransportType.other
-          ? '[その他:${_otherCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
+          ? '[その他:\${_otherCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
+          : (_transport == TransportType.car && _carType == 'carpool')
+          ? '[相乗り:\${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
           : _workContentCtrl.text.trim(),
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
@@ -1049,6 +1054,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _feeCtrl.clear();
       _workContentCtrl.clear();
       _otherCtrl.clear();
+      _carpoolCtrl.clear();
+      setState(() => _carType = 'own');
       await _loadNames();
       if (!mounted) return;
       showJsSnackbar(context, '✅ \${name}の報告を送信しました');
@@ -1286,13 +1293,80 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               const SizedBox(height: 8),
 
               if (_transport == TransportType.car) ...[
-                _ParkingSection(
-                  controller: _feeCtrl,
-                  photoPath:  _photoPath,
-                  onTakePhoto:  _takeParkingPhoto,
-                  onClearPhoto: () => setState(() => _photoPath = null),
-                ),
-                const SizedBox(height: 16),
+                // 車種別2択
+                Row(children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _carType = 'own'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
+                        ),
+                        child: Center(child: Text('🚗 社用車・自家用車',
+                          style: TextStyle(
+                            color: _carType == 'own' ? Colors.black : JsColors.offWhite,
+                            fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
+                          ))),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _carType = 'carpool';
+                        _feeCtrl.clear();
+                        _photoPath = null;
+                      }),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
+                        ),
+                        child: Center(child: Text('🚌 相乗り',
+                          style: TextStyle(
+                            color: _carType == 'carpool' ? Colors.black : JsColors.offWhite,
+                            fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
+                          ))),
+                      ),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+
+                // 相乗り入力欄
+                if (_carType == 'carpool') ...[
+                  TextField(
+                    controller: _carpoolCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '誰の相乗りか（任意）',
+                      hintText: '例：田中さんの車・未記入',
+                      prefixIcon: Icon(Icons.people, color: JsColors.silver),
+                    ),
+                    style: const TextStyle(color: JsColors.offWhite),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // 社用車・自家用車の場合のみ駐車料金
+                if (_carType == 'own') ...[
+                  _ParkingSection(
+                    controller: _feeCtrl,
+                    photoPath:  _photoPath,
+                    onTakePhoto:  _takeParkingPhoto,
+                    onClearPhoto: () => setState(() => _photoPath = null),
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ],
 
               // その他交通手段 入力欄
