@@ -1054,6 +1054,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         _workPhotoPath = null;
       });
       _nameCtrl.clear();
+            _loadUserName();
       _feeCtrl.clear();
       _workContentCtrl.clear();
       _otherCtrl.clear();
@@ -1077,6 +1078,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               _routeComparisons = {};
             });
             _nameCtrl.clear();
+            _loadUserName();
             _feeCtrl.clear();
             _workContentCtrl.clear();
             _otherCtrl.clear();
@@ -1091,6 +1093,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               _routeComparisons = {};
             });
             _nameCtrl.clear();
+            _loadUserName();
             _feeCtrl.clear();
             _workContentCtrl.clear();
             _otherCtrl.clear();
