@@ -1227,23 +1227,10 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
-              const SizedBox(height: 20),
 
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _isListening ? null : _startVoiceReport,
-                  icon: Icon(_isListening && !_voiceMode ? Icons.mic : Icons.mic_none),
-                  label: Text(_isListening && !_voiceMode ? '聞いています...' : '🎤  音声報告モード'),
-                ),
-              ),
-
-              const _DividerLabel(label: 'または手動入力'),
-
-              // 名前（デバイス登録から自動取得・編集不可）
+              // 1. 会社名・氏名
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: JsColors.gunmetal,
                   borderRadius: BorderRadius.circular(10),
@@ -1252,281 +1239,298 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 child: Row(children: [
                   const Icon(Icons.lock, color: JsColors.silver, size: 16),
                   const SizedBox(width: 8),
-                  Text(
-                    _nameCtrl.text.isEmpty ? '名前を読み込み中...' : _nameCtrl.text,
-                    style: TextStyle(
-                      color: _nameCtrl.text.isEmpty ? JsColors.silver : JsColors.offWhite,
-                      fontSize: 15,
-                    ),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 16),
-
-              const _Label(text: '本日の交通手段 * （複数選択可）'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                children: [
-                  TransportType.train,
-                  TransportType.bus,
-                  TransportType.car,
-                  TransportType.other,
-                ].map((t) {
-                  final selected = _transports.contains(t);
-                  return GestureDetector(
-                    onTap: () async {
-                      final newSet = Set<TransportType>.from(_transports);
-                      if (selected) {
-                        if (newSet.length > 1) newSet.remove(t);
-                      } else {
-                        newSet.add(t);
-                        if (newSet.length >= 2) {
-                          final ok = await showConfirmDialog(context,
-                            title: '⚠️ 複数の移動手段',
-                            message: '移動手段が2つ以上選択されています。\nよろしいですか？',
-                            confirmText: 'OK',
-                            cancelText: 'キャンセル',
-                          );
-                          if (!ok) return;
-                        }
-                      }
-                      if (!newSet.contains(TransportType.car)) {
-                        _feeCtrl.clear();
-                        _photoPath = null;
-                      }
-                      setState(() => _transports = newSet);
-                      await _calculateRoutes();
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: selected ? JsColors.gold : JsColors.gunmetal,
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: selected ? JsColors.gold : JsColors.divider),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(t.icon, size: 16, color: selected ? Colors.black : JsColors.silver),
-                        const SizedBox(width: 5),
-                        Text(t.label, style: TextStyle(
-                          color: selected ? Colors.black : JsColors.offWhite,
-                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                        )),
-                      ]),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 10),
-              if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
-                TextField(
-                  controller: _transportMemoCtrl,
-                  decoration: const InputDecoration(
-                    labelText: '移動手段の補足（任意）',
-                    hintText: '例：バイクで駅まで→電車→徒歩10分',
-                    prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
-                  ),
-                  style: const TextStyle(color: JsColors.offWhite),
-                ),
-                const SizedBox(height: 10),
-              ],
-              const SizedBox(height: 6),
-              const SizedBox(height: 8),
-
-              if (_loadingRoutes)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Row(children: [
-                    SizedBox(width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
-                    SizedBox(width: 10),
-                    Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 13)),
-                  ]),
-                ),
-
-              if (!_loadingRoutes && _routeComparisons.isNotEmpty)
-                _RouteResultCard(
-                  comparisons: _routeComparisons,
-                  selectedTransport: _transport,
-                ),
-
-              const SizedBox(height: 8),
-
-              if (_transport == TransportType.car) ...[
-                // 車種別2択
-                Row(children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _carType = 'own'),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
-                        ),
-                        child: Center(child: Text('🚗 社用車・自家用車',
-                          style: TextStyle(
-                            color: _carType == 'own' ? Colors.black : JsColors.offWhite,
-                            fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
-                            fontSize: 13,
-                          ))),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() {
-                        _carType = 'carpool';
-                        _feeCtrl.clear();
-                        _photoPath = null;
-                      }),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
-                        ),
-                        child: Center(child: Text('🚌 相乗り',
-                          style: TextStyle(
-                            color: _carType == 'carpool' ? Colors.black : JsColors.offWhite,
-                            fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
-                            fontSize: 13,
-                          ))),
-                      ),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 12),
-
-                // 相乗り入力欄
-                if (_carType == 'carpool') ...[
-                  TextField(
-                    controller: _carpoolCtrl,
-                    decoration: const InputDecoration(
-                      labelText: '誰の相乗りか（任意）',
-                      hintText: '例：田中さんの車・未記入',
-                      prefixIcon: Icon(Icons.people, color: JsColors.silver),
-                    ),
-                    style: const TextStyle(color: JsColors.offWhite),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-
-                // 社用車・自家用車の場合のみ駐車料金
-                if (_carType == 'own') ...[
-                  _ParkingSection(
-                    controller: _feeCtrl,
-                    photoPath:  _photoPath,
-                    onTakePhoto:  _takeParkingPhoto,
-                    onClearPhoto: () => setState(() => _photoPath = null),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ],
-
-              // その他交通手段 入力欄
-              if (_transport == TransportType.other) ...[
-                const _Label(text: '交通手段の詳細 *'),
-                const SizedBox(height: 8),
-                Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _otherCtrl,
-                      decoration: const InputDecoration(
-                        labelText: '例：バイク、社用車、送迎など',
-                        prefixIcon: Icon(Icons.more_horiz, color: JsColors.silver),
-                      ),
-                      style: const TextStyle(color: JsColors.offWhite),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _isListening ? null : () => _startVoiceOther(),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 56, height: 56,
-                      decoration: BoxDecoration(
-                        color: _isListening ? JsColors.gold : JsColors.gunmetal,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: _isListening ? JsColors.gold : JsColors.divider),
-                      ),
-                      child: Icon(
-                        _isListening ? Icons.mic : Icons.mic_none,
-                        color: _isListening ? Colors.black : JsColors.silver,
-                      ),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 16),
-              ],
-
-              // 作業内容セクション
-              const _Label(text: '作業内容'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _workContentCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: '作業内容を入力',
-                  hintText: '例：1階電気配線工事 コンセント10箇所設置',
-                  prefixIcon: Icon(Icons.construction, color: JsColors.silver),
-                  alignLabelWithHint: true,
-                ),
-                style: const TextStyle(color: JsColors.offWhite),
-              ),
-              const SizedBox(height: 8),
-
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isListening ? null : _startVoiceWork,
-                    icon: Icon(
-                        _isListening && _voiceMode ? Icons.mic : Icons.mic_none,
-                        size: 18),
-                    label: Text(
-                      _isListening && _voiceMode ? '聞いています...' : '🎤 音声で作業内容入力',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
-              ]),
-
-              if (_workPhotoPath != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Stack(
-                    alignment: Alignment.topRight,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(File(_workPhotoPath!),
-                            height: 120, width: double.infinity, fit: BoxFit.cover),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() => _workPhotoPath = null),
-                        child: Container(
-                          margin: const EdgeInsets.all(6),
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                              color: Colors.black54, shape: BoxShape.circle),
-                          child: const Icon(Icons.close, color: Colors.white, size: 16),
-                        ),
+                      const Text('株式会社J\'s', style: TextStyle(color: JsColors.silver, fontSize: 11)),
+                      Text(
+                        _nameCtrl.text.isEmpty ? '読み込み中...' : _nameCtrl.text,
+                        style: const TextStyle(color: JsColors.offWhite, fontSize: 15, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
-                ),
+                ]),
+              ),
+              const SizedBox(height: 14),
 
+              // GPS位置情報カード
+              _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
+              const SizedBox(height: 14),
+
+              // 2. 移動手段（展開式）
+              _ExpandableSection(
+                icon: Icons.directions_car,
+                title: '移動手段',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 4択横並び
+                    Row(children: [
+                      TransportType.car,
+                      TransportType.train,
+                      TransportType.bus,
+                      TransportType.other,
+                    ].map((t) {
+                      final selected = _transports.contains(t);
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () async {
+                            final newSet = Set<TransportType>.from(_transports);
+                            if (selected) {
+                              if (newSet.length > 1) newSet.remove(t);
+                            } else {
+                              newSet.add(t);
+                              if (newSet.length >= 2) {
+                                final ok = await showConfirmDialog(context,
+                                  title: '⚠️ 複数の移動手段',
+                                  message: '移動手段が2つ以上選択されています。\nよろしいですか？',
+                                  confirmText: 'OK', cancelText: 'キャンセル',
+                                );
+                                if (!ok) return;
+                              }
+                            }
+                            if (!newSet.contains(TransportType.car)) {
+                              _feeCtrl.clear(); _photoPath = null;
+                            }
+                            setState(() => _transports = newSet);
+                            await _calculateRoutes();
+                          },
+                          child: Container(
+                            margin: EdgeInsets.only(right: t != TransportType.other ? 6 : 0),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: selected ? JsColors.gold : JsColors.gunmetal,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: selected ? JsColors.gold : JsColors.divider),
+                            ),
+                            child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(t.icon, size: 16, color: selected ? Colors.black : JsColors.silver),
+                              const SizedBox(height: 3),
+                              Text(t.label, style: TextStyle(
+                                color: selected ? Colors.black : JsColors.offWhite,
+                                fontSize: 11,
+                                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                              )),
+                            ]),
+                          ),
+                        ),
+                      );
+                    }).toList()),
+                    const SizedBox(height: 12),
+
+                    // 車選択時: 社用車/相乗り
+                    if (_transports.contains(TransportType.car)) ...[
+                      Row(children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _carType = 'own'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
+                              ),
+                              child: Center(child: Text('社用車・自家用車',
+                                style: TextStyle(
+                                  color: _carType == 'own' ? Colors.black : JsColors.offWhite,
+                                  fontSize: 12, fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
+                                ))),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() { _carType = 'carpool'; _feeCtrl.clear(); _photoPath = null; }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
+                              ),
+                              child: Center(child: Text('相乗り',
+                                style: TextStyle(
+                                  color: _carType == 'carpool' ? Colors.black : JsColors.offWhite,
+                                  fontSize: 12, fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
+                                ))),
+                            ),
+                          ),
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                      if (_carType == 'carpool') ...[
+                        TextField(
+                          controller: _carpoolCtrl,
+                          decoration: const InputDecoration(
+                            labelText: '誰の相乗りか（任意）',
+                            hintText: '例：田中さんの車',
+                            prefixIcon: Icon(Icons.people, color: JsColors.silver),
+                          ),
+                          style: const TextStyle(color: JsColors.offWhite),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (_carType == 'own') ...[
+                        _ParkingSection(
+                          controller: _feeCtrl,
+                          photoPath: _photoPath,
+                          onTakePhoto: _takeParkingPhoto,
+                          onClearPhoto: () => setState(() => _photoPath = null),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
+
+                    // 補足テキスト（その他 or 複数選択時）
+                    if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
+                      TextField(
+                        controller: _transportMemoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: '移動手段の補足（任意）',
+                          hintText: '例：バイクで駅まで→電車→徒歩10分',
+                          prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
+                        ),
+                        style: const TextStyle(color: JsColors.offWhite),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // ルート計算結果
+                    if (_loadingRoutes)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Row(children: [
+                          SizedBox(width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+                          SizedBox(width: 10),
+                          Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 13)),
+                        ]),
+                      ),
+                    if (!_loadingRoutes && _routeComparisons.isNotEmpty) ...[
+                      _RouteResultCard(
+                        comparisons: _routeComparisons,
+                        selectedTransport: _transport,
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Text('※実際の距離・料金と異なる場合があります',
+                          style: TextStyle(color: JsColors.silver, fontSize: 10),
+                          textAlign: TextAlign.right),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 3. 作業内容（展開式）
+              _ExpandableSection(
+                icon: Icons.construction,
+                title: '作業内容',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // テキスト/音声選択
+                    Row(children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _voiceMode = false),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: !_voiceMode ? JsColors.gold : JsColors.gunmetal,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: !_voiceMode ? JsColors.gold : JsColors.divider),
+                            ),
+                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Icon(Icons.keyboard, size: 16, color: !_voiceMode ? Colors.black : JsColors.silver),
+                              const SizedBox(width: 5),
+                              Text('テキスト入力', style: TextStyle(
+                                color: !_voiceMode ? Colors.black : JsColors.offWhite,
+                                fontSize: 12, fontWeight: !_voiceMode ? FontWeight.bold : FontWeight.normal,
+                              )),
+                            ]),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _isListening ? null : _startVoiceWork,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _voiceMode ? JsColors.gold : JsColors.gunmetal,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: _voiceMode ? JsColors.gold : JsColors.divider),
+                            ),
+                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Icon(_isListening && _voiceMode ? Icons.mic : Icons.mic_none,
+                                size: 16, color: _voiceMode ? Colors.black : JsColors.silver),
+                              const SizedBox(width: 5),
+                              Text(_isListening && _voiceMode ? '聞いています...' : '音声入力',
+                                style: TextStyle(
+                                  color: _voiceMode ? Colors.black : JsColors.offWhite,
+                                  fontSize: 12, fontWeight: _voiceMode ? FontWeight.bold : FontWeight.normal,
+                                )),
+                            ]),
+                          ),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+
+                    // テキスト入力欄
+                    if (!_voiceMode) ...[
+                      TextField(
+                        controller: _workContentCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText: '例：1階電気配線工事 コンセント10箇所設置',
+                          prefixIcon: Icon(Icons.construction, color: JsColors.silver),
+                          alignLabelWithHint: true,
+                        ),
+                        style: const TextStyle(color: JsColors.offWhite),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // カメラボタン
+                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
+                    ]),
+
+                    if (_workPhotoPath != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Stack(
+                          alignment: Alignment.topRight,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(File(_workPhotoPath!),
+                                  height: 120, width: double.infinity, fit: BoxFit.cover),
+                            ),
+                            GestureDetector(
+                              onTap: () => setState(() => _workPhotoPath = null),
+                              child: Container(
+                                margin: const EdgeInsets.all(6),
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                                child: const Icon(Icons.close, color: Colors.white, size: 16),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
 
+              // 報告ボタン
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -1556,6 +1560,63 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 // ============================================================
 
 
+
+
+// ============================================================
+// 展開式セクション
+// ============================================================
+
+class _ExpandableSection extends StatefulWidget {
+  const _ExpandableSection({required this.icon, required this.title, required this.child});
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  @override
+  State<_ExpandableSection> createState() => _ExpandableSectionState();
+}
+
+class _ExpandableSectionState extends State<_ExpandableSection> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Column(children: [
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(children: [
+              Icon(widget.icon, color: JsColors.gold, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(widget.title,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 15, fontWeight: FontWeight.bold))),
+              Icon(_expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                color: JsColors.silver, size: 20),
+            ]),
+          ),
+        ),
+        if (_expanded)
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: JsColors.divider)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: widget.child,
+            ),
+          ),
+      ]),
+    );
+  }
+}
 
 class _Label extends StatelessWidget {
   const _Label({required this.text});
