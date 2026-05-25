@@ -1,11 +1,9 @@
-// ============================================================
+// // ============================================================
 // lib/services/profile_service.dart - ユーザープロフィール管理
 // 自宅住所・個人設定
 // ============================================================
 
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 
 const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
@@ -18,7 +16,7 @@ class ProfileService {
 
   ProfileService._internal();
 
-  // 自宅住所を保存
+  //  自宅住所を保存
   Future<void> setHomeAddress(String address) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('home_address', address);

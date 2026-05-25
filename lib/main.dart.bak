@@ -1,0 +1,2161 @@
+﻿// ============================================================
+// J's Awake App v1.2.0 - main.dart 螳悟・迚・
+// 譬ｪ蠑丈ｼ夂､ｾJ's 髮ｻ豌怜ｷ･莠区･ｭ 閨ｷ莠ｺ繧｢繝励Μ
+// v1.2.0螟画峩轤ｹ・壼錐蜑阪ヵ繧ｩ繝ｼ繝蜑企勁・医ョ繝舌う繧ｹ隱崎ｨｼ縺九ｉ閾ｪ蜍募叙蠕暦ｼ・
+// ============================================================
+
+import 'dart:convert';
+import 'dart:io';
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/site_select_screen.dart';
+import 'screens/inbox_screen.dart';
+import 'screens/share_screen.dart';
+import 'screens/profile_screen.dart';
+import 'services/routes_service.dart';
+import 'services/profile_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    if (dart.library.html) 'stub/notifications_stub.dart';
+import 'package:geocoding/geocoding.dart'
+    if (dart.library.html) 'stub/geocoding_stub.dart';
+import 'package:http/http.dart' as http;
+
+// ============================================================
+// API險ｭ螳・
+// ============================================================
+
+const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+
+// ============================================================
+// 繧ｨ繝ｳ繝医Μ繝ｼ繝昴う繝ｳ繝・
+// ============================================================
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
+  if (!kIsWeb) {
+    await NotificationManager.instance.initialize();
+  }
+  runApp(const JsAwakeApp());
+}
+
+// ============================================================
+// 繝悶Λ繝ｳ繝峨き繝ｩ繝ｼ
+// ============================================================
+
+class JsColors {
+  static const black    = Color(0xFF111111);
+  static const gunmetal = Color(0xFF2A2A2A);
+  static const gold     = Color(0xFFD4AF37);
+  static const silver   = Color(0xFF9E9E9E);
+  static const offWhite = Color(0xFFF5F5F0);
+  static const surface  = Color(0xFF1E1E1E);
+  static const divider  = Color(0xFF3A3A3A);
+  static const success  = Color(0xFF2E7D5E);
+  static const error    = Color(0xFFB71C1C);
+  static const warning  = Color(0xFFE65100);
+}
+
+// ============================================================
+// 繧｢繝励Μ繝ｫ繝ｼ繝・
+// ============================================================
+
+class JsAwakeApp extends StatelessWidget {
+  const JsAwakeApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: "J's Inc. 閨ｷ莠ｺAPP",
+      debugShowCheckedModeBanner: false,
+      theme: _buildTheme(),
+      home: const LoginScreen(),
+      routes: {
+        '/login':    (_) => const LoginScreen(),
+        '/gate':     (_) => const GateScreen(),
+        '/register': (_) => const RegisterScreen(),
+      },
+    );
+  }
+
+  ThemeData _buildTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: JsColors.black,
+      colorScheme: const ColorScheme.dark(
+        primary:      JsColors.gold,
+        secondary:    JsColors.silver,
+        surface:      JsColors.gunmetal,
+        background:   JsColors.black,
+        error:        JsColors.error,
+        onPrimary:    Colors.black,
+        onSecondary:  JsColors.offWhite,
+        onSurface:    JsColors.offWhite,
+        onBackground: JsColors.offWhite,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: JsColors.black,
+        foregroundColor: JsColors.gold,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: JsColors.gold,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+        iconTheme: IconThemeData(color: JsColors.gold),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: JsColors.gold,
+          foregroundColor: Colors.black,
+          minimumSize: const Size(double.infinity, 52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: JsColors.gold,
+          side: const BorderSide(color: JsColors.gold),
+          minimumSize: const Size(double.infinity, 52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: JsColors.gunmetal,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: JsColors.divider),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: JsColors.divider),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: JsColors.gold, width: 2),
+        ),
+        labelStyle: const TextStyle(color: JsColors.silver),
+        hintStyle: const TextStyle(color: Color(0xFF666666)),
+      ),
+      cardTheme: CardThemeData(
+        color: JsColors.gunmetal,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: JsColors.divider),
+        ),
+      ),
+      dividerTheme: const DividerThemeData(color: JsColors.divider, thickness: 1),
+    );
+  }
+}
+
+// ============================================================
+// Enum: 莠､騾壽焔谿ｵ
+// ============================================================
+
+enum TransportType {
+  train('髮ｻ霆・,   Icons.train),
+  car('霆・,       Icons.directions_car),
+  bus('繝舌せ',     Icons.directions_bus),
+  bike('閾ｪ霆｢霆・,  Icons.pedal_bike),
+  walk('蠕呈ｭｩ',    Icons.directions_walk),
+  other('縺昴・莉・, Icons.more_horiz);
+
+  const TransportType(this.label, this.icon);
+  final String   label;
+  final IconData icon;
+}
+
+// ============================================================
+// 繝・・繧ｿ繝｢繝・Ν
+// ============================================================
+
+class WorkerReportItem {
+  WorkerReportItem({
+    required this.name,
+    required this.transport,
+    this.parkingFee,
+    this.parkingPhotoPath,
+    this.workContent = '',
+    this.workPhotoPath,
+    this.gpsAddress = '',
+    DateTime? timestamp,
+    this.isActive = true,
+    String? id,
+    this.apiReportId,
+  }) : timestamp = timestamp ?? DateTime.now(),
+       id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
+
+  final String id;
+  final String name;
+  final TransportType transport;
+  final String? parkingFee;
+  final String? parkingPhotoPath;
+  final String workContent;
+  final String? workPhotoPath;
+  final String gpsAddress;
+  final DateTime timestamp;
+  bool isActive;
+  String? apiReportId;
+
+  String get timeLabel {
+    final h = timestamp.hour.toString().padLeft(2, '0');
+    final m = timestamp.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id':               id,
+    'name':             name,
+    'transport':        transport.name,
+    'parkingFee':       parkingFee,
+    'parkingPhotoPath': parkingPhotoPath,
+    'workContent':      workContent,
+    'workPhotoPath':    workPhotoPath,
+    'gpsAddress':       gpsAddress,
+    'timestamp':        timestamp.toIso8601String(),
+    'isActive':         isActive,
+    'apiReportId':      apiReportId,
+  };
+
+  static WorkerReportItem fromJson(Map<String, dynamic> j) => WorkerReportItem(
+    id:               j['id'] as String?,
+    name:             j['name'] as String? ?? '',
+    transport:        TransportType.values.firstWhere(
+      (t) => t.name == j['transport'], orElse: () => TransportType.train),
+    parkingFee:       j['parkingFee']       as String?,
+    parkingPhotoPath: j['parkingPhotoPath'] as String?,
+    workContent:      j['workContent']      as String? ?? '',
+    workPhotoPath:    j['workPhotoPath']    as String?,
+    gpsAddress:       j['gpsAddress']       as String? ?? '',
+    timestamp:        j['timestamp'] != null
+        ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
+        : DateTime.now(),
+    isActive: j['isActive'] as bool? ?? true,
+  )..apiReportId = j['apiReportId'] as String?;
+}
+
+// ============================================================
+// SharedPreferences 繧ｭ繝ｼ
+// ============================================================
+
+class _K {
+  static const reports    = 'worker_reports_history';
+  static const names      = 'registered_worker_names';
+  static const notifHours = 'notification_hours';
+}
+
+// ============================================================
+// ReportStore
+// ============================================================
+
+class ReportStore {
+  static final ReportStore instance = ReportStore._();
+  ReportStore._();
+
+  Future<List<WorkerReportItem>> loadAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw   = prefs.getString(_K.reports);
+    if (raw == null) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => WorkerReportItem.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) { return []; }
+  }
+
+  Future<void> saveAll(List<WorkerReportItem> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_K.reports, jsonEncode(items.map((e) => e.toJson()).toList()));
+  }
+
+  Future<void> addReport(WorkerReportItem item) async {
+    final all = await loadAll();
+    all.add(item);
+    await saveAll(all);
+    await _sendToAPI([item]);
+  }
+
+  Future<void> _sendToAPI(List<WorkerReportItem> items) async {
+    try {
+      for (final item in items) {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token') ?? '';
+        final response = await http.post(
+          Uri.parse('$API_URL/reports'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'worker_name':    item.name,
+            'worker_company': '',
+            'report_date':    item.timestamp.toIso8601String().substring(0, 10),
+            'clock_in_time':  '${item.timeLabel}:00',
+            'transport_type': item.transport.name,
+            'parking_fee':    item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+            'gps_address':    item.gpsAddress,
+            'work_content':   item.workContent,
+          }),
+        ).timeout(const Duration(seconds: 10));
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          debugPrint('API 繧ｨ繝ｩ繝ｼ: ${response.statusCode} - ${response.body}');
+        } else {
+          final resBody = jsonDecode(response.body);
+          item.apiReportId = resBody['report_id'] as String?;
+          debugPrint('API 騾∽ｿ｡螳御ｺ・ ${item.name} id=${item.apiReportId}');
+        }
+      }
+    } catch (e) {
+      debugPrint('API 騾∽ｿ｡螟ｱ謨・ $e');
+    }
+  }
+
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_K.reports);
+  }
+
+  Future<List<WorkerReportItem>> loadToday() async {
+    final all   = await loadAll();
+    final today = DateTime.now();
+    return all.where((r) =>
+      r.timestamp.year  == today.year &&
+      r.timestamp.month == today.month &&
+      r.timestamp.day   == today.day,
+    ).toList();
+  }
+}
+
+// ============================================================
+// WorkerNameStore
+// ============================================================
+
+class WorkerNameStore {
+  static final WorkerNameStore instance = WorkerNameStore._();
+  WorkerNameStore._();
+
+  Future<List<String>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_K.names) ?? [];
+  }
+
+  Future<void> add(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list  = prefs.getStringList(_K.names) ?? [];
+    if (!list.contains(name)) {
+      list.add(name);
+      list.sort();
+      await prefs.setStringList(_K.names, list);
+    }
+  }
+
+  Future<void> remove(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list  = prefs.getStringList(_K.names) ?? [];
+    list.remove(name);
+    await prefs.setStringList(_K.names, list);
+  }
+
+  Future<void> saveAll(List<String> names) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_K.names, names);
+  }
+}
+
+// ============================================================
+// NotificationManager
+// ============================================================
+
+class NotificationManager {
+  static final NotificationManager instance = NotificationManager._();
+  NotificationManager._();
+
+  final _plugin = FlutterLocalNotificationsPlugin();
+  List<int> _hours = [12, 17];
+
+  Future<void> initialize() async {
+    if (kIsWeb) return;
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    await _plugin.initialize(
+      const InitializationSettings(android: androidInit, iOS: iosInit));
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_K.notifHours);
+    if (saved != null && saved.isNotEmpty) {
+      _hours = saved.map((h) => int.tryParse(h) ?? 12).toList();
+    }
+    await _scheduleAll();
+  }
+
+  List<int> get hours => List.unmodifiable(_hours);
+
+  Future<void> setHours(List<int> newHours) async {
+    if (kIsWeb) return;
+    _hours = newHours.where((h) => h >= 0 && h < 24).toList()..sort();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_K.notifHours, _hours.map((h) => h.toString()).toList());
+    await _scheduleAll();
+  }
+
+  Future<void> _scheduleAll() async {
+    if (kIsWeb) return;
+    try {
+      await _plugin.cancelAll();
+      for (final hour in _hours) {
+        final now    = tz.TZDateTime.now(tz.local);
+        var   target = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour);
+        if (target.isBefore(now)) target = target.add(const Duration(days: 1));
+        await _plugin.zonedSchedule(
+          hour,
+          '搭 譌･蝣ｱ縺ｮ譎る俣縺ｧ縺・,
+          "J's Awake App - 譛ｬ譌･縺ｮ蝣ｱ蜻翫ｒ騾∽ｿ｡縺励※縺上□縺輔＞",
+          target,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'js_daily_report', '譌･蝣ｱ繝ｪ繝槭う繝ｳ繝繝ｼ',
+              channelDescription: '譌･蝣ｱ縺ｮ謠仙・繧偵♀遏･繧峨○縺励∪縺・,
+              importance: Importance.high,
+              priority:   Priority.high,
+            ),
+            iOS: DarwinNotificationDetails(),
+          ),
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
+    } catch (e) {
+      debugPrint('騾夂衍繧ｹ繧ｱ繧ｸ繝･繝ｼ繝ｫ螟ｱ謨・ $e');
+    }
+  }
+}
+
+// ============================================================
+// SpeechExtractResult
+// ============================================================
+
+class SpeechExtractResult {
+  const SpeechExtractResult({
+    this.name, this.transport, this.parkingFee, this.warning,
+  });
+  final String?        name;
+  final TransportType? transport;
+  final String?        parkingFee;
+  final String?        warning;
+}
+
+// ============================================================
+// SpeechManager
+// ============================================================
+
+class SpeechManager {
+  final _speech = SpeechToText();
+  bool _initialized = false;
+
+  Future<bool> initialize() async {
+    _initialized = await _speech.initialize(
+      onError: (e) => debugPrint('髻ｳ螢ｰ繧ｨ繝ｩ繝ｼ: ${e.errorMsg}'),
+    );
+    return _initialized;
+  }
+
+  bool get isAvailable => _initialized && _speech.isAvailable;
+  bool get isListening => _speech.isListening;
+
+  Future<void> startListening({
+    required void Function(String text, bool isFinal) onResult,
+  }) async {
+    if (!_initialized) return;
+    await _speech.listen(
+      onResult: (SpeechRecognitionResult r) =>
+          onResult(r.recognizedWords, r.finalResult),
+      localeId:  'ja_JP',
+      listenFor: const Duration(seconds: 60),
+      pauseFor:  const Duration(seconds: 15),
+    );
+  }
+
+  Future<void> stop()   async => _speech.stop();
+  Future<void> cancel() async => _speech.cancel();
+
+  SpeechExtractResult extractInfo(String text) {
+    String?        name;
+    TransportType? transport;
+    String?        parkingFee;
+    String?        warning;
+
+    final namePatterns = [
+      RegExp(r'([^\s縲縲√ゅ後江{2,6}?)(?:縺芸縺ｯ)(?:髮ｻ霆掛霆掛繝舌せ|閾ｪ霆｢霆掛蠕呈ｭｩ)'),
+      RegExp(r'([^\s縲縲√ゅ後江{2,6}?)(?:縺ｧ縺處縺ｧ繝ｼ縺處縺繧・'),
+      RegExp(r'^([^\s縲縲√ゅ後江{2,6}?)(?:縺芸縺ｯ)'),
+    ];
+    for (final p in namePatterns) {
+      final m = p.firstMatch(text);
+      if (m?.group(1) != null) { name = m!.group(1); break; }
+    }
+
+    if (text.contains('髮ｻ霆・) || text.contains('髮ｻ驩・) || text.contains('蝨ｰ荳矩延')) {
+      transport = TransportType.train;
+    } else if (text.contains('閾ｪ霆｢霆・) || text.contains('繝√Ε繝ｪ')) {
+      transport = TransportType.bike;
+    } else if (text.contains('繝舌せ')) {
+      transport = TransportType.bus;
+    } else if (text.contains('蠕呈ｭｩ') || text.contains('豁ｩ縺・) || text.contains('豁ｩ縺・)) {
+      transport = TransportType.walk;
+    } else if (text.contains('霆・) || text.contains('閾ｪ蜍戊ｻ・) || text.contains('繧ｯ繝ｫ繝・)) {
+      transport = TransportType.car;
+    }
+
+    final feeM = RegExp(r'(\d{2,6})\s*(?:蜀・縺医ｓ)').firstMatch(text);
+    if (feeM != null) parkingFee = feeM.group(1);
+
+    if (parkingFee != null && transport != null && transport != TransportType.car) {
+      warning    = '${transport.label}縺ｧ縺ｯ鬧占ｻ頑侭驥代・荳崎ｦ√〒縺吶り・蜍慕噪縺ｫ蜑企勁縺励∪縺励◆縲・;
+      parkingFee = null;
+    }
+
+    return SpeechExtractResult(
+      name: name, transport: transport, parkingFee: parkingFee, warning: warning,
+    );
+  }
+}
+
+// ============================================================
+// GPS + 菴乗園螟画鋤
+// ============================================================
+
+Future<String> fetchGpsAddress() async {
+  try {
+    var status = await Permission.location.status;
+    if (!status.isGranted) status = await Permission.location.request();
+    if (!status.isGranted) return '菴咲ｽｮ諠・ｱ縺ｮ讓ｩ髯舌′縺ゅｊ縺ｾ縺帙ｓ';
+    if (!await Geolocator.isLocationServiceEnabled()) return 'GPS 縺檎┌蜉ｹ縺ｧ縺・;
+
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 15),
+    );
+
+    if (!kIsWeb) {
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final parts = [
+            p.administrativeArea, p.locality,
+            p.subLocality, p.thoroughfare, p.subThoroughfare,
+          ].where((e) => e != null && e.isNotEmpty).toList();
+          if (p.street != null && p.street!.isNotEmpty) {
+            final s   = p.street!;
+            final sub = p.subLocality ?? '';
+            final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
+            if (idx >= 0) return '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
+          }
+          if (parts.isNotEmpty) return parts.join('');
+        }
+      } catch (_) {}
+    }
+    return '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+  } catch (e) {
+    return 'GPS蜿門ｾ怜､ｱ謨・;
+  }
+}
+
+// ============================================================
+// 蜈ｱ騾壹Θ繝ｼ繝・ぅ繝ｪ繝・ぅ
+// ============================================================
+
+void showJsSnackbar(BuildContext context, String msg,
+    {bool isError = false, bool isWarning = false}) {
+  if (!context.mounted) return;
+  Color bg = JsColors.success;
+  if (isError)   bg = JsColors.error;
+  if (isWarning) bg = JsColors.warning;
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(SnackBar(
+      content: Text(msg, style: const TextStyle(color: Colors.white)),
+      backgroundColor: bg,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
+}
+
+Future<bool> showConfirmDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmText = '遒ｺ隱・,
+  String cancelText  = '繧ｭ繝｣繝ｳ繧ｻ繝ｫ',
+  bool isDanger      = false,
+}) async {
+  final r = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: JsColors.gunmetal,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(title,
+          style: TextStyle(color: isDanger ? JsColors.error : JsColors.gold)),
+      content: Text(message,
+          style: const TextStyle(color: JsColors.offWhite, height: 1.6)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Text(cancelText, style: const TextStyle(color: JsColors.silver)),
+        ),
+        ElevatedButton(
+          style: isDanger ? ElevatedButton.styleFrom(
+              backgroundColor: JsColors.error, foregroundColor: Colors.white) : null,
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(confirmText),
+        ),
+      ],
+    ),
+  );
+  return r ?? false;
+}
+
+// ============================================================
+// 縲千判髱｢0縲賎ateScreen
+// ============================================================
+
+class GateScreen extends StatefulWidget {
+  const GateScreen({super.key});
+  @override
+  State<GateScreen> createState() => _GateScreenState();
+}
+
+class _GateScreenState extends State<GateScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoNavigate());
+  }
+
+  Future<void> _autoNavigate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role  = prefs.getString('user_role') ?? 'worker';
+    if (!mounted) return;
+    if (role == 'boss' || role == 'admin') {
+      _pushBoss(context);
+    } else {
+      _pushWorker(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    backgroundColor: Color(0xFF1A1A1A),
+    body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
+  );
+
+  void _pushWorker(BuildContext context) => Navigator.push(context,
+      MaterialPageRoute(builder: (_) => const SharedWorkerForm(
+        screenTitle: '閨ｷ莠ｺ逕ｨ - 譌･蝣ｱ蝣ｱ蜻・, isBossMode: false)));
+
+  Future<void> _pushBoss(BuildContext context) async {
+    final auth = LocalAuthentication();
+    bool ok = false;
+    try {
+      final supported = await auth.isDeviceSupported();
+      if (supported) {
+        ok = await auth.authenticate(
+          localizedReason: '閨ｷ髟ｷ繝ｻ邂｡逅・・逕ｨ縺ｸ繧｢繧ｯ繧ｻ繧ｹ縺吶ｋ縺ｫ縺ｯ隱崎ｨｼ縺悟ｿ・ｦ√〒縺・,
+          options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
+        );
+      } else {
+        ok = true;
+      }
+    } catch (_) {
+      ok = true;
+    }
+    if (ok && context.mounted) {
+      Navigator.push(context, MaterialPageRoute(
+          builder: (_) => const SharedWorkerForm(
+            screenTitle: '閨ｷ髟ｷ繝ｻ邂｡逅・・逕ｨ - 譌･蝣ｱ邂｡逅・, isBossMode: true)));
+    }
+  }
+}
+
+// ============================================================
+// 縲千判髱｢1縲全haredWorkerForm
+// ============================================================
+
+class SharedWorkerForm extends StatefulWidget {
+  const SharedWorkerForm({
+    super.key,
+    required this.screenTitle,
+    required this.isBossMode,
+  });
+  final String screenTitle;
+  final bool   isBossMode;
+
+  @override
+  State<SharedWorkerForm> createState() => _SharedWorkerFormState();
+}
+
+class _SharedWorkerFormState extends State<SharedWorkerForm> {
+  final _feeCtrl         = TextEditingController();
+  final _workContentCtrl = TextEditingController();
+  final _speechMgr       = SpeechManager();
+  final _imagePicker     = ImagePicker();
+
+  TransportType _transport    = TransportType.train;
+  String?       _photoPath;
+  String?       _workPhotoPath;
+  String        _gpsAddress   = '';
+  bool          _gpsLoading   = false;
+  bool          _isListening  = false;
+  bool          _submitting   = false;
+  bool          _voiceMode    = false;
+  String        _userName     = '';
+
+  Map<String, dynamic>? _selectedSite;
+  final RoutesService _routesService = RoutesService();
+  Map<String, RouteCalculationResult> _routeComparisons = {};
+  bool _loadingRoutes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _speechMgr.initialize();
+    _fetchGps();
+    _loadUserName();
+  }
+
+  @override
+  void dispose() {
+    _feeCtrl.dispose();
+    _workContentCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchGps() async {
+    setState(() => _gpsLoading = true);
+    final addr = await fetchGpsAddress();
+    if (mounted) setState(() { _gpsAddress = addr; _gpsLoading = false; });
+  }
+
+  Future<void> _loadUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name  = prefs.getString('user_name') ?? '';
+    if (mounted) setState(() => _userName = name);
+  }
+
+  Future<void> _calculateRoutes() async {
+    if (_gpsAddress.isEmpty) return;
+    var homeAddr = await ProfileService().getHomeAddress();
+    homeAddr = homeAddr ?? '蜈ｵ蠎ｫ逵檎･樊虻蟶る聞逕ｰ蛹ｺ閻募｡夂伴3荳∫岼1-2';
+    setState(() => _loadingRoutes = true);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token') ?? '';
+    final routes = await _routesService.compareRoutes(
+      origin:      homeAddr,
+      destination: _gpsAddress,
+      authToken:   token,
+    );
+    if (mounted) setState(() {
+      _routeComparisons = routes;
+      _loadingRoutes    = false;
+    });
+  }
+
+  Future<void> _startVoiceReport() async {
+    final perm = await Permission.microphone.request();
+    if (!perm.isGranted) {
+      if (mounted) showJsSnackbar(context, '繝槭う繧ｯ縺ｮ讓ｩ髯舌′蠢・ｦ√〒縺・, isError: true);
+      return;
+    }
+    setState(() { _isListening = true; _voiceMode = false; });
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _VoiceDialog(
+        manager:   _speechMgr,
+        title:     '痔 髻ｳ螢ｰ蝣ｱ蜻翫Δ繝ｼ繝・,
+        hint:      '萓具ｼ壹檎伐荳ｭ縺ｯ髮ｻ霆翫〒譚･縺ｾ縺励◆縲構n縲瑚干蟄舌・霆翫〒譚･縺ｾ縺励◆ 鬧占ｻ頑侭驥・000蜀・・,
+        onConfirm: (text) { Navigator.pop(ctx); _applyVoiceReport(text); },
+        onCancel:  () { _speechMgr.cancel(); Navigator.pop(ctx); },
+      ),
+    );
+    setState(() => _isListening = false);
+  }
+
+  void _applyVoiceReport(String text) {
+    final r = _speechMgr.extractInfo(text);
+    setState(() {
+      if (r.transport != null) _transport = r.transport!;
+      if (r.parkingFee != null) {
+        _feeCtrl.text = r.parkingFee!;
+      } else {
+        _feeCtrl.clear();
+        _photoPath = null;
+      }
+    });
+    if (r.warning != null) showJsSnackbar(context, '笞・・${r.warning}', isWarning: true);
+  }
+
+  Future<void> _startVoiceWork() async {
+    final perm = await Permission.microphone.request();
+    if (!perm.isGranted) {
+      if (mounted) showJsSnackbar(context, '繝槭う繧ｯ縺ｮ讓ｩ髯舌′蠢・ｦ√〒縺・, isError: true);
+      return;
+    }
+    setState(() { _isListening = true; _voiceMode = true; });
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _VoiceDialog(
+        manager:   _speechMgr,
+        title:     '痔 菴懈･ｭ蜀・ｮｹ 髻ｳ螢ｰ蜈･蜉・,
+        hint:      '萓具ｼ壹・髫朱崕豌鈴・邱壼ｷ･莠・繧ｳ繝ｳ繧ｻ繝ｳ繝・0邂・園險ｭ鄂ｮ縲・,
+        onConfirm: (text) {
+          Navigator.pop(ctx);
+          setState(() {
+            if (_workContentCtrl.text.isEmpty) {
+              _workContentCtrl.text = text;
+            } else {
+              _workContentCtrl.text += '縲・text';
+            }
+          });
+        },
+        onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); },
+      ),
+    );
+    setState(() => _isListening = false);
+  }
+
+  Future<void> _takeParkingPhoto() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) showJsSnackbar(context, '繧ｫ繝｡繝ｩ縺ｮ讓ｩ髯舌′蠢・ｦ√〒縺・, isError: true);
+      return;
+    }
+    final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (f != null && mounted) {
+      setState(() => _photoPath = f.path);
+      showJsSnackbar(context, '笨・鬧占ｻ雁ｴ縺ｮ蜀咏悄繧呈聴蠖ｱ縺励∪縺励◆');
+    }
+  }
+
+  Future<void> _takeWorkPhoto() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) showJsSnackbar(context, '繧ｫ繝｡繝ｩ縺ｮ讓ｩ髯舌′蠢・ｦ√〒縺・, isError: true);
+      return;
+    }
+    final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (f != null && mounted) {
+      setState(() => _workPhotoPath = f.path);
+      showJsSnackbar(context, '笨・菴懈･ｭ蜀咏悄繧呈聴蠖ｱ縺励∪縺励◆');
+    }
+  }
+
+  Future<bool> _validate() async {
+    if (_transport == TransportType.car) {
+      final fee      = _feeCtrl.text.trim();
+      final hasPhoto = _photoPath != null;
+      if (fee.isEmpty && !hasPhoto) {
+        if (mounted) showJsSnackbar(context, '霆翫・蝣ｴ蜷医・鬧占ｻ頑侭驥代∪縺溘・鬧占ｻ雁・逵溘′蠢・ｦ√〒縺・, isError: true);
+        return false;
+      }
+      if (fee.isNotEmpty && !hasPhoto) {
+        final ok = await showConfirmDialog(context,
+          title:       '胴 蜀咏悄縺ｪ縺励〒騾∽ｿ｡縺励∪縺吶°・・,
+          message:     '鬧占ｻ頑侭驥・$fee 蜀・・縺ｿ縺ｧ騾∽ｿ｡縺励∪縺吶・n髱樊耳螂ｨ・夐伜庶譖ｸ縺ｮ蜀咏悄繧よ聴蠖ｱ縺励※縺上□縺輔＞縲・,
+          confirmText: '縺薙・縺ｾ縺ｾ騾∽ｿ｡',
+          cancelText:  '蜀咏悄繧呈聴繧翫∪縺・,
+        );
+        if (!ok) return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final valid = await _validate();
+    if (!valid) return;
+
+    setState(() => _submitting = true);
+
+    // 繝・ヰ繧､繧ｹ隱崎ｨｼ縺九ｉ蜷榊燕繧定・蜍募叙蠕・
+    final prefs = await SharedPreferences.getInstance();
+    final name  = prefs.getString('user_name') ?? _userName;
+
+    await ReportStore.instance.addReport(WorkerReportItem(
+      name:             name,
+      transport:        _transport,
+      parkingFee:       _transport == TransportType.car ? _feeCtrl.text.trim() : null,
+      parkingPhotoPath: _photoPath,
+      workContent:      _workContentCtrl.text.trim(),
+      workPhotoPath:    _workPhotoPath,
+      gpsAddress:       _gpsAddress,
+    ));
+
+    if (mounted) {
+      setState(() {
+        _submitting    = false;
+        _transport     = TransportType.train;
+        _photoPath     = null;
+        _workPhotoPath = null;
+      });
+      _feeCtrl.clear();
+      _workContentCtrl.clear();
+      showJsSnackbar(context, '笨・${name}縺ｮ蝣ｱ蜻翫ｒ騾∽ｿ｡縺励∪縺励◆');
+    }
+  }
+
+  void _openNotifSettings() {
+    if (kIsWeb) {
+      showJsSnackbar(context, '騾夂衍險ｭ螳壹・Android/iOS縺ｮ縺ｿ蟇ｾ蠢懊＠縺ｦ縺・∪縺・, isWarning: true);
+      return;
+    }
+    final nm      = NotificationManager.instance;
+    final current = Set<int>.from(nm.hours);
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          backgroundColor: JsColors.gunmetal,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('粕 騾夂衍譎ょ綾縺ｮ險ｭ螳・, style: TextStyle(color: JsColors.gold)),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 360,
+            child: ListView.builder(
+              itemCount: 24,
+              itemBuilder: (_, i) => CheckboxListTile(
+                dense: true,
+                title: Text('${i.toString().padLeft(2, '0')}:00',
+                    style: const TextStyle(color: JsColors.offWhite)),
+                value: current.contains(i),
+                activeColor: JsColors.gold,
+                checkColor: Colors.black,
+                onChanged: (v) => setSt(() {
+                  if (v == true) current.add(i); else current.remove(i);
+                }),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('繧ｭ繝｣繝ｳ繧ｻ繝ｫ', style: TextStyle(color: JsColors.silver)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await nm.setHours(current.toList());
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) showJsSnackbar(context, '笨・騾夂衍譎ょ綾繧呈峩譁ｰ縺励∪縺励◆');
+              },
+              child: const Text('菫晏ｭ・),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.screenTitle),
+        actions: widget.isBossMode ? [
+          IconButton(
+            icon: const Icon(Icons.inbox),
+            tooltip: '蜿嶺ｿ｡繝医Ξ繧､',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => InboxScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.location_on),
+            tooltip: '迴ｾ蝣ｴ驕ｸ謚・,
+            onPressed: () async {
+              final site = await Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => SiteSelectScreen()));
+              if (site != null) setState(() => _selectedSite = site);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.people),
+            tooltip: '閨ｷ莠ｺ蜷咲ｮ｡逅・,
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_active),
+            tooltip: '騾夂衍險ｭ螳・,
+            onPressed: _openNotifSettings,
+          ),
+        ] : null,
+      ),
+      floatingActionButton: widget.isBossMode
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SummaryScreen())),
+              backgroundColor: JsColors.gold,
+              foregroundColor: Colors.black,
+              icon:  const Icon(Icons.assessment),
+              label: const Text('髮・ｨ医Ξ繝昴・繝・,
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          : null,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // GPS 繧ｫ繝ｼ繝・
+              _GpsCard(
+                address:   _gpsAddress,
+                isLoading: _gpsLoading,
+                onRefresh: _fetchGps,
+              ),
+              const SizedBox(height: 12),
+
+              // 蜷榊燕陦ｨ遉ｺ・医ョ繝舌う繧ｹ縺九ｉ閾ｪ蜍募叙蠕励・邱ｨ髮・ｸ榊庄・・
+              if (_userName.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: JsColors.divider),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.person, color: JsColors.gold, size: 18),
+                    const SizedBox(width: 8),
+                    Text(_userName,
+                        style: const TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        )),
+                    const Spacer(),
+                    const Icon(Icons.lock_outline, color: JsColors.silver, size: 14),
+                  ]),
+                ),
+
+              const SizedBox(height: 20),
+
+              // 髻ｳ螢ｰ蝣ｱ蜻翫Δ繝ｼ繝峨・繧ｿ繝ｳ
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isListening ? null : _startVoiceReport,
+                  icon: Icon(_isListening && !_voiceMode ? Icons.mic : Icons.mic_none),
+                  label: Text(_isListening && !_voiceMode ? '閨槭＞縺ｦ縺・∪縺・..' : '痔  髻ｳ螢ｰ蝣ｱ蜻翫Δ繝ｼ繝・),
+                ),
+              ),
+
+              const _DividerLabel(label: '縺ｾ縺溘・謇句虚蜈･蜉・),
+
+              // 莠､騾壽焔谿ｵ
+              const _Label(text: '譛ｬ譌･縺ｮ莠､騾壽焔谿ｵ *'),
+              const SizedBox(height: 8),
+              _TransportSelector(
+                selected: _transport,
+                onChanged: (t) async {
+                  setState(() {
+                    _transport = t;
+                    if (t != TransportType.car) { _feeCtrl.clear(); _photoPath = null; }
+                  });
+                  await _calculateRoutes();
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 鬧占ｻ頑侭驥代そ繧ｯ繧ｷ繝ｧ繝ｳ・郁ｻ企∈謚樊凾縺ｮ縺ｿ・・
+              if (_transport == TransportType.car) ...[
+                _ParkingSection(
+                  controller:   _feeCtrl,
+                  photoPath:    _photoPath,
+                  onTakePhoto:  _takeParkingPhoto,
+                  onClearPhoto: () => setState(() => _photoPath = null),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // 菴懈･ｭ蜀・ｮｹ繧ｻ繧ｯ繧ｷ繝ｧ繝ｳ
+              const _Label(text: '菴懈･ｭ蜀・ｮｹ'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _workContentCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '菴懈･ｭ蜀・ｮｹ繧貞・蜉・,
+                  hintText:  '萓具ｼ・髫朱崕豌鈴・邱壼ｷ･莠・繧ｳ繝ｳ繧ｻ繝ｳ繝・0邂・園險ｭ鄂ｮ',
+                  prefixIcon: Icon(Icons.construction, color: JsColors.silver),
+                  alignLabelWithHint: true,
+                ),
+                style: const TextStyle(color: JsColors.offWhite),
+              ),
+              const SizedBox(height: 8),
+
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isListening ? null : _startVoiceWork,
+                    icon: Icon(
+                        _isListening && _voiceMode ? Icons.mic : Icons.mic_none,
+                        size: 18),
+                    label: Text(
+                      _isListening && _voiceMode ? '閨槭＞縺ｦ縺・∪縺・..' : '痔 髻ｳ螢ｰ縺ｧ菴懈･ｭ蜀・ｮｹ蜈･蜉・,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
+              ]),
+
+              // 菴懈･ｭ蜀咏悄繝励Ξ繝薙Η繝ｼ
+              if (_workPhotoPath != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Stack(
+                    alignment: Alignment.topRight,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(File(_workPhotoPath!),
+                            height: 120, width: double.infinity, fit: BoxFit.cover),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _workPhotoPath = null),
+                        child: Container(
+                          margin: const EdgeInsets.all(6),
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                              color: Colors.black54, shape: BoxShape.circle),
+                          child: const Icon(Icons.close, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+
+              // 騾∽ｿ｡繝懊ち繝ｳ
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _submitting ? null : _submit,
+                  child: _submitting
+                      ? const SizedBox(width: 22, height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
+                      : const Text('蝣ｱ蜻翫ｒ騾∽ｿ｡縺吶ｋ'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// 繧ｵ繝悶え繧｣繧ｸ繧ｧ繝・ヨ
+// ============================================================
+
+class _Label extends StatelessWidget {
+  const _Label({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) =>
+      Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 13));
+}
+
+class _DividerLabel extends StatelessWidget {
+  const _DividerLabel({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    child: Row(children: [
+      const Expanded(child: Divider()),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+      ),
+      const Expanded(child: Divider()),
+    ]),
+  );
+}
+
+class _GpsCard extends StatelessWidget {
+  const _GpsCard({required this.address, required this.isLoading, required this.onRefresh});
+  final String address;
+  final bool isLoading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: JsColors.gunmetal,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: JsColors.divider),
+    ),
+    child: Row(children: [
+      const Icon(Icons.location_on, color: JsColors.gold, size: 18),
+      const SizedBox(width: 8),
+      Expanded(
+        child: isLoading
+            ? const Text('GPS 蜿門ｾ嶺ｸｭ...', style: TextStyle(color: JsColors.silver))
+            : Text(address.isEmpty ? '迴ｾ蝣ｴ菴乗園 譛ｪ蜿門ｾ・ : address,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 13), maxLines: 2),
+      ),
+      IconButton(
+        onPressed: onRefresh,
+        icon: const Icon(Icons.refresh, color: JsColors.silver, size: 20),
+        padding: EdgeInsets.zero, constraints: const BoxConstraints(),
+      ),
+    ]),
+  );
+}
+
+class _TransportSelector extends StatelessWidget {
+  const _TransportSelector({required this.selected, required this.onChanged});
+  final TransportType selected;
+  final void Function(TransportType) onChanged;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8, runSpacing: 8,
+    children: TransportType.values.map((t) {
+      final active = t == selected;
+      return GestureDetector(
+        onTap: () => onChanged(t),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: active ? JsColors.gold : JsColors.gunmetal,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: active ? JsColors.gold : JsColors.divider),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(t.icon, size: 16, color: active ? Colors.black : JsColors.silver),
+              const SizedBox(width: 5),
+              Text(t.label, style: TextStyle(
+                color: active ? Colors.black : JsColors.offWhite,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              )),
+            ],
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
+class _ParkingSection extends StatelessWidget {
+  const _ParkingSection({
+    required this.controller, required this.photoPath,
+    required this.onTakePhoto, required this.onClearPhoto,
+  });
+  final TextEditingController controller;
+  final String? photoPath;
+  final VoidCallback onTakePhoto;
+  final VoidCallback onClearPhoto;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const _Label(text: '鬧占ｻ頑侭驥・),
+      const SizedBox(height: 8),
+      Row(children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: '驥鷹｡搾ｼ亥・・・,
+              prefixIcon: Icon(Icons.local_parking, color: JsColors.silver),
+              suffixText: '蜀・,
+            ),
+            style: const TextStyle(color: JsColors.offWhite),
+          ),
+        ),
+        const SizedBox(width: 10),
+        _CameraBtn(hasPhoto: photoPath != null, onTap: onTakePhoto),
+      ]),
+      if (photoPath != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Stack(
+            alignment: Alignment.topRight,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(File(photoPath!),
+                    height: 100, width: double.infinity, fit: BoxFit.cover),
+              ),
+              GestureDetector(
+                onTap: onClearPhoto,
+                child: Container(
+                  margin: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, color: Colors.white, size: 16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      if (photoPath == null)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(children: const [
+            Icon(Icons.info_outline, color: JsColors.silver, size: 14),
+            SizedBox(width: 4),
+            Text('鬆伜庶譖ｸ縺ｮ蜀咏悄繧よ聴蠖ｱ縺吶ｋ縺薙→繧呈耳螂ｨ縺励∪縺・,
+                style: TextStyle(color: JsColors.silver, fontSize: 11)),
+          ]),
+        ),
+    ],
+  );
+}
+
+class _CameraBtn extends StatelessWidget {
+  const _CameraBtn({required this.hasPhoto, required this.onTap});
+  final bool hasPhoto;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 56, height: 56,
+      decoration: BoxDecoration(
+        color: hasPhoto ? JsColors.success : JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: hasPhoto ? JsColors.success : JsColors.divider),
+      ),
+      child: Icon(
+        hasPhoto ? Icons.check_circle : Icons.camera_alt,
+        color: hasPhoto ? Colors.white : JsColors.silver,
+      ),
+    ),
+  );
+}
+
+// ============================================================
+// 髻ｳ螢ｰ蜈･蜉帙ム繧､繧｢繝ｭ繧ｰ
+// ============================================================
+
+class _VoiceDialog extends StatefulWidget {
+  const _VoiceDialog({
+    required this.manager, required this.title, required this.hint,
+    required this.onConfirm, required this.onCancel,
+  });
+  final SpeechManager manager;
+  final String title;
+  final String hint;
+  final void Function(String) onConfirm;
+  final VoidCallback onCancel;
+
+  @override
+  State<_VoiceDialog> createState() => _VoiceDialogState();
+}
+
+class _VoiceDialogState extends State<_VoiceDialog>
+    with SingleTickerProviderStateMixin {
+  String _text      = '';
+  bool   _listening = false;
+  late   AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _start();
+  }
+
+  @override
+  void dispose() { _pulse.dispose(); super.dispose(); }
+
+  Future<void> _start() async {
+    setState(() { _listening = true; _text = ''; });
+    await widget.manager.startListening(
+      onResult: (text, isFinal) { if (mounted) setState(() => _text = text); },
+    );
+    if (mounted) setState(() => _listening = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    backgroundColor: JsColors.gunmetal,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    title: Text(widget.title, style: const TextStyle(color: JsColors.gold)),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedBuilder(
+          animation: _pulse,
+          builder: (_, __) => Container(
+            width: 72, height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _listening
+                  ? JsColors.gold.withValues(alpha: 0.15 + _pulse.value * 0.15)
+                  : JsColors.gunmetal,
+            ),
+            child: Icon(
+              _listening ? Icons.mic : Icons.mic_off,
+              color: _listening ? JsColors.gold : JsColors.silver, size: 36,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(_listening ? '閨槭＞縺ｦ縺・∪縺・..' : '隱崎ｭ伜ｮ御ｺ・,
+            style: TextStyle(
+                color: _listening ? JsColors.gold : JsColors.silver, fontSize: 12)),
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: JsColors.surface, borderRadius: BorderRadius.circular(10)),
+          constraints: const BoxConstraints(minHeight: 60),
+          child: Text(
+            _text.isEmpty ? widget.hint : _text,
+            style: TextStyle(
+              color: _text.isEmpty ? JsColors.silver : JsColors.offWhite,
+              height: 1.5, fontSize: _text.isEmpty ? 12 : 15,
+            ),
+          ),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: widget.onCancel,
+        child: const Text('繧ｭ繝｣繝ｳ繧ｻ繝ｫ', style: TextStyle(color: JsColors.silver)),
+      ),
+      if (_listening)
+        TextButton(
+          onPressed: () async {
+            await widget.manager.stop();
+            setState(() => _listening = false);
+          },
+          child: const Text('蛛懈ｭ｢', style: TextStyle(color: JsColors.gold)),
+        ),
+      if (!_listening && _text.isNotEmpty)
+        ElevatedButton(
+          onPressed: () => widget.onConfirm(_text),
+          child: const Text('遒ｺ螳・),
+        ),
+    ],
+  );
+}
+
+// ============================================================
+// 縲千判髱｢2縲糎orkerNameScreen
+// ============================================================
+
+class WorkerNameScreen extends StatefulWidget {
+  const WorkerNameScreen({super.key});
+  @override
+  State<WorkerNameScreen> createState() => _WorkerNameScreenState();
+}
+
+class _WorkerNameScreenState extends State<WorkerNameScreen> {
+  final _ctrl = TextEditingController();
+  List<String> _names = [];
+
+  @override
+  void initState() { super.initState(); _load(); }
+  @override
+  void dispose()   { _ctrl.dispose(); super.dispose(); }
+
+  Future<void> _load() async {
+    final n = await WorkerNameStore.instance.load();
+    if (mounted) setState(() => _names = n);
+  }
+
+  Future<void> _add() async {
+    final name = _ctrl.text.trim();
+    if (name.isEmpty) return;
+    await WorkerNameStore.instance.add(name);
+    _ctrl.clear();
+    await _load();
+    if (mounted) showJsSnackbar(context, '笨・縲・name縲阪ｒ霑ｽ蜉縺励∪縺励◆');
+  }
+
+  Future<void> _delete(String name) async {
+    final ok = await showConfirmDialog(context,
+      title:       '蜑企勁遒ｺ隱・,
+      message:     '縲・name縲阪ｒ蜑企勁縺励∪縺吶°・・,
+      confirmText: '蜑企勁',
+      isDanger:    true,
+    );
+    if (ok) {
+      await WorkerNameStore.instance.remove(name);
+      await _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('閨ｷ莠ｺ蜷咲ｮ｡逅・)),
+    body: Column(children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              decoration: const InputDecoration(
+                labelText: '蜷榊燕繧定ｿｽ蜉',
+                prefixIcon: Icon(Icons.person_add, color: JsColors.silver),
+              ),
+              style: const TextStyle(color: JsColors.offWhite),
+              onSubmitted: (_) => _add(),
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: _add,
+            style: ElevatedButton.styleFrom(
+                minimumSize: const Size(56, 52), padding: EdgeInsets.zero),
+            child: const Icon(Icons.add),
+          ),
+        ]),
+      ),
+      const Divider(height: 1),
+      Expanded(
+        child: _names.isEmpty
+            ? const Center(child: Text('閨ｷ莠ｺ縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ',
+                style: TextStyle(color: JsColors.silver)))
+            : ReorderableListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: _names.length,
+                itemBuilder: (_, i) => ListTile(
+                  key: ValueKey(_names[i]),
+                  leading: const Icon(Icons.drag_handle, color: JsColors.silver),
+                  title: Text(_names[i], style: const TextStyle(color: JsColors.offWhite)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: JsColors.error),
+                    onPressed: () => _delete(_names[i]),
+                  ),
+                ),
+                onReorder: (oldIndex, newIndex) async {
+                  if (newIndex > oldIndex) newIndex--;
+                  final list = List<String>.from(_names);
+                  list.insert(newIndex, list.removeAt(oldIndex));
+                  setState(() => _names = list);
+                  await WorkerNameStore.instance.saveAll(list);
+                },
+              ),
+      ),
+    ]),
+  );
+}
+
+// ============================================================
+// 縲千判髱｢3縲全ummaryScreen
+// ============================================================
+
+class SummaryScreen extends StatefulWidget {
+  const SummaryScreen({super.key});
+  @override
+  State<SummaryScreen> createState() => _SummaryScreenState();
+}
+
+class _SummaryScreenState extends State<SummaryScreen> {
+  List<WorkerReportItem> _all   = [];
+  List<WorkerReportItem> _today = [];
+  bool _loading = true;
+  bool _showAll = false;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final all   = await ReportStore.instance.loadAll();
+    final today = await ReportStore.instance.loadToday();
+    if (mounted) setState(() { _all = all; _today = today; _loading = false; });
+  }
+
+  List<WorkerReportItem> get _shown => _showAll ? _all : _today;
+
+  Future<void> _toggleActive(WorkerReportItem item) async {
+    setState(() => item.isActive = !item.isActive);
+    await ReportStore.instance.saveAll(_all);
+  }
+
+  Future<void> _deleteItem(WorkerReportItem item) async {
+    setState(() { _all.remove(item); _today.remove(item); });
+    await ReportStore.instance.saveAll(_all);
+  }
+
+  Future<void> _shareItem(WorkerReportItem item) async {
+    if (!mounted) return;
+    final reportId = item.apiReportId ?? item.id;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ShareScreen(
+      reportId:   reportId,
+      workerName: item.name,
+      reportDate: item.timestamp.toIso8601String().substring(0, 10),
+    )));
+  }
+
+  Future<void> _clearAll() async {
+    final ok = await showConfirmDialog(context,
+      title:       '笞・・蜈ｨ莉ｶ蜑企勁',
+      message:     '蜈ｨ縺ｦ縺ｮ蝣ｱ蜻翫ョ繝ｼ繧ｿ繧貞炎髯､縺励∪縺吶・n縺薙・謫堺ｽ懊・蜿悶ｊ豸医○縺ｾ縺帙ｓ縲・,
+      confirmText: '蜑企勁縺吶ｋ',
+      isDanger:    true,
+    );
+    if (ok) {
+      await ReportStore.instance.clearAll();
+      setState(() { _all.clear(); _today.clear(); });
+    }
+  }
+
+  String _buildReportText() {
+    final active = _shown.where((r) => r.isActive).toList();
+    if (active.isEmpty) return '蝣ｱ蜻翫ョ繝ｼ繧ｿ縺後≠繧翫∪縺帙ｓ';
+
+    final now     = DateTime.now();
+    final dateStr = '${now.year}/${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}';
+
+    final Map<String, List<WorkerReportItem>> grouped = {};
+    for (final r in active) {
+      final key = r.gpsAddress.isEmpty ? '迴ｾ蝣ｴ菴乗園 譛ｪ蜿門ｾ・ : r.gpsAddress;
+      grouped.putIfAbsent(key, () => []).add(r);
+    }
+
+    final buf = StringBuffer();
+    buf.writeln("縲辱's 譌･蝣ｱ蝣ｱ蜻翫・);
+    buf.writeln('蝣ｱ蜻頑律莉假ｼ・dateStr');
+    buf.writeln();
+
+    for (final entry in grouped.entries) {
+      buf.writeln('桃 迴ｾ蝣ｴ菴乗園・・{entry.key}');
+      buf.writeln();
+      final workers = entry.value
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      for (final w in workers) {
+        buf.writeln('縲・{w.timeLabel}縲・{w.name}・・{w.transport.label}');
+        if (w.parkingFee != null && w.parkingFee!.isNotEmpty) {
+          buf.writeln('縲鬧占ｻ頑侭驥托ｼ・{w.parkingFee}蜀・{w.parkingPhotoPath != null ? ' 胴' : ''}');
+        }
+        if (w.workContent.isNotEmpty) {
+          buf.writeln('縲菴懈･ｭ蜀・ｮｹ・・{w.workContent}${w.workPhotoPath != null ? ' 胴' : ''}');
+        }
+      }
+      buf.writeln();
+    }
+    buf.write('莉･荳翫∵悽譌･繧ょｮ牙・菴懈･ｭ縺ｧ邨ゆｺ・＠縺ｾ縺励◆縲・);
+    return buf.toString();
+  }
+
+  List<Widget> _buildPhotoWidgets() {
+    final active  = _shown.where((r) => r.isActive).toList();
+    final widgets = <Widget>[];
+    for (final r in active) {
+      if (r.parkingPhotoPath != null && File(r.parkingPhotoPath!).existsSync()) {
+        widgets.add(_PhotoPreview(
+          label: '${r.name} - 鬧占ｻ雁ｴ縺ｮ鬆伜庶譖ｸ',
+          path:  r.parkingPhotoPath!,
+        ));
+      }
+      if (r.workPhotoPath != null && File(r.workPhotoPath!).existsSync()) {
+        widgets.add(_PhotoPreview(
+          label: '${r.name} - 菴懈･ｭ蜀咏悄',
+          path:  r.workPhotoPath!,
+        ));
+      }
+    }
+    return widgets;
+  }
+
+  Future<void> _shareReport() async {
+    final active     = _shown.where((r) => r.isActive).toList();
+    final photoPaths = <String>[];
+    for (final r in active) {
+      if (r.parkingPhotoPath != null && File(r.parkingPhotoPath!).existsSync()) {
+        photoPaths.add(r.parkingPhotoPath!);
+      }
+      if (r.workPhotoPath != null && File(r.workPhotoPath!).existsSync()) {
+        photoPaths.add(r.workPhotoPath!);
+      }
+    }
+
+    final text = _buildReportText();
+
+    if (photoPaths.isNotEmpty) {
+      final attachPhotos = await showConfirmDialog(context,
+        title:       '胴 蜀咏悄繧呈ｷｻ莉倥＠縺ｾ縺吶°・・,
+        message:     '${photoPaths.length}譫壹・蜀咏悄縺後≠繧翫∪縺吶・n譌･蝣ｱ縺ｨ荳邱偵↓蜈ｱ譛峨＠縺ｾ縺吶°・・,
+        confirmText: '蜀咏悄繧よｷｻ莉倥☆繧・,
+        cancelText:  '繝・く繧ｹ繝医・縺ｿ',
+      );
+      if (attachPhotos) {
+        final xFiles = photoPaths.map((p) => XFile(p)).toList();
+        await Share.shareXFiles(xFiles, text: text, subject: "J's 譌･蝣ｱ蝣ｱ蜻・);
+        return;
+      }
+    }
+    await Share.share(text, subject: "J's 譌･蝣ｱ蝣ｱ蜻・);
+  }
+
+  void _previewReport() {
+    final photoWidgets = _buildPhotoWidgets();
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: JsColors.gunmetal,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 8, 0),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('搭 譌･蝣ｱ繝励Ξ繝薙Η繝ｼ',
+                        style: TextStyle(
+                            color: JsColors.gold,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, color: JsColors.silver),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(_buildReportText(),
+                        style: const TextStyle(
+                            color: JsColors.offWhite,
+                            height: 1.7,
+                            fontFamily: 'monospace',
+                            fontSize: 13)),
+                    if (photoWidgets.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      const Text('胴 豺ｻ莉伜・逵・,
+                          style: TextStyle(
+                              color: JsColors.gold,
+                              fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ...photoWidgets,
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () { Navigator.pop(ctx); _shareReport(); },
+                  icon:  const Icon(Icons.share, size: 16),
+                  label: const Text('蜈ｱ譛峨☆繧・),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active   = _shown.where((r) => r.isActive).toList();
+    final totalFee = active
+        .where((r) => r.parkingFee != null && r.parkingFee!.isNotEmpty)
+        .fold<int>(0, (s, r) => s + (int.tryParse(r.parkingFee!) ?? 0));
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('髮・ｨ医・遒ｺ隱・),
+        actions: [
+          TextButton(
+            onPressed: () => setState(() => _showAll = !_showAll),
+            child: Text(_showAll ? '譛ｬ譌･縺ｮ縺ｿ' : '蜈ｨ莉ｶ陦ｨ遉ｺ',
+                style: const TextStyle(color: JsColors.gold)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.preview),
+            tooltip: '繝励Ξ繝薙Η繝ｼ',
+            onPressed: _previewReport,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: '蜈ｨ莉ｶ蜑企勁',
+            onPressed: _clearAll,
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+          : Column(children: [
+              _SummaryCard(
+                count:    active.length,
+                totalFee: totalFee,
+                dateMode: _showAll ? '蜈ｨ莉ｶ' : '譛ｬ譌･',
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _shown.isEmpty
+                    ? Center(child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.inbox, size: 64, color: JsColors.divider),
+                          const SizedBox(height: 16),
+                          Text(_showAll ? '蝣ｱ蜻翫ョ繝ｼ繧ｿ縺後≠繧翫∪縺帙ｓ' : '譛ｬ譌･縺ｮ蝣ｱ蜻翫′縺ゅｊ縺ｾ縺帙ｓ',
+                              style: const TextStyle(color: JsColors.silver)),
+                        ],
+                      ))
+                    : RefreshIndicator(
+                        color: JsColors.gold,
+                        onRefresh: _load,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: _shown.length,
+                          itemBuilder: (_, i) => _ReportCard(
+                            item:     _shown[i],
+                            onToggle: () => _toggleActive(_shown[i]),
+                            onDelete: () => _deleteItem(_shown[i]),
+                            onShare:  () => _shareItem(_shown[i]),
+                          ),
+                        ),
+                      ),
+              ),
+            ]),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _previewReport,
+                icon:  const Icon(Icons.preview),
+                label: const Text('繝励Ξ繝薙Η繝ｼ'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: _shareReport,
+                icon:  const Icon(Icons.share),
+                label: const Text('蜈ｱ譛峨☆繧・),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// 蜀咏悄繝励Ξ繝薙Η繝ｼ繧ｦ繧｣繧ｸ繧ｧ繝・ヨ
+// ============================================================
+
+class _PhotoPreview extends StatelessWidget {
+  const _PhotoPreview({required this.label, required this.path});
+  final String label;
+  final String path;
+
+  void _showFullScreen(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              child: Image.file(File(path), fit: BoxFit.contain),
+            ),
+            IconButton(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+        const SizedBox(height: 4),
+        GestureDetector(
+          onTap: () => _showFullScreen(context),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              File(path),
+              width:  double.infinity,
+              height: 180,
+              fit:    BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        const Text('繧ｿ繝・・縺ｧ諡｡螟ｧ',
+            style: TextStyle(color: JsColors.silver, fontSize: 10)),
+      ],
+    ),
+  );
+}
+
+// ============================================================
+// 髮・ｨ医き繝ｼ繝・
+// ============================================================
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.count, required this.totalFee, required this.dateMode});
+  final int count;
+  final int totalFee;
+  final String dateMode;
+
+  String _fmt(int n) => n.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.all(14),
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    decoration: BoxDecoration(
+      color: JsColors.gunmetal,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: JsColors.divider),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _StatItem(label: '$dateMode 縺ｮ蝣ｱ蜻頑焚',  value: '$count 莉ｶ'),
+        Container(width: 1, height: 36, color: JsColors.divider),
+        _StatItem(label: '鬧占ｻ頑侭驥大粋險・, value: 'ﾂ･ ${_fmt(totalFee)}'),
+      ],
+    ),
+  );
+}
+
+class _StatItem extends StatelessWidget {
+  const _StatItem({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+    const SizedBox(height: 6),
+    Text(value, style: const TextStyle(
+        color: JsColors.gold, fontSize: 22, fontWeight: FontWeight.bold)),
+  ]);
+}
+
+// ============================================================
+// 蝣ｱ蜻翫き繝ｼ繝・
+// ============================================================
+
+class _ReportCard extends StatelessWidget {
+  const _ReportCard({
+    required this.item,
+    required this.onToggle,
+    required this.onDelete,
+    required this.onShare,
+  });
+  final WorkerReportItem item;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
+  final VoidCallback onShare;
+
+  void _showPhoto(BuildContext context, String path) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              child: Image.file(File(path), fit: BoxFit.contain),
+            ),
+            IconButton(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedOpacity(
+    opacity:  item.isActive ? 1.0 : 0.38,
+    duration: const Duration(milliseconds: 200),
+    child: Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          Switch(value: item.isActive, onChanged: (_) => onToggle()),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Text(item.name, style: const TextStyle(
+                      color: JsColors.offWhite, fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(width: 8),
+                  _Badge(label: item.transport.label),
+                ]),
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.access_time, size: 12, color: JsColors.silver),
+                  const SizedBox(width: 3),
+                  Text(item.timeLabel,
+                      style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+                  if (item.parkingFee != null && item.parkingFee!.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    const Icon(Icons.local_parking, size: 12, color: JsColors.gold),
+                    const SizedBox(width: 3),
+                    Text('ﾂ･${item.parkingFee}', style: const TextStyle(
+                        color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                    if (item.parkingPhotoPath != null) ...[
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        onTap: () => _showPhoto(context, item.parkingPhotoPath!),
+                        child: const Icon(Icons.camera_alt, size: 16, color: JsColors.success),
+                      ),
+                    ],
+                  ],
+                ]),
+                if (item.workContent.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.construction, size: 12, color: JsColors.silver),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(item.workContent,
+                              style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                        ),
+                        if (item.workPhotoPath != null) ...[
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => _showPhoto(context, item.workPhotoPath!),
+                            child: const Icon(Icons.photo, size: 16, color: JsColors.success),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                if (item.gpsAddress.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text('桃 ${item.gpsAddress}',
+                        style: const TextStyle(color: JsColors.silver, fontSize: 10),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.share, color: JsColors.gold, size: 20),
+            onPressed: onShare,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: JsColors.error, size: 20),
+            onPressed: onDelete,
+          ),
+        ]),
+      ),
+    ),
+  );
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: JsColors.surface,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: JsColors.divider),
+    ),
+    child: Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+  );
+}
+
+// ============================================================
+// END OF FILE - J's Awake App v1.2.0
+// ============================================================

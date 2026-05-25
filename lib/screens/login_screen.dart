@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // lib/screens/login_screen.dart - デバイス認証＋生体認証
 // ============================================================
 import 'package:flutter/material.dart';
@@ -63,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final canCheck = await auth.canCheckBiometrics;
       if (!canCheck) return true;
       final result = await auth.authenticate(
-        localizedReason: '本人確認のため生体認証を行ってください',
+        localizedReason: '本人確認を行ってください',
         options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
       return result;
@@ -87,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _isLoading = true; _biometricFailed = false; _errorMessage = null; });
     final ok = await _doBiometric();
     if (!ok) {
-      setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '生体認証に失敗しました。再試行してください。'; });
+      setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
       return;
     }
     await _autoLogin();
@@ -106,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
     } catch (e) {
-      print('自動ログインエラー: $e');
+      print('自動Loginエラー: $e');
     }
     setState(() { _isLoading = false; _showRegistration = true; });
   }
@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     final ok = await _doBiometric();
     if (!ok) {
-      setState(() => _errorMessage = '生体認証に失敗しました');
+      setState(() => _errorMessage = '認識に失敗しました');
       return;
     }
     setState(() { _isLoading = true; _errorMessage = null; });
@@ -170,14 +170,14 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Icon(Icons.fingerprint, color: Color(0xFFD4AF37), size: 80),
               const SizedBox(height: 24),
-              const Text('生体認証が必要です', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+              const Text('Login', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text(_errorMessage ?? '', style: const TextStyle(color: Colors.white54), textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: _biometricThenLogin,
                 icon: const Icon(Icons.fingerprint),
-                label: const Text('再試行'),
+                label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
             ],
@@ -265,7 +265,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _register,
                   icon: const Icon(Icons.fingerprint),
-                  label: const Text('生体認証で登録', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  label: const Text('Sign Up', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
                 ),
               ),

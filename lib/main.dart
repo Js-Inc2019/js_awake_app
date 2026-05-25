@@ -1,7 +1,7 @@
-﻿// ============================================================
-// J's Awake App v1.1.1 — main.dart 完全版
-// 株式会社J's 電気工事業 日報アプリ
-// v1.1.1変更点：プレビュー画面に写真表示追加
+// ============================================================
+// J's Awake App v1.2.0 - main.dart 完全版
+// 株式会社J's 職人・職長用 出面アプリ
+// v1.2.0変更点: 名前フィールド削除（デバイス認証から自動取得）
 // ============================================================
 
 import 'dart:convert';
@@ -11,10 +11,21 @@ import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/share_screen.dart';
+import 'screens/work_mode_screen.dart';
+import 'screens/company_search_screen.dart';
+import 'screens/tamper_notification_screen.dart';
+import 'services/pdf_service.dart';
+import 'services/work_settings_service.dart';
+import 'screens/after_report_screen.dart';
+import 'screens/clock_in_screen.dart';
+import 'screens/work_settings_screen.dart';
+import 'screens/retention_screen.dart';
 import 'screens/profile_screen.dart';
 import 'services/routes_service.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -32,7 +43,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     if (dart.library.html) 'stub/notifications_stub.dart';
 import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
-    import 'package:http/http.dart' as http;
+import 'package:http/http.dart' as http;
 
 // ============================================================
 // API設定
@@ -81,13 +92,13 @@ class JsAwakeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: "J's Inc. 日報報告APP",
+      title: "J's Inc. 職人APP",
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
       home: const LoginScreen(),
       routes: {
-        '/login': (_) => const LoginScreen(),
-        '/gate': (_) => const GateScreen(),
+        '/login':    (_) => const LoginScreen(),
+        '/gate':     (_) => const GateScreen(),
         '/register': (_) => const RegisterScreen(),
       },
     );
@@ -97,6 +108,8 @@ class JsAwakeApp extends StatelessWidget {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      fontFamily: GoogleFonts.notoSansJp().fontFamily,
+
       scaffoldBackgroundColor: JsColors.black,
       colorScheme: const ColorScheme.dark(
         primary:      JsColors.gold,
@@ -180,7 +193,7 @@ enum TransportType {
   bus('バス',     Icons.directions_bus),
   bike('自転車',  Icons.pedal_bike),
   walk('徒歩',    Icons.directions_walk),
-  other('その他', Icons.more_horiz);
+  moto('バイク',  Icons.two_wheeler);
 
   const TransportType(this.label, this.icon);
   final String   label;
@@ -274,7 +287,6 @@ class ReportStore {
   static final ReportStore instance = ReportStore._();
   ReportStore._();
 
-
   Future<List<WorkerReportItem>> loadAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw   = prefs.getString(_K.reports);
@@ -297,24 +309,26 @@ class ReportStore {
     await _sendToAPI([item]);
   }
 
-Future<void> _sendToAPI(List<WorkerReportItem> items) async {
+  Future<void> _sendToAPI(List<WorkerReportItem> items) async {
     try {
       for (final item in items) {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token') ?? '';
         final response = await http.post(
           Uri.parse('$API_URL/reports'),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${(await SharedPreferences.getInstance()).getString('auth_token') ?? ""}',
+            'Authorization': 'Bearer $token',
           },
           body: jsonEncode({
-            'worker_name': item.name,
+            'worker_name':    item.name,
             'worker_company': '',
-            'report_date': item.timestamp.toIso8601String().substring(0, 10),
-            'clock_in_time': item.timeLabel + ':00',
+            'report_date':    item.timestamp.toIso8601String().substring(0, 10),
+            'clock_in_time':  '${item.timeLabel}:00',
             'transport_type': item.transport.name,
-            'parking_fee': item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
-            'gps_address': item.gpsAddress,
-            'work_content': item.workContent,
+            'parking_fee':    item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+            'gps_address':    item.gpsAddress,
+            'work_content':   item.workContent,
           }),
         ).timeout(const Duration(seconds: 10));
         if (response.statusCode != 200 && response.statusCode != 201) {
@@ -322,7 +336,7 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
         } else {
           final resBody = jsonDecode(response.body);
           item.apiReportId = resBody['report_id'] as String?;
-          debugPrint('API 送信成功: ${item.name} id=${item.apiReportId}');
+          debugPrint('API 送信完了: ${item.name} id=${item.apiReportId}');
         }
       }
     } catch (e) {
@@ -426,18 +440,18 @@ class NotificationManager {
     try {
       await _plugin.cancelAll();
       for (final hour in _hours) {
-        final now  = tz.TZDateTime.now(tz.local);
-        var target = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour);
+        final now    = tz.TZDateTime.now(tz.local);
+        var   target = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour);
         if (target.isBefore(now)) target = target.add(const Duration(days: 1));
         await _plugin.zonedSchedule(
           hour,
-          '📋 日報の時間です',
-          "J's Awake App — 本日の報告を送信してください",
+          '⏰ 日報の時間です',
+          "J's Awake App - 本日の報告を送信してください",
           target,
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'js_daily_report', '日報リマインダー',
-              channelDescription: '日報の提出をお知らせします',
+              channelDescription: '日報のリマインダー通知を送信します',
               importance: Importance.high,
               priority:   Priority.high,
             ),
@@ -450,7 +464,7 @@ class NotificationManager {
         );
       }
     } catch (e) {
-      debugPrint('通知スケジュール失敗: $e');
+      debugPrint('定期スケジュール失敗: $e');
     }
   }
 }
@@ -510,22 +524,22 @@ class SpeechManager {
     String?        warning;
 
     final namePatterns = [
-      RegExp(r'([^\s　、。「」]{2,6}?)(?:は|が)(?:電車|車|バス|自転車|徒歩)'),
-      RegExp(r'([^\s　、。「」]{2,6}?)(?:さん|くん|ちゃん)'),
-      RegExp(r'^([^\s　、。「」]{2,6}?)(?:は|が)'),
+      RegExp(r'([^\s、。「」]{2,6}?)(?:です|は)(?:電車|車|バス|自転車|徒歩)'),
+      RegExp(r'([^\s、。「」]{2,6}?)(?:で来ました|でーす|です)'),
+      RegExp(r'^([^\s、。「」]{2,6}?)(?:です|は)'),
     ];
     for (final p in namePatterns) {
       final m = p.firstMatch(text);
       if (m?.group(1) != null) { name = m!.group(1); break; }
     }
 
-    if (text.contains('電車') || text.contains('鉄道') || text.contains('地下鉄')) {
+    if (text.contains('電車') || text.contains('電鉄') || text.contains('鉄道')) {
       transport = TransportType.train;
     } else if (text.contains('自転車') || text.contains('チャリ')) {
       transport = TransportType.bike;
     } else if (text.contains('バス')) {
       transport = TransportType.bus;
-    } else if (text.contains('徒歩') || text.contains('歩き') || text.contains('歩い')) {
+    } else if (text.contains('徒歩') || text.contains('歩き') || text.contains('歩いて')) {
       transport = TransportType.walk;
     } else if (text.contains('車') || text.contains('自動車') || text.contains('クルマ')) {
       transport = TransportType.car;
@@ -564,9 +578,9 @@ Future<String> fetchGpsAddress() async {
     if (!kIsWeb) {
       try {
         final placemarks = await placemarkFromCoordinates(
-  pos.latitude,
-  pos.longitude,
-);
+          pos.latitude,
+          pos.longitude,
+        );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           final parts = [
@@ -574,7 +588,7 @@ Future<String> fetchGpsAddress() async {
             p.subLocality, p.thoroughfare, p.subThoroughfare,
           ].where((e) => e != null && e.isNotEmpty).toList();
           if (p.street != null && p.street!.isNotEmpty) {
-            final s = p.street!;
+            final s   = p.street!;
             final sub = p.subLocality ?? '';
             final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
             if (idx >= 0) return '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
@@ -644,33 +658,61 @@ Future<bool> showConfirmDialog(
 }
 
 // ============================================================
-// 【画面0】GateScreen
+// 画面0: GateScreen
 // ============================================================
+
 class GateScreen extends StatefulWidget {
   const GateScreen({super.key});
   @override
   State<GateScreen> createState() => _GateScreenState();
 }
+
 class _GateScreenState extends State<GateScreen> {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _autoNavigate());
   }
+
   Future<void> _autoNavigate() async {
     final prefs = await SharedPreferences.getInstance();
-    final role = prefs.getString('user_role') ?? 'worker';
+    final role  = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
-    if (role == 'boss' || role == 'admin') { _pushBoss(context); }
-    else { _pushWorker(context); }
+    if (role == 'boss' || role == 'admin') {
+      _pushBoss(context);
+    } else {
+      _pushWorker(context);
+    }
   }
+
   @override
   Widget build(BuildContext context) => const Scaffold(
     backgroundColor: Color(0xFF1A1A1A),
-    body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
-  void _pushWorker(BuildContext context) => Navigator.push(context,
-      MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-        screenTitle: '職人用 — 日報報告', isBossMode: false)));
+    body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
+  );
+
+  Future<void> _pushWorker(BuildContext context) async {
+    final prefs    = await SharedPreferences.getInstance();
+    final userName = prefs.getString('user_name') ?? '';
+    final settings = await WorkSettingsService.instance.getMySettings();
+    if (!context.mounted) return;
+    if (settings.isDeemed) {
+      // みなし勤務 → 直接報告画面
+      Navigator.push(context, MaterialPageRoute(
+          builder: (_) => const SharedWorkerForm(
+            screenTitle: '日報報告', isBossMode: false)));
+    } else {
+      // 実勤務 → 出勤ボタン画面
+      final clocked = await Navigator.push<bool>(context,
+          MaterialPageRoute(builder: (_) => ClockInScreen(userName: userName)));
+      if (clocked == true && context.mounted) {
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => const SharedWorkerForm(
+              screenTitle: '日報報告', isBossMode: false)));
+      }
+    }
+  }
+
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
     bool ok = false;
@@ -681,56 +723,22 @@ class _GateScreenState extends State<GateScreen> {
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
-      } else { ok = true; }
-    } catch (_) { ok = true; }
+      } else {
+        ok = true;
+      }
+    } catch (_) {
+      ok = true;
+    }
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
           builder: (_) => const SharedWorkerForm(
-            screenTitle: '職長・管理者用 — 日報管理', isBossMode: true)));
+            screenTitle: '職長・管理者用 - 日報管理', isBossMode: true)));
     }
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ============================================================
-// 【画面1】SharedWorkerForm
+// 画面1: SharedWorkerForm
 // ============================================================
 
 class SharedWorkerForm extends StatefulWidget {
@@ -747,7 +755,6 @@ class SharedWorkerForm extends StatefulWidget {
 }
 
 class _SharedWorkerFormState extends State<SharedWorkerForm> {
-  final _nameCtrl        = TextEditingController();
   final _feeCtrl         = TextEditingController();
   final _workContentCtrl = TextEditingController();
   final _speechMgr       = SpeechManager();
@@ -761,27 +768,23 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   bool          _isListening  = false;
   bool          _submitting   = false;
   bool          _voiceMode    = false;
+  String        _userName     = '';
+
   Map<String, dynamic>? _selectedSite;
   final RoutesService _routesService = RoutesService();
   Map<String, RouteCalculationResult> _routeComparisons = {};
   bool _loadingRoutes = false;
-
-  List<String> _nameSuggestions = [];
-  bool         _showSuggestions = false;
 
   @override
   void initState() {
     super.initState();
     _speechMgr.initialize();
     _fetchGps();
-    _loadNames();
-    _nameCtrl.addListener(_onNameChanged);
+    _loadUserName();
   }
 
   @override
   void dispose() {
-    _nameCtrl.removeListener(_onNameChanged);
-    _nameCtrl.dispose();
     _feeCtrl.dispose();
     _workContentCtrl.dispose();
     super.dispose();
@@ -793,46 +796,34 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
     if (mounted) setState(() { _gpsAddress = addr; _gpsLoading = false; });
   }
 
-  Future<void> _loadNames() async {
-    final n = await WorkerNameStore.instance.load();
-    if (mounted) setState(() => _nameSuggestions = n);
-  }
-
-  void _onNameChanged() {
-    setState(() => _showSuggestions =
-        _nameCtrl.text.isNotEmpty && _nameSuggestions.isNotEmpty);
+  Future<void> _loadUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name  = prefs.getString('user_name') ?? '';
+    if (mounted) setState(() => _userName = name);
   }
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
     var homeAddr = await ProfileService().getHomeAddress();
-    homeAddr = homeAddr ?? '兵庫県神戸市中央区三宮町1丁目';
+    homeAddr = homeAddr ?? '兵庫県神戸市中央区三宮1-2';
     setState(() => _loadingRoutes = true);
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
-    print('🔍 ルート計算: token=$token homeAddr=$homeAddr gpsAddress=$_gpsAddress');
     final routes = await _routesService.compareRoutes(
-      origin: homeAddr,
+      origin:      homeAddr,
       destination: _gpsAddress,
-      authToken: token,
+      authToken:   token,
     );
     if (mounted) setState(() {
-      print('✅ ルート比較結果: $routes');
       _routeComparisons = routes;
-      _loadingRoutes = false;
+      _loadingRoutes    = false;
     });
-  }
-
-  List<String> get _filtered {
-    final q = _nameCtrl.text;
-    if (q.isEmpty) return _nameSuggestions;
-    return _nameSuggestions.where((n) => n.contains(q)).toList();
   }
 
   Future<void> _startVoiceReport() async {
     final perm = await Permission.microphone.request();
     if (!perm.isGranted) {
-      showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
+      if (mounted) showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
       return;
     }
     setState(() { _isListening = true; _voiceMode = false; });
@@ -842,7 +833,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       builder: (ctx) => _VoiceDialog(
         manager:   _speechMgr,
         title:     '🎤 音声報告モード',
-        hint:      '例：「太郎は電車で来ました」\n「花子は車で来ました 駐車料金1000円」',
+        hint:      '例：「田中は電車で来ました。\n山田は車で来ました 駐車料金500円」',
         onConfirm: (text) { Navigator.pop(ctx); _applyVoiceReport(text); },
         onCancel:  () { _speechMgr.cancel(); Navigator.pop(ctx); },
       ),
@@ -853,8 +844,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   void _applyVoiceReport(String text) {
     final r = _speechMgr.extractInfo(text);
     setState(() {
-      if (r.name != null)      _nameCtrl.text = r.name!;
-      if (r.transport != null) _transport     = r.transport!;
+      if (r.transport != null) _transport = r.transport!;
       if (r.parkingFee != null) {
         _feeCtrl.text = r.parkingFee!;
       } else {
@@ -868,7 +858,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   Future<void> _startVoiceWork() async {
     final perm = await Permission.microphone.request();
     if (!perm.isGranted) {
-      showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
+      if (mounted) showJsSnackbar(context, 'マイクの権限が必要です', isError: true);
       return;
     }
     setState(() { _isListening = true; _voiceMode = true; });
@@ -878,14 +868,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       builder: (ctx) => _VoiceDialog(
         manager:   _speechMgr,
         title:     '🎤 作業内容 音声入力',
-        hint:      '例：「1階電気配線工事 コンセント10箇所設置」',
+        hint:      '例：「3階電気配線工事 コンセント20箇所設置」',
         onConfirm: (text) {
           Navigator.pop(ctx);
           setState(() {
             if (_workContentCtrl.text.isEmpty) {
               _workContentCtrl.text = text;
             } else {
-              _workContentCtrl.text += '。$text';
+              _workContentCtrl.text += '、$text';
             }
           });
         },
@@ -898,46 +888,44 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
   Future<void> _takeParkingPhoto() async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
-      showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
+      if (mounted) showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
       return;
     }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _photoPath = f.path);
-      showJsSnackbar(context, '✅ 領収書の写真を撮影しました');
+      showJsSnackbar(context, '📷 駐車場の写真を撮影しました');
     }
   }
 
   Future<void> _takeWorkPhoto() async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
-      showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
+      if (mounted) showJsSnackbar(context, 'カメラの権限が必要です', isError: true);
       return;
     }
     final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
       setState(() => _workPhotoPath = f.path);
-      showJsSnackbar(context, '✅ 作業写真を撮影しました');
+      showJsSnackbar(context, '📷 作業写真を撮影しました');
     }
   }
 
   Future<bool> _validate() async {
-    if (_nameCtrl.text.trim().isEmpty) {
-      showJsSnackbar(context, '名前を入力してください', isError: true);
-      return false;
-    }
     if (_transport == TransportType.car) {
       final fee      = _feeCtrl.text.trim();
       final hasPhoto = _photoPath != null;
       if (fee.isEmpty && !hasPhoto) {
-        showJsSnackbar(context, '車の場合は駐車料金または領収書写真が必要です', isError: true);
+        if (mounted) showJsSnackbar(context, '車の場合は駐車料金または駐車場の写真が必要です', isError: true);
         return false;
       }
       if (fee.isNotEmpty && !hasPhoto) {
         final ok = await showConfirmDialog(context,
-          title: '⚠️ 写真なしで送信しますか？',
-          message: '駐車料金 $fee 円のみで送信します。\n推奨：領収書の写真も撮影してください。',
-          confirmText: 'このまま送信', cancelText: '写真を撮る');
+          title:       '⚠️ 写真なしで送信しますか？',
+          message:     '駐車料金: $fee 円のみで送信します。\n領収書・精算書の写真も撮影してください。',
+          confirmText: 'このまま送信',
+          cancelText:  '写真を撮る',
+        );
         if (!ok) return false;
       }
     }
@@ -950,8 +938,10 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
     if (!valid) return;
 
     setState(() => _submitting = true);
-    final name = _nameCtrl.text.trim();
-    await WorkerNameStore.instance.add(name);
+
+    final prefs = await SharedPreferences.getInstance();
+    final name  = prefs.getString('user_name') ?? _userName;
+
     await ReportStore.instance.addReport(WorkerReportItem(
       name:             name,
       transport:        _transport,
@@ -961,18 +951,51 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
     ));
+
     if (mounted) {
+      // transportLabelをリセット前に取得
+      final transportLabel = {
+        'train': '電車', 'car': '車', 'bus': 'バス',
+        'bike': '自転車', 'walk': '徒歩', 'moto': 'バイク',
+      }[_transport.name] ?? _transport.name;
+      final savedGps         = _gpsAddress;
+      final savedWork        = _workContentCtrl.text.trim();
+      final savedParkingPhoto = _photoPath;
+      final savedWorkPhoto    = _workPhotoPath;
       setState(() {
         _submitting    = false;
         _transport     = TransportType.train;
         _photoPath     = null;
         _workPhotoPath = null;
       });
-      _nameCtrl.clear();
       _feeCtrl.clear();
       _workContentCtrl.clear();
-      await _loadNames();
       showJsSnackbar(context, '✅ ${name}の報告を送信しました');
+      // 送信後画面に遷移
+      final now = DateTime.now();
+      final timeStr = '${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';
+      final result = await Navigator.push(context,
+          MaterialPageRoute(builder: (_) => AfterReportScreen(
+            workerName:  name,
+            reportTime:  timeStr,
+            gpsAddress:       savedGps,
+            transport:        transportLabel,
+            workContent:      savedWork,
+            reportType:       'daily',
+            parkingPhotoPath: savedParkingPhoto,
+            workPhotoPath:    savedWorkPhoto,
+          )));
+      if (result != null && mounted) {
+        final action = result['action'] as String?;
+        if (action == 'move') {
+          final newAddr = result['newAddress'] as String? ?? '';
+          setState(() => _gpsAddress = newAddr);
+          // 現場移動時は再度報告できるようにsubmittingリセット
+          await _fetchGps();
+        }
+      }
+      // 戻るボタン押した時もsubmittingリセット
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -1017,7 +1040,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
               onPressed: () async {
                 await nm.setHours(current.toList());
                 if (ctx.mounted) Navigator.pop(ctx);
-                showJsSnackbar(context, '✅ 通知時刻を更新しました');
+                if (mounted) showJsSnackbar(context, '✅ 通知時刻を更新しました');
               },
               child: const Text('保存'),
             ),
@@ -1032,7 +1055,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.screenTitle),
-        actions: widget.isBossMode ? [
+        automaticallyImplyLeading: false,
+        actions: [
+          if (widget.isBossMode) ...[
           IconButton(
             icon: const Icon(Icons.inbox),
             tooltip: '受信トレイ',
@@ -1050,17 +1075,29 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
           ),
           IconButton(
             icon: const Icon(Icons.people),
-            tooltip: '職人名管理',
+            tooltip: '職人名前管理',
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const WorkerNameScreen()))
-                .then((_) => _loadNames()),
+                MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_active),
+            tooltip: '勤務設定',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const WorkSettingsScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever),
+            tooltip: 'データ保持管理',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RetentionScreen())),
           ),
           IconButton(
             icon: const Icon(Icons.notifications_active),
             tooltip: '通知設定',
             onPressed: _openNotifSettings,
           ),
-        ] : null,
+          ],
+        ],
       ),
       floatingActionButton: widget.isBossMode
           ? FloatingActionButton.extended(
@@ -1069,17 +1106,47 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
               backgroundColor: JsColors.gold,
               foregroundColor: Colors.black,
               icon:  const Icon(Icons.assessment),
-              label: const Text('集計モードへ',
+              label: const Text('集計レポート',
                   style: TextStyle(fontWeight: FontWeight.bold)),
             )
           : null,
-      body: SafeArea(
+      body: PopScope(
+        canPop: false,
+        child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
+              _GpsCard(
+                address:   _gpsAddress,
+                isLoading: _gpsLoading,
+                onRefresh: _fetchGps,
+              ),
+              const SizedBox(height: 12),
+
+              if (_userName.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: JsColors.divider),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.person, color: JsColors.gold, size: 18),
+                    const SizedBox(width: 8),
+                    Text(_userName,
+                        style: const TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        )),
+                    const Spacer(),
+                    const Icon(Icons.lock_outline, color: JsColors.silver, size: 14),
+                  ]),
+                ),
+
               const SizedBox(height: 20),
 
               SizedBox(
@@ -1087,22 +1154,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
                 child: OutlinedButton.icon(
                   onPressed: _isListening ? null : _startVoiceReport,
                   icon: Icon(_isListening && !_voiceMode ? Icons.mic : Icons.mic_none),
-                  label: Text(_isListening && !_voiceMode ? '聞いています...' : '🎤  音声報告モード'),
+                  label: Text(_isListening && !_voiceMode ? '聴いています..' : '🎤  音声報告モード'),
                 ),
               ),
 
               const _DividerLabel(label: 'または手動入力'),
-
-              _NameField(
-                controller: _nameCtrl,
-                suggestions: _filtered,
-                showSuggestions: _showSuggestions && _filtered.isNotEmpty,
-                onSelect: (n) => setState(() {
-                  _nameCtrl.text = n;
-                  _showSuggestions = false;
-                }),
-              ),
-              const SizedBox(height: 16),
 
               const _Label(text: '本日の交通手段 *'),
               const SizedBox(height: 8),
@@ -1116,19 +1172,109 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
                   await _calculateRoutes();
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
+
+              // ルート情報表示
+              if (_loadingRoutes)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Row(children: [
+                    SizedBox(width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+                    SizedBox(width: 8),
+                    Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+                  ]),
+                ),
+
+              if (!_loadingRoutes && _routeComparisons.isNotEmpty)
+                Builder(builder: (context) {
+                  // TransportType -> API key mapping
+                  const keyMap = {
+                    'train': 'transit',
+                    'car':   'driving',
+                    'bus':   'transit',
+                    'bike':  'bicycling',
+                    'walk':  'walking',
+                    'moto':  'driving',
+                  };
+                  final key = keyMap[_transport.name] ?? 'driving';
+                  final route = _routeComparisons[key];
+                  if (route == null) {
+                    // ルートデータ未取得時は再計算を促す
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: JsColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: JsColors.divider),
+                      ),
+                      child: const Row(children: [
+                        Icon(Icons.info_outline, color: JsColors.silver, size: 14),
+                        SizedBox(width: 8),
+                        Text('交通手段を選択するとルートを取得します',
+                            style: TextStyle(color: JsColors.silver, fontSize: 12)),
+                      ]),
+                    );
+                  }
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: JsColors.surface,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: JsColors.gold.withValues(alpha: 0.5)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(children: [
+                          const Icon(Icons.straighten, color: JsColors.silver, size: 14),
+                          const SizedBox(height: 2),
+                          Text(route.distance,
+                              style: const TextStyle(color: JsColors.offWhite,
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          const Text('距離', style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                        ]),
+                        Container(width: 1, height: 36, color: JsColors.divider),
+                        Column(children: [
+                          const Icon(Icons.access_time, color: JsColors.silver, size: 14),
+                          const SizedBox(height: 2),
+                          Text(route.duration,
+                              style: const TextStyle(color: JsColors.offWhite,
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          const Text('所要時間', style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                        ]),
+                        Container(width: 1, height: 36, color: JsColors.divider),
+                        Column(children: [
+                          const Icon(Icons.payments, color: JsColors.gold, size: 14),
+                          const SizedBox(height: 2),
+                          Text(route.fare != null && route.fare!.isNotEmpty
+                              ? '¥${route.fare}'
+                              : route.estimatedGasCost != null
+                                  ? 'ガソリン代¥${route.estimatedGasCost}'
+                                  : '-',
+                              style: const TextStyle(color: JsColors.gold,
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          const Text('料金', style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                        ]),
+                      ],
+                    ),
+                  );
+                }),
+
+              const SizedBox(height: 8),
 
               if (_transport == TransportType.car) ...[
                 _ParkingSection(
-                  controller: _feeCtrl,
-                  photoPath:  _photoPath,
+                  controller:   _feeCtrl,
+                  photoPath:    _photoPath,
                   onTakePhoto:  _takeParkingPhoto,
                   onClearPhoto: () => setState(() => _photoPath = null),
                 ),
                 const SizedBox(height: 16),
               ],
 
-              // 作業内容セクション
               const _Label(text: '作業内容'),
               const SizedBox(height: 8),
               TextField(
@@ -1136,7 +1282,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
                 maxLines: 3,
                 decoration: const InputDecoration(
                   labelText: '作業内容を入力',
-                  hintText: '例：1階電気配線工事 コンセント10箇所設置',
+                  hintText:  '例：3階電気配線工事 コンセント20箇所設置',
                   prefixIcon: Icon(Icons.construction, color: JsColors.silver),
                   alignLabelWithHint: true,
                 ),
@@ -1152,7 +1298,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
                         _isListening && _voiceMode ? Icons.mic : Icons.mic_none,
                         size: 18),
                     label: Text(
-                      _isListening && _voiceMode ? '聞いています...' : '🎤 音声で作業内容入力',
+                      _isListening && _voiceMode ? '聴いています..' : '🎤 音声で作業内容入力',
                       style: const TextStyle(fontSize: 13),
                     ),
                     style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
@@ -1203,6 +1349,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> {
           ),
         ),
       ),
+        ),
     );
   }
 }
@@ -1265,50 +1412,6 @@ class _GpsCard extends StatelessWidget {
         padding: EdgeInsets.zero, constraints: const BoxConstraints(),
       ),
     ]),
-  );
-}
-
-class _NameField extends StatelessWidget {
-  const _NameField({
-    required this.controller, required this.suggestions,
-    required this.showSuggestions, required this.onSelect,
-  });
-  final TextEditingController controller;
-  final List<String> suggestions;
-  final bool showSuggestions;
-  final void Function(String) onSelect;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      TextField(
-        controller: controller,
-        decoration: const InputDecoration(
-          labelText: '名前 *',
-          prefixIcon: Icon(Icons.person, color: JsColors.silver),
-        ),
-        style: const TextStyle(color: JsColors.offWhite),
-        textInputAction: TextInputAction.next,
-      ),
-      if (showSuggestions)
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          decoration: BoxDecoration(
-            color: JsColors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JsColors.divider),
-          ),
-          child: Column(
-            children: suggestions.take(5).map((n) => ListTile(
-              dense: true,
-              leading: const Icon(Icons.person_outline, color: JsColors.silver, size: 18),
-              title: Text(n, style: const TextStyle(color: JsColors.offWhite)),
-              onTap: () => onSelect(n),
-            )).toList(),
-          ),
-        ),
-    ],
   );
 }
 
@@ -1411,7 +1514,7 @@ class _ParkingSection extends StatelessWidget {
           child: Row(children: const [
             Icon(Icons.info_outline, color: JsColors.silver, size: 14),
             SizedBox(width: 4),
-            Text('領収書の写真も撮影することを推奨します',
+            Text('領収書の写真を撮影することを推奨します',
                 style: TextStyle(color: JsColors.silver, fontSize: 11)),
           ]),
         ),
@@ -1503,7 +1606,7 @@ class _VoiceDialogState extends State<_VoiceDialog>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _listening
-                  ? JsColors.gold.withOpacity(0.15 + _pulse.value * 0.15)
+                  ? JsColors.gold.withValues(alpha: 0.15 + _pulse.value * 0.15)
                   : JsColors.gunmetal,
             ),
             child: Icon(
@@ -1513,7 +1616,7 @@ class _VoiceDialogState extends State<_VoiceDialog>
           ),
         ),
         const SizedBox(height: 6),
-        Text(_listening ? '聞いています...' : '認識完了',
+        Text(_listening ? '聴いています..' : '認識完了',
             style: TextStyle(
                 color: _listening ? JsColors.gold : JsColors.silver, fontSize: 12)),
         const SizedBox(height: 14),
@@ -1556,7 +1659,7 @@ class _VoiceDialogState extends State<_VoiceDialog>
 }
 
 // ============================================================
-// 【画面2】WorkerNameScreen
+// 画面2: WorkerNameScreen
 // ============================================================
 
 class WorkerNameScreen extends StatefulWidget {
@@ -1570,9 +1673,9 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
   List<String> _names = [];
 
   @override
-  void initState()  { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); }
   @override
-  void dispose()    { _ctrl.dispose(); super.dispose(); }
+  void dispose()   { _ctrl.dispose(); super.dispose(); }
 
   Future<void> _load() async {
     final n = await WorkerNameStore.instance.load();
@@ -1585,19 +1688,25 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
     await WorkerNameStore.instance.add(name);
     _ctrl.clear();
     await _load();
-    showJsSnackbar(context, '✅ 「$name」を追加しました');
+    if (mounted) showJsSnackbar(context, '✅ 「$name」を追加しました');
   }
 
   Future<void> _delete(String name) async {
     final ok = await showConfirmDialog(context,
-      title: '削除確認', message: '「$name」を削除しますか？',
-      confirmText: '削除', isDanger: true);
-    if (ok) { await WorkerNameStore.instance.remove(name); await _load(); }
+      title:       '削除確認',
+      message:     '「$name」を削除しますか？',
+      confirmText: '削除',
+      isDanger:    true,
+    );
+    if (ok) {
+      await WorkerNameStore.instance.remove(name);
+      await _load();
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('職人名管理')),
+    appBar: AppBar(title: const Text('職人名前管理')),
     body: Column(children: [
       Padding(
         padding: const EdgeInsets.all(16),
@@ -1625,7 +1734,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
       const Divider(height: 1),
       Expanded(
         child: _names.isEmpty
-            ? const Center(child: Text('職人名が登録されていません',
+            ? const Center(child: Text('職人が登録されていません',
                 style: TextStyle(color: JsColors.silver)))
             : ReorderableListView.builder(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1653,7 +1762,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
 }
 
 // ============================================================
-// 【画面3】SummaryScreen
+// 画面3: SummaryScreen
 // ============================================================
 
 class SummaryScreen extends StatefulWidget {
@@ -1694,16 +1803,19 @@ class _SummaryScreenState extends State<SummaryScreen> {
     if (!mounted) return;
     final reportId = item.apiReportId ?? item.id;
     await Navigator.push(context, MaterialPageRoute(builder: (_) => ShareScreen(
-      reportId: reportId,
+      reportId:   reportId,
       workerName: item.name,
       reportDate: item.timestamp.toIso8601String().substring(0, 10),
     )));
   }
+
   Future<void> _clearAll() async {
     final ok = await showConfirmDialog(context,
-      title: '⚠️ 全件削除',
-      message: '全ての報告データを削除します。\nこの操作は取り消せません。',
-      confirmText: '削除する', isDanger: true);
+      title:       '⚠️ 全件削除',
+      message:     '全ての報告データを削除します。\nこの操作は取り消せません。',
+      confirmText: '削除する',
+      isDanger:    true,
+    );
     if (ok) {
       await ReportStore.instance.clearAll();
       setState(() { _all.clear(); _today.clear(); });
@@ -1714,9 +1826,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
     final active = _shown.where((r) => r.isActive).toList();
     if (active.isEmpty) return '報告データがありません';
 
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}/${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}';
+    final now     = DateTime.now();
+    final dateStr = '${now.year}/${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}';
 
     final Map<String, List<WorkerReportItem>> grouped = {};
     for (final r in active) {
@@ -1726,16 +1837,16 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
     final buf = StringBuffer();
     buf.writeln("【J's 日報報告】");
-    buf.writeln('報告日付：$dateStr');
+    buf.writeln('報告日：$dateStr');
     buf.writeln();
 
     for (final entry in grouped.entries) {
-      buf.writeln('■ 現場住所：${entry.key}');
+      buf.writeln('📍 現場住所：${entry.key}');
       buf.writeln();
       final workers = entry.value
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       for (final w in workers) {
-        buf.writeln('【${w.timeLabel}】${w.name}：${w.transport.label}');
+        buf.writeln('・${w.timeLabel} ${w.name}（${w.transport.label}）');
         if (w.parkingFee != null && w.parkingFee!.isNotEmpty) {
           buf.writeln('　駐車料金：${w.parkingFee}円${w.parkingPhotoPath != null ? ' 📷' : ''}');
         }
@@ -1749,29 +1860,49 @@ class _SummaryScreenState extends State<SummaryScreen> {
     return buf.toString();
   }
 
-  // 写真ウィジェットリスト生成
   List<Widget> _buildPhotoWidgets() {
-    final active = _shown.where((r) => r.isActive).toList();
+    final active  = _shown.where((r) => r.isActive).toList();
     final widgets = <Widget>[];
     for (final r in active) {
       if (r.parkingPhotoPath != null && File(r.parkingPhotoPath!).existsSync()) {
         widgets.add(_PhotoPreview(
-          label: '${r.name} — 駐車料金領収書',
-          path: r.parkingPhotoPath!,
+          label: '${r.name} - 駐車場の領収書',
+          path:  r.parkingPhotoPath!,
         ));
       }
       if (r.workPhotoPath != null && File(r.workPhotoPath!).existsSync()) {
         widgets.add(_PhotoPreview(
-          label: '${r.name} — 作業写真',
-          path: r.workPhotoPath!,
+          label: '${r.name} - 作業写真',
+          path:  r.workPhotoPath!,
         ));
       }
     }
     return widgets;
   }
 
+  Future<void> _exportPdf() async {
+    if (_shown.isEmpty) {
+      showJsSnackbar(context, '出力する報告がありません', isWarning: true);
+      return;
+    }
+    try {
+      showJsSnackbar(context, 'PDF生成中...');
+      final active  = _shown.where((r) => r.isActive).toList();
+      final date    = DateTime.now().toIso8601String().substring(0, 10);
+      final reports = active.map((r) => r.toJson()).toList();
+      final file    = await PdfService.instance.generateDailyReport(
+        date:     date,
+        siteName: '',
+        reports:  reports,
+      );
+      if (mounted) await PdfService.instance.sharePdf(file, date);
+    } catch (e) {
+      if (mounted) showJsSnackbar(context, 'PDF生成失敗', isError: true);
+    }
+  }
+
   Future<void> _shareReport() async {
-    final active = _shown.where((r) => r.isActive).toList();
+    final active     = _shown.where((r) => r.isActive).toList();
     final photoPaths = <String>[];
     for (final r in active) {
       if (r.parkingPhotoPath != null && File(r.parkingPhotoPath!).existsSync()) {
@@ -1810,7 +1941,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ヘッダー
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 8, 0),
               child: Row(
@@ -1830,21 +1960,18 @@ class _SummaryScreenState extends State<SummaryScreen> {
               ),
             ),
             const Divider(),
-            // コンテンツ
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // テキスト
                     SelectableText(_buildReportText(),
                         style: const TextStyle(
                             color: JsColors.offWhite,
                             height: 1.7,
                             fontFamily: 'monospace',
                             fontSize: 13)),
-                    // 写真
                     if (photoWidgets.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       const Divider(),
@@ -1860,14 +1987,13 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 ),
               ),
             ),
-            // ボタン
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () { Navigator.pop(ctx); _shareReport(); },
-                  icon: const Icon(Icons.share, size: 16),
+                  icon:  const Icon(Icons.share, size: 16),
                   label: const Text('共有する'),
                 ),
               ),
@@ -1887,21 +2013,33 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('集計・日報'),
+        title: const Text('集計の確認'),
         actions: [
           TextButton(
             onPressed: () => setState(() => _showAll = !_showAll),
-            child: Text(_showAll ? '今日のみ' : '全件表示',
+            child: Text(_showAll ? '本日のみ' : '全件表示',
                 style: const TextStyle(color: JsColors.gold)),
           ),
-          IconButton(icon: const Icon(Icons.preview), tooltip: 'プレビュー', onPressed: _previewReport),
-          IconButton(icon: const Icon(Icons.delete_sweep), tooltip: '全件削除', onPressed: _clearAll),
+          IconButton(
+            icon: const Icon(Icons.preview),
+            tooltip: 'プレビュー',
+            onPressed: _previewReport,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: '全件削除',
+            onPressed: _clearAll,
+          ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
           : Column(children: [
-              _SummaryCard(count: active.length, totalFee: totalFee, dateMode: _showAll ? '全件' : '本日'),
+              _SummaryCard(
+                count:    active.length,
+                totalFee: totalFee,
+                dateMode: _showAll ? '全件' : '本日',
+              ),
               const Divider(height: 1),
               Expanded(
                 child: _shown.isEmpty
@@ -1948,6 +2086,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 onPressed: _shareReport,
                 icon:  const Icon(Icons.share),
                 label: const Text('共有する'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _exportPdf,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('PDF'),
+                style: ElevatedButton.styleFrom(backgroundColor: JsColors.error, foregroundColor: Colors.white),
               ),
             ),
           ]),
@@ -2001,9 +2148,9 @@ class _PhotoPreview extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Image.file(
               File(path),
-              width: double.infinity,
+              width:  double.infinity,
               height: 180,
-              fit: BoxFit.cover,
+              fit:    BoxFit.cover,
             ),
           ),
         ),
@@ -2040,7 +2187,7 @@ class _SummaryCard extends StatelessWidget {
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        _StatItem(label: '$dateMode の報告数', value: '$count 件'),
+        _StatItem(label: '$dateMode の報告数',  value: '$count 件'),
         Container(width: 1, height: 36, color: JsColors.divider),
         _StatItem(label: '駐車料金合計', value: '¥ ${_fmt(totalFee)}'),
       ],
@@ -2067,7 +2214,12 @@ class _StatItem extends StatelessWidget {
 // ============================================================
 
 class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.item, required this.onToggle, required this.onDelete, required this.onShare});
+  const _ReportCard({
+    required this.item,
+    required this.onToggle,
+    required this.onDelete,
+    required this.onShare,
+  });
   final WorkerReportItem item;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
@@ -2096,7 +2248,7 @@ class _ReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedOpacity(
-    opacity: item.isActive ? 1.0 : 0.38,
+    opacity:  item.isActive ? 1.0 : 0.38,
     duration: const Duration(milliseconds: 200),
     child: Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -2200,5 +2352,5 @@ class _Badge extends StatelessWidget {
 }
 
 // ============================================================
-// END OF FILE — J's Awake App v1.1.1
+// END OF FILE - J's Awake App v1.2.0
 // ============================================================

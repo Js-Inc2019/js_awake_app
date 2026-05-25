@@ -1,4 +1,4 @@
-name: js_awake_app
+﻿name: js_awake_app
 description: "株式会社J's 電気工事業 日報アプリ v1.0.0"
 publish_to: 'none'
 version: 1.0.0+1
@@ -8,6 +8,8 @@ environment:
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
 
   # 音声認識
@@ -37,6 +39,12 @@ dependencies:
   # ローカルデータ保存
   shared_preferences: ^2.3.3
   http: ^1.6.0
+  google_fonts: ^6.2.1
+  # PDF生成
+  pdf: ^3.10.8
+  printing: ^5.12.0
+  # ファイル保存
+  path_provider: ^2.1.2
   geocoding: ^4.0.0
   device_info_plus: ^12.4.0
 
