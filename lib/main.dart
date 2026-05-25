@@ -1260,7 +1260,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               // 2. 移動手段（展開式）
               _ExpandableSection(
                 icon: Icons.directions_car,
-                title: '移動手段',
+                title: '移動手段  ※複数はダブルタップ',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1403,7 +1403,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                         controller: _transportMemoCtrl,
                         decoration: const InputDecoration(
                           labelText: '移動手段の補足（任意）',
-                          hintText: '例：バイクで駅まで→電車→徒歩10分',
+                          hintText: '例：バイクで駅まで → 電車 → 徒歩10分',
                           prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
                         ),
                         style: const TextStyle(color: JsColors.offWhite),
