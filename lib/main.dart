@@ -1276,11 +1276,25 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                         child: GestureDetector(
                           onTap: () async {
                             final newSet = Set<TransportType>.from(_transports);
-                            if (selected) {
-                              if (newSet.length > 1) newSet.remove(t);
-                            } else {
+                            if (!selected) {
+                              // 1タップ: 排他選択
+                              newSet.clear();
+                              newSet.add(t);
+                            } else if (newSet.length > 1) {
+                              newSet.remove(t);
+                            }
+                            if (!newSet.contains(TransportType.car)) {
+                              _feeCtrl.clear(); _photoPath = null;
+                            }
+                            setState(() => _transports = newSet);
+                            await _calculateRoutes();
+                          },
+                          onDoubleTap: () async {
+                            final newSet = Set<TransportType>.from(_transports);
+                            if (!newSet.contains(t)) {
                               newSet.add(t);
                               if (newSet.length >= 2) {
+                                if (!context.mounted) return;
                                 final ok = await showConfirmDialog(context,
                                   title: '⚠️ 複数の移動手段',
                                   message: '移動手段が2つ以上選択されています。\nよろしいですか？',
@@ -1288,12 +1302,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                                 );
                                 if (!ok) return;
                               }
+                              if (!newSet.contains(TransportType.car)) {
+                                _feeCtrl.clear(); _photoPath = null;
+                              }
+                              setState(() => _transports = newSet);
+                              await _calculateRoutes();
                             }
-                            if (!newSet.contains(TransportType.car)) {
-                              _feeCtrl.clear(); _photoPath = null;
-                            }
-                            setState(() => _transports = newSet);
-                            await _calculateRoutes();
                           },
                           child: Container(
                             margin: EdgeInsets.only(right: t != TransportType.other ? 6 : 0),
