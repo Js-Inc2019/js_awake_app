@@ -789,9 +789,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final _speechMgr       = SpeechManager();
   final _imagePicker     = ImagePicker();
 
-  TransportType _transport    = TransportType.train;
-  String _carType = 'own'; // 'own'=社用車・自家用車 'carpool'=相乗り
+  Set<TransportType> _transports = {TransportType.train};
+  TransportType get _transport => _transports.isNotEmpty ? _transports.first : TransportType.train;
+  String _carType = 'own';
   final _carpoolCtrl = TextEditingController();
+  final _transportMemoCtrl = TextEditingController();
   String?       _photoPath;
   String?       _workPhotoPath;
   String        _gpsAddress   = '';
@@ -828,6 +830,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _workContentCtrl.dispose();
     _otherCtrl.dispose();
     _carpoolCtrl.dispose();
+    _transportMemoCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -917,7 +920,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     final r = _speechMgr.extractInfo(text);
     setState(() {
       if (r.name != null)      _nameCtrl.text = r.name!;
-      if (r.transport != null) _transport     = r.transport!;
+      if (r.transport != null) _transports = {r.transport!};
       if (r.parkingFee != null) {
         _feeCtrl.text = r.parkingFee!;
       } else {
@@ -1046,7 +1049,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (mounted) {
       setState(() {
         _submitting    = false;
-        _transport     = TransportType.train;
+        _transports = {TransportType.train};
         _photoPath     = null;
         _workPhotoPath = null;
       });
@@ -1055,7 +1058,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _workContentCtrl.clear();
       _otherCtrl.clear();
       _carpoolCtrl.clear();
-      setState(() => _carType = 'own');
+      _transportMemoCtrl.clear();
+      setState(() { _carType = 'own'; _transports = {TransportType.train}; });
       await _loadNames();
       if (!mounted) return;
       showJsSnackbar(context, '✅ \${name}の報告を送信しました');
@@ -1067,7 +1071,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             Navigator.pop(context);
             setState(() {
               _gpsAddress = '';
-              _transport = TransportType.train;
+              _transports = {TransportType.train};
               _photoPath = null;
               _workPhotoPath = null;
               _routeComparisons = {};
@@ -1081,7 +1085,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           onNightShift: () {
             Navigator.pop(context);
             setState(() {
-              _transport = TransportType.train;
+              _transports = {TransportType.train};
               _photoPath = null;
               _workPhotoPath = null;
               _routeComparisons = {};
@@ -1259,18 +1263,75 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               ),
               const SizedBox(height: 16),
 
-              const _Label(text: '本日の交通手段 *'),
+              const _Label(text: '本日の交通手段 * （複数選択可）'),
               const SizedBox(height: 8),
-              _TransportSelector(
-                selected: _transport,
-                onChanged: (t) async {
-                  setState(() {
-                    _transport = t;
-                    if (t != TransportType.car) { _feeCtrl.clear(); _photoPath = null; }
-                  });
-                  await _calculateRoutes();
-                },
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: [
+                  TransportType.train,
+                  TransportType.bus,
+                  TransportType.car,
+                  TransportType.other,
+                ].map((t) {
+                  final selected = _transports.contains(t);
+                  return GestureDetector(
+                    onTap: () async {
+                      final newSet = Set<TransportType>.from(_transports);
+                      if (selected) {
+                        if (newSet.length > 1) newSet.remove(t);
+                      } else {
+                        newSet.add(t);
+                        if (newSet.length >= 2) {
+                          final ok = await showConfirmDialog(context,
+                            title: '⚠️ 複数の移動手段',
+                            message: '移動手段が2つ以上選択されています。\nよろしいですか？',
+                            confirmText: 'OK',
+                            cancelText: 'キャンセル',
+                          );
+                          if (!ok) return;
+                        }
+                      }
+                      if (!newSet.contains(TransportType.car)) {
+                        _feeCtrl.clear();
+                        _photoPath = null;
+                      }
+                      setState(() => _transports = newSet);
+                      await _calculateRoutes();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: selected ? JsColors.gold : JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: selected ? JsColors.gold : JsColors.divider),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(t.icon, size: 16, color: selected ? Colors.black : JsColors.silver),
+                        const SizedBox(width: 5),
+                        Text(t.label, style: TextStyle(
+                          color: selected ? Colors.black : JsColors.offWhite,
+                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        )),
+                      ]),
+                    ),
+                  );
+                }).toList(),
               ),
+              const SizedBox(height: 10),
+              if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
+                TextField(
+                  controller: _transportMemoCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '移動手段の補足（任意）',
+                    hintText: '例：バイクで駅まで→電車→徒歩10分',
+                    prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
+                  ),
+                  style: const TextStyle(color: JsColors.offWhite),
+                ),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 6),
               const SizedBox(height: 8),
 
               if (_loadingRoutes)
