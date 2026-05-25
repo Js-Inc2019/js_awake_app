@@ -1,127 +1,119 @@
-﻿// lib/services/work_mode_service.dart
+// ============================================================
+// lib/services/work_mode_service.dart
+// ============================================================
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import '../models/work_mode.dart';
 
-const String _API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _apiBase = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+
+enum WorkModeType { deemed, actual }
+
+class WorkModeSettings {
+  final WorkModeType mode;
+  final String deemedStart;
+  final String deemedEnd;
+  final int breakMinutes;
+  const WorkModeSettings({
+    this.mode = WorkModeType.deemed,
+    this.deemedStart = '08:00',
+    this.deemedEnd = '17:00',
+    this.breakMinutes = 60,
+  });
+  static WorkModeSettings fromJson(Map<String, dynamic> j) => WorkModeSettings(
+    mode: j['work_mode'] == 'actual' || j['mode'] == 'actual'
+        ? WorkModeType.actual : WorkModeType.deemed,
+    deemedStart:  j['deemed_start']  as String? ?? '08:00',
+    deemedEnd:    j['deemed_end']    as String? ?? '17:00',
+    breakMinutes: j['break_minutes'] as int?    ?? 60,
+  );
+  static const WorkModeSettings defaults = WorkModeSettings();
+}
 
 class WorkModeService {
   static final WorkModeService instance = WorkModeService._();
   WorkModeService._();
+  static const _keyMode = 'work_mode';
+  static const _keyDeemedStart = 'deemed_start';
+  static const _keyDeemedEnd = 'deemed_end';
+  static const _keyBreakMinutes = 'break_minutes';
+  static const _keyCheckedIn = 'work_checked_in';
+  static const _keyCheckInTime = 'work_check_in_time';
 
-  static const _kSessions = 'work_sessions';
-  static const _kActiveId = 'active_session_id';
-
-  Future<List<WorkSession>> loadAll() async {
+  Future<WorkModeSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw   = prefs.getString(_kSessions);
-    if (raw == null) return [];
-    try {
-      final list = jsonDecode(raw) as List<dynamic>;
-      return list.map((e) => WorkSession.fromJson(e as Map<String, dynamic>)).toList();
-    } catch (_) { return []; }
-  }
-
-  Future<WorkSession?> loadToday() async {
-    final all   = await loadAll();
-    final today = DateTime.now();
-    try {
-      return all.lastWhere((s) =>
-          s.date.year  == today.year &&
-          s.date.month == today.month &&
-          s.date.day   == today.day);
-    } catch (_) { return null; }
-  }
-
-  Future<String?> getActiveId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kActiveId);
-  }
-
-  Future<void> _saveAll(List<WorkSession> sessions) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kSessions, jsonEncode(sessions.map((s) => s.toJson()).toList()));
-  }
-
-  Future<WorkSession> startDeemed() async {
-    final now     = DateTime.now();
-    final session = WorkSession(mode: WorkModeType.deemed, date: now);
-    final all     = await loadAll();
-    all.removeWhere((s) =>
-        s.date.year == now.year && s.date.month == now.month && s.date.day == now.day);
-    all.add(session);
-    await _saveAll(all);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kActiveId);
-    await _sendToAPI(session);
-    return session;
-  }
-
-  Future<WorkSession> clockIn() async {
-    final now     = DateTime.now();
-    final session = WorkSession(mode: WorkModeType.actual, date: now, clockIn: now);
-    final all     = await loadAll();
-    all.removeWhere((s) =>
-        s.date.year == now.year && s.date.month == now.month && s.date.day == now.day);
-    all.add(session);
-    await _saveAll(all);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kActiveId, session.id);
-    await _sendToAPI(session);
-    return session;
-  }
-
-  Future<WorkSession?> clockOut() async {
-    final now    = DateTime.now();
-    final all    = await loadAll();
-    final prefs  = await SharedPreferences.getInstance();
-    final active = prefs.getString(_kActiveId);
-    final idx    = all.indexWhere((s) => s.id == active);
-    if (idx < 0) return null;
-    final old     = all[idx];
-    final updated = WorkSession(
-      id: old.id, mode: old.mode, date: old.date,
-      clockIn: old.clockIn, clockOut: now,
+    final mode = prefs.getString(_keyMode) == 'actual'
+        ? WorkModeType.actual : WorkModeType.deemed;
+    return WorkModeSettings(
+      mode: mode,
+      deemedStart:  prefs.getString(_keyDeemedStart)  ?? '08:00',
+      deemedEnd:    prefs.getString(_keyDeemedEnd)    ?? '17:00',
+      breakMinutes: prefs.getInt(_keyBreakMinutes)    ?? 60,
     );
-    all[idx] = updated;
-    await _saveAll(all);
-    await prefs.remove(_kActiveId);
-    await _updateAPI(updated);
-    return updated;
   }
 
-  Future<void> _sendToAPI(WorkSession s) async {
+  Future<void> save(WorkModeSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyMode, settings.mode.name);
+    await prefs.setString(_keyDeemedStart, settings.deemedStart);
+    await prefs.setString(_keyDeemedEnd, settings.deemedEnd);
+    await prefs.setInt(_keyBreakMinutes, settings.breakMinutes);
+  }
+
+  Future<bool> isCheckedIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyCheckedIn) ?? false;
+  }
+
+  Future<void> checkIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    await prefs.setBool(_keyCheckedIn, true);
+    await prefs.setString(_keyCheckInTime, now.toIso8601String());
+    await _sendAttendance('checkin', now);
+  }
+
+  Future<void> resetCheckIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyCheckedIn, false);
+    await prefs.remove(_keyCheckInTime);
+  }
+
+  Future<WorkModeSettings> fetchFromServer() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) return await load();
+      final res = await http.get(
+        Uri.parse('$_apiBase/work-settings/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final settings = WorkModeSettings.fromJson(
+            data['settings'] as Map<String, dynamic>? ?? data);
+        await save(settings);
+        return settings;
+      }
+    } catch (e) {
+      debugPrint('work_mode fetchFromServer失敗: $e');
+    }
+    return await load();
+  }
+
+  Future<void> _sendAttendance(String type, DateTime time) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) return;
       await http.post(
-        Uri.parse('$_API_URL/work_sessions'),
+        Uri.parse('$_apiBase/attendance/$type'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode({
-          'work_mode': s.mode.name,
-          'work_date': s.date.toIso8601String().substring(0, 10),
-          'clock_in':  s.clockInLabel,
-          'clock_out': s.mode == WorkModeType.deemed ? '17:00' : null,
-          'is_deemed': s.mode == WorkModeType.deemed,
-        }),
+        body: '{"time":"${time.toIso8601String()}"}',
       ).timeout(const Duration(seconds: 10));
-    } catch (e) { debugPrint('WorkMode API 失敗: $e'); }
-  }
-
-  Future<void> _updateAPI(WorkSession s) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      await http.patch(
-        Uri.parse('$_API_URL/work_sessions/${s.id}'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode({
-          'clock_out': s.clockOutLabel,
-          'duration_minutes': s.workDuration?.inMinutes,
-        }),
-      ).timeout(const Duration(seconds: 10));
-    } catch (e) { debugPrint('WorkMode API 更新失敗: $e'); }
+    } catch (e) {
+      debugPrint('attendance $type 送信失敗: $e');
+    }
   }
 }
