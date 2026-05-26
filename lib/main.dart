@@ -1117,7 +1117,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                   await ReportStore.instance.addReport(WorkerReportItem(
                     name: name,
                     transport: TransportType.other,
-                    workContent: '【残業】\$start〜\$end \$overtime',
+                    workContent: '【残業】$start〜$end $overtime',
                     gpsAddress: _gpsAddress,
                   ));
                   if (ctx.mounted) Navigator.pop(ctx);
