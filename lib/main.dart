@@ -314,6 +314,10 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
             'parking_fee': item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
             'gps_address': item.gpsAddress,
             'work_content': item.workContent,
+            if (item.parkingPhotoPath != null)
+              'parking_photo_base64': base64Encode(await File(item.parkingPhotoPath!).readAsBytes()),
+            if (item.workPhotoPath != null)
+              'site_photo_base64': base64Encode(await File(item.workPhotoPath!).readAsBytes()),
           }),
         ).timeout(const Duration(seconds: 10));
         if (response.statusCode != 200 && response.statusCode != 201) {
