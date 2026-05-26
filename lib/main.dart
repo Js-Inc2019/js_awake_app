@@ -806,7 +806,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _voiceMode    = false;
   Map<String, dynamic>? _selectedSite;
   final RoutesService _routesService = RoutesService();
-  Map<String, RouteCalculationResult> _routeComparisons = {};
+  Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
   WorkModeSettings _workSettings = const WorkModeSettings();
 
@@ -885,7 +885,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
     print('🔍 ルート計算: token=$token homeAddr=$homeAddr gpsAddress=$_gpsAddress');
-    final routes = await _routesService.compareRoutes(
+    final routes = await _routesService.compareRoutesV2(
       origin: homeAddr,
       destination: _gpsAddress,
       authToken: token,
@@ -1853,31 +1853,116 @@ class _ParkingSection extends StatelessWidget {
 
 class _RouteResultCard extends StatelessWidget {
   const _RouteResultCard({required this.comparisons, required this.selectedTransport});
-  final Map<String, RouteCalculationResult> comparisons;
+  final Map<String, dynamic> comparisons;
   final TransportType selectedTransport;
-
-  static const _modeMap = {
-    TransportType.train:  'transit',
-    TransportType.bus:    'transit',
-    TransportType.car:    'driving',
-    TransportType.bike:   'bicycling',
-    TransportType.walk:   'walking',
-    TransportType.other:  'driving',
-  };
-
-  static const _modeLabel = {
-    'driving':   '🚗 車',
-    'transit':   '🚃 電車/バス',
-    'bicycling': '🚲 自転車',
-    'walking':   '🚶 徒歩',
-  };
 
   @override
   Widget build(BuildContext context) {
-    final selectedKey = _modeMap[selectedTransport] ?? 'driving';
-    final result = comparisons[selectedKey];
-    if (result == null) return const SizedBox.shrink();
-    final showCost = selectedTransport == TransportType.car;
+    if (selectedTransport == TransportType.train) {
+      return _buildTransit(label: '電車');
+    } else if (selectedTransport == TransportType.bus) {
+      return _buildTransit(label: 'バス');
+    } else if (selectedTransport == TransportType.car || selectedTransport == TransportType.other) {
+      return _buildCar();
+    } else if (selectedTransport == TransportType.bike) {
+      return _buildSimple('bicycling', '自転車');
+    } else {
+      return _buildSimple('walking', '徒歩');
+    }
+  }
+
+  Widget _buildTransit({String label = '電車'}) {
+    final t = comparisons['transit'];
+    if (t == null) return const SizedBox.shrink();
+    final sections = t.routes as List<dynamic>;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(label == 'バス' ? Icons.directions_bus : Icons.train, color: JsColors.gold, size: 16),
+          const SizedBox(width: 6),
+          Text('所要時間: ${t.time}分',
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
+          const Spacer(),
+          Text('¥${t.fareIc}',
+              style: const TextStyle(color: JsColors.gold, fontSize: 15, fontWeight: FontWeight.bold)),
+        ]),
+        if (t.depStation.isNotEmpty || t.arrStation.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text('${t.depStation} → ${t.arrStation}',
+              style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+        ],
+        if (sections.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          ...sections.map((s) => Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text('  ${s.from} → [${s.line}] → ${s.to}',
+                style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+          )),
+        ],
+        const SizedBox(height: 4),
+        const Text('※実際の料金・時間と異なる場合があります',
+            style: TextStyle(color: JsColors.silver, fontSize: 10)),
+      ]),
+    );
+  }
+
+  Widget _buildCar() {
+    final c = comparisons['car'];
+    if (c == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.directions_car, color: JsColors.gold, size: 16),
+          const SizedBox(width: 6),
+          Text('${c.distanceText}  ${c.time}分',
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
+        ]),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          _CostChip(label: 'ガソリン代', value: '¥${c.gasCost}'),
+          if (c.tollNormal > 0)
+            _CostChip(label: '高速(普通)', value: '¥${c.tollNormal}'),
+          if (c.tollLight > 0)
+            _CostChip(label: '高速(軽)', value: '¥${c.tollLight}'),
+        ]),
+        const SizedBox(height: 6),
+        if (c.totalNormal > 0)
+          Row(children: [
+            Text('合計(普通): ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            Text('¥${c.totalNormal}',
+                style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(width: 12),
+            Text('軽: ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            Text('¥${c.totalLight}',
+                style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
+          ])
+        else
+          Text('合計: ¥${c.gasCost}',
+              style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 4),
+        const Text('※実際の料金・時間と異なる場合があります',
+            style: TextStyle(color: JsColors.silver, fontSize: 10)),
+      ]),
+    );
+  }
+
+  Widget _buildSimple(String key, String label) {
+    final s = comparisons[key];
+    if (s == null) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1889,22 +1974,32 @@ class _RouteResultCard extends StatelessWidget {
       child: Row(children: [
         const Icon(Icons.route, color: JsColors.gold, size: 16),
         const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            '${selectedTransport.label}  ${result.distance}  ${result.duration}',
-            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
-          ),
-        ),
-        if (showCost && result.estimatedGasCost != null)
-          Text(
-            'ガス代 ¥${result.estimatedGasCost}',
-            style: const TextStyle(
-                color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold),
-          ),
+        Text('$label  ${s.distance}  ${s.duration}',
+            style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
       ]),
     );
   }
 }
+
+class _CostChip extends StatelessWidget {
+  const _CostChip({required this.label, required this.value});
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: JsColors.surface,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: JsColors.divider),
+    ),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 9)),
+      Text(value, style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 12)),
+    ]),
+  );
+}
+
 
 
 
