@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // J's Awake App v1.1.1 — main.dart 完全版
 // 株式会社J's 電気工事業 日報アプリ
 // v1.1.1変更点：プレビュー画面に写真表示追加
@@ -604,10 +604,13 @@ void showJsSnackbar(BuildContext context, String msg,
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(color: Colors.white)),
+      content: Text(msg, style: const TextStyle(
+          color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
       backgroundColor: bg,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      duration: const Duration(seconds: 3),
     ));
 }
 
@@ -1063,7 +1066,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       setState(() { _carType = 'own'; _transports = {TransportType.train}; });
       await _loadNames();
       if (!mounted) return;
-      showJsSnackbar(context, '✅ \${name}の報告を送信しました');
+      showJsSnackbar(context, '✅ 報告を送信しました');
       if (!mounted) return;
       await Navigator.push(context, MaterialPageRoute(
         builder: (_) => AfterReportScreen(
@@ -2255,7 +2258,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorderItem: (oldIndex, newIndex) async {
+                onReorder: (oldIndex, newIndex) async {
                   if (newIndex > oldIndex) newIndex--;
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));

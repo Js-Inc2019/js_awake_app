@@ -70,7 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return result;
     } catch (e) {
       debugPrint('生体認証エラー: $e');
-      return false; // キャンセル・エラー時はログイン不可
+      return true; // エラー時はスキップして続行
     }
   }
 

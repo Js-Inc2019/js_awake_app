@@ -146,6 +146,7 @@ class _SlideBtn extends StatefulWidget {
 class _SlideBtnState extends State<_SlideBtn> {
   double _offset = 0;
   bool _done = false;
+  bool _animating = false;
   static const double _max = 220.0;
 
   void _onUpdate(DragUpdateDetails d) {
@@ -186,7 +187,7 @@ class _SlideBtnState extends State<_SlideBtn> {
             onHorizontalDragUpdate: _onUpdate,
             onHorizontalDragEnd: _onEnd,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: _animating ? const Duration(milliseconds: 120) : Duration.zero,
               margin: EdgeInsets.only(left: _offset + 4, top: 6, bottom: 6, right: 4),
               width: 56,
               decoration: BoxDecoration(
