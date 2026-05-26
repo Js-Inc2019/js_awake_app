@@ -1899,11 +1899,18 @@ class _RouteResultCard extends StatelessWidget {
               style: const TextStyle(color: JsColors.silver, fontSize: 12)),
         ],
         if (sections.isNotEmpty) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           ...sections.map((s) => Padding(
             padding: const EdgeInsets.only(top: 2),
-            child: Text('  ${s.from} → [${s.line}] → ${s.to}',
-                style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+            child: Row(children: [
+              Expanded(
+                child: Text('${s.from} → ${s.to}',
+                    style: const TextStyle(color: JsColors.offWhite, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
+              Text(s.line,
+                  style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+            ]),
           )),
         ],
         const SizedBox(height: 4),
