@@ -153,15 +153,28 @@ class AuthService {
           };
         }
       } else if (response.statusCode == 401) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final code = data['code'] as String? ?? '';
+        return {
+          'success':      false,
+          'message':      data['error'] ?? 'PINが間違っています',
+          'code':         code,
+          'role_changed': code == 'ROLE_CHANGED' || code == 'STATUS_CHANGED',
+          'remaining':    data['remaining'],
+        };
+      } else if (response.statusCode == 429) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
         return {
           'success': false,
-          'message': 'PINが間違っています',
+          'message': data['error'] ?? 'ロック中です',
+          'code':    'PIN_LOCKED',
         };
       }
 
       return {
         'success': false,
         'message': 'ログインに失敗しました',
+        'code': '',
       };
     } catch (e) {
       print('❌ ログインエラー: $e');

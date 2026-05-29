@@ -760,10 +760,45 @@ class _GateScreenState extends State<GateScreen> {
   }
   Future<void> _autoNavigate() async {
     final prefs = await SharedPreferences.getInstance();
+    // ROLE_CHANGED フラグ確認
+    final needReauth = prefs.getBool('need_reauth') ?? false;
+    if (needReauth && mounted) {
+      await prefs.remove('need_reauth');
+      await _showRoleChangedDialog();
+      return;
+    }
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
     if (role == 'boss' || role == 'admin') { _pushBoss(context); }
     else { await _pushWorker(context); }
+  }
+
+  Future<void> _showRoleChangedDialog() async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('役割が変更されました', style: TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold)),
+        content: const Text('役割または状態が変更されました。\nPINで再ログインしてください。',
+            style: TextStyle(color: Color(0xFFF5F5F0))),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('auth_token');
+              await prefs.remove('user_role');
+              if (!mounted) return;
+              Navigator.of(context).pushReplacementNamed('/login');
+            },
+            child: const Text('再ログイン'),
+          ),
+        ],
+      ),
+    );
   }
   @override
   Widget build(BuildContext context) => const Scaffold(
