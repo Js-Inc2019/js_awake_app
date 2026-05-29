@@ -6,21 +6,8 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../main.dart' show JsColors;
 import '../services/profile_service.dart';
-
-const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
-
-class JsColors {
-  static const black    = Color(0xFF111111);
-  static const gunmetal = Color(0xFF2A2A2A);
-  static const gold     = Color(0xFFD4AF37);
-  static const silver   = Color(0xFF9E9E9E);
-  static const offWhite = Color(0xFFF5F5F0);
-  static const surface  = Color(0xFF1E1E1E);
-  static const divider  = Color(0xFF3A3A3A);
-  static const success  = Color(0xFF2E7D5E);
-}
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -51,9 +38,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _fetchHomeLocationGps() async {
     setState(() => _isLoadingGps = true);
     try {
-      var status = await Permission.location.status;
-      if (!status.isGranted) status = await Permission.location.request();
-      if (!status.isGranted) {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('位置情報の権限が必要です'), backgroundColor: Colors.red)

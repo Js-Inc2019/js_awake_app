@@ -7,7 +7,6 @@ class _C {
   static const gold     = Color(0xFFD4AF37);
   static const silver   = Color(0xFF9E9E9E);
   static const offWhite = Color(0xFFF5F5F0);
-  static const divider  = Color(0xFF3A3A3A);
   static const success  = Color(0xFF2E7D5E);
   static const navy     = Color(0xFF3949AB);
   static const warning  = Color(0xFFE65100);

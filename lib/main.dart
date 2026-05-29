@@ -10,6 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
+import 'screens/revision_inbox_screen.dart';
 import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
 import 'services/work_mode_service.dart';
@@ -456,6 +457,47 @@ class NotificationManager {
       debugPrint('通知スケジュール失敗: $e');
     }
   }
+
+  // 退勤忘れリマインダー（実勤務モード用）— 18:00以降に日報未送信の場合
+  static const int _overtimeNotifId = 200;
+
+  Future<void> scheduleOvertimeReminder() async {
+    if (kIsWeb) return;
+    try {
+      final now    = tz.TZDateTime.now(tz.local);
+      var   target = tz.TZDateTime(tz.local, now.year, now.month, now.day, 18);
+      if (target.isBefore(now)) target = target.add(const Duration(days: 1));
+      await _plugin.zonedSchedule(
+        _overtimeNotifId,
+        '⚠️ 退勤報告を忘れていませんか？',
+        '本日の日報がまだ送信されていません。アプリを開いて報告してください。',
+        target,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'js_overtime_check', '退勤忘れリマインダー',
+            channelDescription: '実勤務モード時の退勤忘れをお知らせします',
+            importance: Importance.max,
+            priority:   Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (e) {
+      debugPrint('退勤リマインダースケジュール失敗: $e');
+    }
+  }
+
+  Future<void> cancelOvertimeReminder() async {
+    if (kIsWeb) return;
+    try {
+      await _plugin.cancel(_overtimeNotifId);
+    } catch (e) {
+      debugPrint('退勤リマインダーキャンセル失敗: $e');
+    }
+  }
 }
 
 // ============================================================
@@ -808,14 +850,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _isListening  = false;
   bool          _submitting   = false;
   bool          _voiceMode    = false;
-  Map<String, dynamic>? _selectedSite;
   final RoutesService _routesService = RoutesService();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
-  WorkModeSettings _workSettings = const WorkModeSettings();
-
-  List<String> _nameSuggestions = [];
-  bool         _showSuggestions = false;
 
   @override
   void initState() {
@@ -823,15 +860,20 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     WidgetsBinding.instance.addObserver(this);
     _speechMgr.initialize();
     _fetchGps();
-    _loadNames();
-    _loadWorkMode();
     _loadUserName();
-    _nameCtrl.addListener(_onNameChanged);
+    _scheduleOvertimeReminderIfNeeded();
+  }
+
+  Future<void> _scheduleOvertimeReminderIfNeeded() async {
+    if (widget.isBossMode) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('work_mode') == 'actual') {
+      NotificationManager.instance.scheduleOvertimeReminder();
+    }
   }
 
   @override
   void dispose() {
-    _nameCtrl.removeListener(_onNameChanged);
     _nameCtrl.dispose();
     _feeCtrl.dispose();
     _workContentCtrl.dispose();
@@ -847,11 +889,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (state == AppLifecycleState.resumed) {
       _fetchGps();
     }
-  }
-
-  Future<void> _loadWorkMode() async {
-    final s = await WorkModeService.instance.load();
-    if (mounted) setState(() => _workSettings = s);
   }
 
   Future<void> _loadUserName() async {
@@ -871,15 +908,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     }
   }
 
-  Future<void> _loadNames() async {
-    final n = await WorkerNameStore.instance.load();
-    if (mounted) setState(() => _nameSuggestions = n);
-  }
-
-  void _onNameChanged() {
-    setState(() => _showSuggestions =
-        _nameCtrl.text.isNotEmpty && _nameSuggestions.isNotEmpty);
-  }
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
@@ -899,62 +927,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _routeComparisons = routes;
       _loadingRoutes = false;
     });
-  }
-
-  List<String> get _filtered {
-    final q = _nameCtrl.text;
-    if (q.isEmpty) return _nameSuggestions;
-    return _nameSuggestions.where((n) => n.contains(q)).toList();
-  }
-
-  Future<void> _startVoiceReport() async {
-    setState(() { _isListening = true; _voiceMode = false; });
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _VoiceDialog(
-        manager:   _speechMgr,
-        title:     '🎤 音声報告モード',
-        hint:      '例：「太郎は電車で来ました」\n「花子は車で来ました 駐車料金1000円」',
-        onConfirm: (text) { Navigator.pop(ctx); _applyVoiceReport(text); },
-        onCancel:  () { _speechMgr.cancel(); Navigator.pop(ctx); },
-      ),
-    );
-    setState(() => _isListening = false);
-  }
-
-  void _applyVoiceReport(String text) {
-    final r = _speechMgr.extractInfo(text);
-    setState(() {
-      if (r.name != null)      _nameCtrl.text = r.name!;
-      if (r.transport != null) _transports = {r.transport!};
-      if (r.parkingFee != null) {
-        _feeCtrl.text = r.parkingFee!;
-      } else {
-        _feeCtrl.clear();
-        _photoPath = null;
-      }
-    });
-    if (r.warning != null) showJsSnackbar(context, '⚠️ ${r.warning}', isWarning: true);
-  }
-
-  Future<void> _startVoiceOther() async {
-    setState(() { _isListening = true; });
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _VoiceDialog(
-        manager:   _speechMgr,
-        title:     '🎤 交通手段の詳細 音声入力',
-        hint:      '例：「バイクで来ました」「社用車で来ました」',
-        onConfirm: (text) {
-          Navigator.pop(ctx);
-          setState(() => _otherCtrl.text = text);
-        },
-        onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); },
-      ),
-    );
-    setState(() => _isListening = false);
   }
 
   Future<void> _startVoiceWork() async {
@@ -1054,6 +1026,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       gpsAddress:       _gpsAddress,
     ));
     if (mounted) {
+      // 退勤忘れリマインダーをキャンセル（報告済みのため）
+      NotificationManager.instance.cancelOvertimeReminder();
       setState(() {
         _submitting    = false;
         _transports = {TransportType.train};
@@ -1068,7 +1042,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _carpoolCtrl.clear();
       _transportMemoCtrl.clear();
       setState(() { _carType = 'own'; _transports = {TransportType.train}; });
-      await _loadNames();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
       if (!mounted) return;
@@ -1201,24 +1174,29 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             icon: const Icon(Icons.location_on),
             tooltip: '現場選択',
             onPressed: () async {
-              final site = await Navigator.push(context,
+              await Navigator.push(context,
                   MaterialPageRoute(builder: (_) => SiteSelectScreen()));
-              if (site != null) setState(() => _selectedSite = site);
             },
           ),
           IconButton(
             icon: const Icon(Icons.people),
             tooltip: '職人名管理',
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const WorkerNameScreen()))
-                .then((_) => _loadNames()),
+                MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
           ),
           IconButton(
             icon: const Icon(Icons.notifications_active),
             tooltip: '通知設定',
             onPressed: _openNotifSettings,
           ),
-        ] : null,
+        ] : [
+          IconButton(
+            icon: const Icon(Icons.warning_amber),
+            tooltip: '是正依頼',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RevisionInboxScreen())),
+          ),
+        ],
       ),
       floatingActionButton: widget.isBossMode
           ? FloatingActionButton.extended(
@@ -1650,23 +1628,6 @@ class _Label extends StatelessWidget {
       Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 13));
 }
 
-class _DividerLabel extends StatelessWidget {
-  const _DividerLabel({required this.label});
-  final String label;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 14),
-    child: Row(children: [
-      const Expanded(child: Divider()),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
-      ),
-      const Expanded(child: Divider()),
-    ]),
-  );
-}
-
 class _GpsCard extends StatelessWidget {
   const _GpsCard({required this.address, required this.isLoading, required this.onRefresh});
   final String address;
@@ -1696,87 +1657,6 @@ class _GpsCard extends StatelessWidget {
         padding: EdgeInsets.zero, constraints: const BoxConstraints(),
       ),
     ]),
-  );
-}
-
-class _NameField extends StatelessWidget {
-  const _NameField({
-    required this.controller, required this.suggestions,
-    required this.showSuggestions, required this.onSelect,
-  });
-  final TextEditingController controller;
-  final List<String> suggestions;
-  final bool showSuggestions;
-  final void Function(String) onSelect;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      TextField(
-        controller: controller,
-        decoration: const InputDecoration(
-          labelText: '名前 *',
-          prefixIcon: Icon(Icons.person, color: JsColors.silver),
-        ),
-        style: const TextStyle(color: JsColors.offWhite),
-        textInputAction: TextInputAction.next,
-      ),
-      if (showSuggestions)
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          decoration: BoxDecoration(
-            color: JsColors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JsColors.divider),
-          ),
-          child: Column(
-            children: suggestions.take(5).map((n) => ListTile(
-              dense: true,
-              leading: const Icon(Icons.person_outline, color: JsColors.silver, size: 18),
-              title: Text(n, style: const TextStyle(color: JsColors.offWhite)),
-              onTap: () => onSelect(n),
-            )).toList(),
-          ),
-        ),
-    ],
-  );
-}
-
-class _TransportSelector extends StatelessWidget {
-  const _TransportSelector({required this.selected, required this.onChanged});
-  final TransportType selected;
-  final void Function(TransportType) onChanged;
-
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 8, runSpacing: 8,
-    children: TransportType.values.map((t) {
-      final active = t == selected;
-      return GestureDetector(
-        onTap: () => onChanged(t),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: active ? JsColors.gold : JsColors.gunmetal,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: active ? JsColors.gold : JsColors.divider),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(t.icon, size: 16, color: active ? Colors.black : JsColors.silver),
-              const SizedBox(width: 5),
-              Text(t.label, style: TextStyle(
-                color: active ? Colors.black : JsColors.offWhite,
-                fontWeight: active ? FontWeight.bold : FontWeight.normal,
-              )),
-            ],
-          ),
-        ),
-      );
-    }).toList(),
   );
 }
 
@@ -2310,6 +2190,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
     await WorkerNameStore.instance.add(name);
     _ctrl.clear();
     await _load();
+    if (!mounted) return;
     showJsSnackbar(context, '✅ 「$name」を追加しました');
   }
 

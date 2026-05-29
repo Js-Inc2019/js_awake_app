@@ -17,7 +17,6 @@ class _RetentionScreenState extends State<RetentionScreen> {
   List<Map<String, dynamic>> _expired  = [];
   List<Map<String, dynamic>> _warning  = [];
   bool   _loading   = true;
-  String _message   = '';
 
   @override
   void initState() { super.initState(); _check(); }
@@ -42,7 +41,6 @@ class _RetentionScreenState extends State<RetentionScreen> {
               .map((e) => e as Map<String, dynamic>).toList();
           _warning = (data['warning'] as List? ?? [])
               .map((e) => e as Map<String, dynamic>).toList();
-          _message = data['message'] as String? ?? '';
           _loading = false;
         });
       }

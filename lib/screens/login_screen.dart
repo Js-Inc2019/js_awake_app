@@ -2,7 +2,6 @@
 // lib/screens/login_screen.dart - デバイス認証＋生体認証
 // ============================================================
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:local_auth/local_auth.dart';
@@ -23,7 +22,6 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorMessage;
   final _companyCodeCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
-  bool _showRegistration = false;
   String _selectedRole = 'worker';
   bool _biometricFailed = false;
 
@@ -54,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       deviceId = 'unknown-device';
     }
-    await prefs.setString('device_id', deviceId!);
+    await prefs.setString('device_id', deviceId);
     return deviceId;
   }
 
@@ -80,7 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (isRegistered) {
       await _biometricThenLogin();
     } else {
-      setState(() { _isLoading = false; _showRegistration = true; });
+      setState(() => _isLoading = false);
     }
   }
 
@@ -109,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       print('自動Loginエラー: $e');
     }
-    setState(() { _isLoading = false; _showRegistration = true; });
+    setState(() => _isLoading = false);
   }
 
   Future<void> _register() async {

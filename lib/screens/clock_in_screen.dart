@@ -15,7 +15,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
   Future<void> _clockIn() async {
     setState(() => _processing = true);
-    await WorkModeService.instance.clockIn();
+    await WorkModeService.instance.checkIn();
     if (mounted) {
       showJsSnackbar(context, '出勤しました！');
       Navigator.pop(context, true);

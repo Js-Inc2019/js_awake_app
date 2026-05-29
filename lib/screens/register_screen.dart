@@ -1,106 +1,101 @@
-// ============================================================
-// lib/screens/register_screen.dart - ユーザー登録画面
-// ============================================================
-
+// lib/screens/register_screen.dart - 招待コード検証フロー
 import 'dart:convert';
+import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
-const String _API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _apiUrl = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
-
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _nameController       = TextEditingController();
-  final _pinController        = TextEditingController();
-  final _pinConfirmController = TextEditingController();
-  final _phoneController      = TextEditingController();
+  final _inviteCtrl = TextEditingController();
+  final _pinCtrl    = TextEditingController();
+  final _pinConfCtrl = TextEditingController();
 
-  String _selectedRole = 'worker';
-  bool   _obscurePin        = true;
-  bool   _obscurePinConfirm = true;
-  bool   _isLoading         = false;
-  String? _errorMessage;
-
-  static const _roles = [
-    {'value': 'worker',       'label': '職人'},
-    {'value': 'boss',         'label': '職長'},
-    {'value': 'admin_office', 'label': '事務'},
-  ];
+  int  _step         = 0; // 0=招待コード入力, 1=PIN設定
+  bool _isLoading    = false;
+  bool _obscurePin   = true;
+  bool _obscureConf  = true;
+  String? _error;
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _pinController.dispose();
-    _pinConfirmController.dispose();
-    _phoneController.dispose();
+    _inviteCtrl.dispose();
+    _pinCtrl.dispose();
+    _pinConfCtrl.dispose();
     super.dispose();
   }
 
-  bool _validateForm() {
-    if (_nameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = '名前を入力してください');
-      return false;
+  Future<String> _deviceId() async {
+    final info = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      return (await info.androidInfo).id;
+    } else if (Platform.isIOS) {
+      return (await info.iosInfo).identifierForVendor ?? 'ios-unknown';
     }
-    if (_pinController.text.isEmpty) {
-      setState(() => _errorMessage = 'PINを入力してください');
-      return false;
-    }
-    if (_pinController.text.length < 4 || _pinController.text.length > 6) {
-      setState(() => _errorMessage = 'PINは4〜6桁である必要があります');
-      return false;
-    }
-    if (_pinController.text != _pinConfirmController.text) {
-      setState(() => _errorMessage = 'PINが一致しません');
-      return false;
-    }
-    return true;
+    return 'unknown-device';
   }
 
-  Future<void> _register() async {
-    setState(() => _errorMessage = null);
-    if (!_validateForm()) return;
-    setState(() => _isLoading = true);
+  void _nextStep() {
+    final code = _inviteCtrl.text.trim().toUpperCase();
+    if (code.length < 4) {
+      setState(() => _error = '招待コードを入力してください');
+      return;
+    }
+    setState(() { _error = null; _step = 1; });
+  }
 
+  Future<void> _activate() async {
+    final pin  = _pinCtrl.text;
+    final conf = _pinConfCtrl.text;
+    if (pin.length < 4 || pin.length > 6) {
+      setState(() => _error = 'PINは4〜6桁で入力してください');
+      return;
+    }
+    if (pin != conf) {
+      setState(() => _error = 'PINが一致しません');
+      return;
+    }
+    setState(() { _isLoading = true; _error = null; });
     try {
-      final response = await http.post(
-        Uri.parse('$_API_URL/auth/register'),
+      final deviceId = await _deviceId();
+      final res = await http.post(
+        Uri.parse('$_apiUrl/workers/activate'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'name':        _nameController.text.trim(),
-          'pin':         _pinController.text,
-          'phone_number': _phoneController.text.trim().isEmpty
-              ? null
-              : _phoneController.text.trim(),
-          'device_name': 'Android',
-          'device_type': 'smartphone',
-          'os_type':     'android',
-          'role':        _selectedRole,
+          'invite_code': _inviteCtrl.text.trim().toUpperCase(),
+          'pin':         pin,
+          'device_id':   deviceId,
+          'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
         }),
       ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
+      final body = jsonDecode(res.body);
 
-      if (response.statusCode == 201) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ ${_nameController.text.trim()}を登録しました'),
-            backgroundColor: const Color(0xFF2E7D5E),
-          ),
-        );
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token',  body['token']);
+        await prefs.setString('user_id',     body['user_id'] ?? '');
+        await prefs.setString('user_name',   body['name']    ?? '');
+        await prefs.setString('user_role',   body['role']    ?? 'worker');
+        await prefs.setString('company_id',  body['company_id'] ?? '');
+        await prefs.setString('device_id',   deviceId);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/gate');
       } else {
-        final body = jsonDecode(response.body);
-        setState(() => _errorMessage = body['error'] ?? '登録に失敗しました');
+        setState(() => _error = body['error'] ?? '有効化に失敗しました');
       }
     } catch (e) {
-      setState(() => _errorMessage = '通信エラー: $e');
+      setState(() => _error = '通信エラー: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -111,224 +106,199 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
-        title: const Text('新規登録'),
+        title: Text(_step == 0 ? '招待コード入力' : 'PIN設定'),
         backgroundColor: const Color(0xFF111111),
         foregroundColor: const Color(0xFFD4AF37),
         elevation: 0,
+        leading: _step == 1
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => setState(() { _step = 0; _error = null; }),
+              )
+            : null,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('新しいメンバーを登録',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFD4AF37),
-                  )),
-              const SizedBox(height: 8),
-              const Text('職人・職長・事務スタッフを追加します',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
-              const SizedBox(height: 32),
-
-              // エラーメッセージ
-              if (_errorMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB71C1C).withOpacity(0.1),
-                    border: Border.all(color: const Color(0xFFB71C1C)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_errorMessage!,
-                      style: const TextStyle(color: Color(0xFFB71C1C), fontSize: 13)),
-                ),
-                const SizedBox(height: 20),
-              ],
-
-              // 役割選択
-              const Text('役割 *',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
-              const SizedBox(height: 8),
-              Row(
-                children: _roles.map((role) {
-                  final selected = _selectedRole == role['value'];
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedRole = role['value']!),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? const Color(0xFFD4AF37)
-                              : const Color(0xFF2A2A2A),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: selected
-                                ? const Color(0xFFD4AF37)
-                                : const Color(0xFF3A3A3A),
-                          ),
-                        ),
-                        child: Text(
-                          role['label']!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: selected ? Colors.black : const Color(0xFFF5F5F0),
-                            fontWeight: selected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-
-              // 名前
-              const Text('名前 *',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
-              const SizedBox(height: 8),
-              _buildTextField(
-                controller: _nameController,
-                label: '例：田中 太郎',
-                icon: Icons.person,
-              ),
-              const SizedBox(height: 20),
-
-              // 電話番号
-              const Text('電話番号（オプション）',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
-              const SizedBox(height: 8),
-              _buildTextField(
-                controller: _phoneController,
-                label: '例：09012345678',
-                icon: Icons.phone,
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 20),
-
-              // PIN
-              const Text('PIN（4〜6桁） *',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
-              const SizedBox(height: 8),
-              _buildTextField(
-                controller: _pinController,
-                label: 'PIN',
-                icon: Icons.lock,
-                obscureText: _obscurePin,
-                maxLength: 6,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePin
-                      ? Icons.visibility_off
-                      : Icons.visibility,
-                      color: const Color(0xFF9E9E9E)),
-                  onPressed: () => setState(() => _obscurePin = !_obscurePin),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // PIN確認
-              const Text('PIN確認 *',
-                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
-              const SizedBox(height: 8),
-              _buildTextField(
-                controller: _pinConfirmController,
-                label: 'PINを再入力',
-                icon: Icons.lock_outline,
-                obscureText: _obscurePinConfirm,
-                maxLength: 6,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePinConfirm
-                      ? Icons.visibility_off
-                      : Icons.visibility,
-                      color: const Color(0xFF9E9E9E)),
-                  onPressed: () =>
-                      setState(() => _obscurePinConfirm = !_obscurePinConfirm),
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // 登録ボタン
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _register,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    disabledBackgroundColor: const Color(0xFF9E9E9E),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24, height: 24,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2.5, color: Colors.black))
-                      : const Text('登録する',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('すでにアカウントをお持ちですか？',
-                      style: TextStyle(color: Color(0xFF9E9E9E))),
-                  TextButton(
-                    onPressed: _isLoading
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    child: const Text('ログイン',
-                        style: TextStyle(
-                            color: Color(0xFFD4AF37),
-                            fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 40),
-            ],
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: _step == 0 ? _buildStep0() : _buildStep1(),
         ),
       ),
     );
   }
 
-  Widget _buildTextField({
+  Widget _buildStep0() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _stepIndicator(current: 0),
+        const SizedBox(height: 28),
+        const Text('招待コードを入力',
+            style: TextStyle(color: Color(0xFFD4AF37), fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('管理者から受け取った招待コードを入力してください',
+            style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+        const SizedBox(height: 32),
+        _field(
+          controller: _inviteCtrl,
+          label: '招待コード',
+          icon: Icons.vpn_key,
+          caps: true,
+        ),
+        if (_error != null) _errorBox(_error!),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _nextStep,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('次へ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('ログイン画面に戻る',
+                style: TextStyle(color: Color(0xFF9E9E9E))),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep1() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _stepIndicator(current: 1),
+        const SizedBox(height: 28),
+        const Text('PINを設定',
+            style: TextStyle(color: Color(0xFFD4AF37), fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
+            style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+        const SizedBox(height: 32),
+        _field(
+          controller: _pinCtrl,
+          label: 'PIN（4〜6桁）',
+          icon: Icons.lock,
+          obscure: _obscurePin,
+          numeric: true,
+          maxLen: 6,
+          suffix: IconButton(
+            icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility,
+                color: const Color(0xFF9E9E9E)),
+            onPressed: () => setState(() => _obscurePin = !_obscurePin),
+          ),
+        ),
+        const SizedBox(height: 20),
+        _field(
+          controller: _pinConfCtrl,
+          label: 'PIN確認',
+          icon: Icons.lock_outline,
+          obscure: _obscureConf,
+          numeric: true,
+          maxLen: 6,
+          suffix: IconButton(
+            icon: Icon(_obscureConf ? Icons.visibility_off : Icons.visibility,
+                color: const Color(0xFF9E9E9E)),
+            onPressed: () => setState(() => _obscureConf = !_obscureConf),
+          ),
+        ),
+        if (_error != null) _errorBox(_error!),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _activate,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              disabledBackgroundColor: const Color(0xFF9E9E9E),
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 24, height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
+                : const Text('アカウントを有効化', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepIndicator({required int current}) {
+    return Row(
+      children: [
+        _dot(0, current),
+        _line(current >= 1),
+        _dot(1, current),
+      ],
+    );
+  }
+
+  Widget _dot(int idx, int current) {
+    final active = idx == current;
+    final done   = idx < current;
+    return Container(
+      width: 28, height: 28,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: (active || done) ? const Color(0xFFD4AF37) : const Color(0xFF3A3A3A),
+      ),
+      child: Center(
+        child: done
+            ? const Icon(Icons.check, color: Colors.black, size: 16)
+            : Text('${idx + 1}',
+                style: TextStyle(
+                  color: active ? Colors.black : const Color(0xFF9E9E9E),
+                  fontWeight: FontWeight.bold, fontSize: 13)),
+      ),
+    );
+  }
+
+  Widget _line(bool active) {
+    return Expanded(
+      child: Container(
+        height: 2,
+        color: active ? const Color(0xFFD4AF37) : const Color(0xFF3A3A3A),
+      ),
+    );
+  }
+
+  Widget _field({
     required TextEditingController controller,
     required String label,
     required IconData icon,
-    bool obscureText = false,
-    int? maxLength,
-    TextInputType? keyboardType,
-    List<TextInputFormatter>? inputFormatters,
-    Widget? suffixIcon,
+    bool obscure = false,
+    bool numeric = false,
+    bool caps    = false,
+    int? maxLen,
+    Widget? suffix,
   }) {
     return TextField(
       controller: controller,
-      obscureText: obscureText,
+      obscureText: obscure,
       enabled: !_isLoading,
-      keyboardType: keyboardType,
-      maxLength: maxLength,
-      inputFormatters: inputFormatters,
+      keyboardType: numeric ? TextInputType.number : TextInputType.text,
+      maxLength: maxLen,
+      textCapitalization: caps ? TextCapitalization.characters : TextCapitalization.none,
+      inputFormatters: [
+        if (numeric) FilteringTextInputFormatter.digitsOnly,
+        if (caps) TextInputFormatter.withFunction(
+            (old, n) => n.copyWith(text: n.text.toUpperCase())),
+      ],
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: const Color(0xFF9E9E9E)),
-        suffixIcon: suffixIcon,
+        suffixIcon: suffix,
         filled: true,
         fillColor: const Color(0xFF2A2A2A),
         counterStyle: const TextStyle(color: Color(0xFF9E9E9E)),
@@ -347,6 +317,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
         labelStyle: const TextStyle(color: Color(0xFF9E9E9E)),
       ),
       style: const TextStyle(color: Color(0xFFF5F5F0)),
+    );
+  }
+
+  Widget _errorBox(String msg) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFB71C1C).withValues(alpha: 0.1),
+          border: Border.all(color: const Color(0xFFB71C1C)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(msg, style: const TextStyle(color: Color(0xFFB71C1C), fontSize: 13)),
+      ),
     );
   }
 }
