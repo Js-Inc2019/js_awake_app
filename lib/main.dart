@@ -201,6 +201,7 @@ class WorkerReportItem {
     this.workContent = '',
     this.workPhotoPath,
     this.gpsAddress = '',
+    this.originType = 'home',
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -216,6 +217,7 @@ class WorkerReportItem {
   final String workContent;
   final String? workPhotoPath;
   final String gpsAddress;
+  final String originType;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -235,6 +237,7 @@ class WorkerReportItem {
     'workContent':      workContent,
     'workPhotoPath':    workPhotoPath,
     'gpsAddress':       gpsAddress,
+    'originType':       originType,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -250,6 +253,7 @@ class WorkerReportItem {
     workContent:      j['workContent']      as String? ?? '',
     workPhotoPath:    j['workPhotoPath']    as String?,
     gpsAddress:       j['gpsAddress']       as String? ?? '',
+    originType:       j['originType']       as String? ?? 'home',
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -315,6 +319,7 @@ Future<void> _sendToAPI(List<WorkerReportItem> items) async {
             'transport_type': item.transport.name,
             'parking_fee': item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
             'gps_address': item.gpsAddress,
+            'origin_type': item.originType,
             'work_content': item.workContent,
             if (item.parkingPhotoPath != null)
               'parking_photo_base64': base64Encode(await File(item.parkingPhotoPath!).readAsBytes()),
@@ -869,6 +874,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final RoutesService _routesService = RoutesService();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
+  String _originType = 'home'; // 今日の起点: home / office
+  String _companyAddress = '';
 
   @override
   void initState() {
@@ -877,6 +884,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _speechMgr.initialize();
     _fetchGps();
     _loadUserName();
+    _loadOriginPrefs();
     _scheduleOvertimeReminderIfNeeded();
   }
 
@@ -915,6 +923,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     }
   }
 
+  Future<void> _loadOriginPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() {
+      _originType     = prefs.getString('default_origin') ?? 'home';
+      _companyAddress = prefs.getString('company_address') ?? '';
+    });
+  }
+
   Future<void> _fetchGps() async {
     setState(() => _gpsLoading = true);
     final addr = await fetchGpsAddress();
@@ -927,19 +943,21 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
-    var homeAddr = await ProfileService().getHomeAddress();
-    homeAddr = homeAddr ?? '兵庫県神戸市中央区三宮町1丁目';
-    setState(() => _loadingRoutes = true);
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
-    print('🔍 ルート計算: token=$token homeAddr=$homeAddr gpsAddress=$_gpsAddress');
+    String originAddr;
+    if (_originType == 'office' && _companyAddress.isNotEmpty) {
+      originAddr = _companyAddress;
+    } else {
+      originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市中央区三宮町1丁目';
+    }
+    setState(() => _loadingRoutes = true);
     final routes = await _routesService.compareRoutesV2(
-      origin: homeAddr,
+      origin: originAddr,
       destination: _gpsAddress,
       authToken: token,
     );
     if (mounted) setState(() {
-      print('✅ ルート比較結果: $routes');
       _routeComparisons = routes;
       _loadingRoutes = false;
     });
@@ -1031,6 +1049,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     await ReportStore.instance.addReport(WorkerReportItem(
       name:             name,
       transport:        _transport,
+      originType:       _originType,
       parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
       workContent:      _transport == TransportType.other
@@ -1259,6 +1278,39 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
               // GPS位置情報カード
               _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
+              const SizedBox(height: 10),
+
+              // 今日の起点選択
+              Row(children: [
+                const Text('今日の起点:', style: TextStyle(color: JsColors.silver, fontSize: 13)),
+                const SizedBox(width: 10),
+                ...['home', 'office'].map((type) {
+                  final label = type == 'home' ? '自宅' : '会社';
+                  final sel   = _originType == type;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () async {
+                        setState(() => _originType = type);
+                        await _calculateRoutes();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: sel ? JsColors.gold.withValues(alpha: 0.15) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+                        ),
+                        child: Text(label,
+                            style: TextStyle(
+                                color: sel ? JsColors.gold : JsColors.silver,
+                                fontSize: 13,
+                                fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
+                      ),
+                    ),
+                  );
+                }),
+              ]),
               const SizedBox(height: 14),
 
               // 2. 移動手段（展開式）

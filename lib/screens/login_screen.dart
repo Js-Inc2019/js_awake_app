@@ -179,6 +179,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('device_id');
+                  if (!mounted) return;
+                  Navigator.of(context).pushNamed('/register');
+                },
+                child: const Text('機種変更（新しいデバイスで再登録）',
+                    style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
+              ),
             ],
           ),
         ),
@@ -266,6 +277,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: const Icon(Icons.fingerprint),
                   label: const Text('Sign Up', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed('/register'),
+                  child: const Text(
+                    '機種変更はこちら（管理者から招待コードを受け取った方）',
+                    style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
             ],
