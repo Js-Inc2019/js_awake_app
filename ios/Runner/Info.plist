@@ -78,5 +78,10 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>職長・管理者用へアクセスするために使用します</string>
+	<!-- ツールアプリへの遷移（url_launcher用クエリスキーム） -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>jstools</string>
+	</array>
 </dict>
 </plist>

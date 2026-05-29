@@ -43,12 +43,38 @@ import 'package:geocoding/geocoding.dart'
     import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'screens/qr_scan_screen.dart';
+import 'screens/profile_screen.dart';
 
 // ============================================================
 // API設定
 // ============================================================
 
 const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+
+// 通知ディープリンク用グローバルキー
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+String? _pendingNotifPayload;
+
+// 通知タップ時のルーティング（type:ref_id 形式のペイロード）
+void _routeByPayload(String payload) {
+  if (payload.isEmpty) return;
+  final ctx = navigatorKey.currentContext;
+  if (ctx == null) return;
+  if (payload.startsWith('revision')) {
+    Navigator.push(ctx, MaterialPageRoute(builder: (_) => const RevisionInboxScreen()));
+  } else if (payload.startsWith('report')) {
+    Navigator.push(ctx, MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen()));
+  } else if (payload.startsWith('health')) {
+    Navigator.push(ctx, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+  }
+}
+
+@pragma('vm:entry-point')
+void _onNotifBackground(NotificationResponse details) {
+  // バックグラウンド: 処理なし（フォアグラウンド復帰時にhandle）
+}
 
 // ============================================================
 // エントリーポイント
@@ -60,6 +86,8 @@ void main() async {
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
   if (!kIsWeb) {
     await NotificationManager.instance.initialize();
+    // アプリが通知タップで起動した場合のペイロード保存
+    _pendingNotifPayload = await NotificationManager.instance.getAppLaunchPayload();
   }
   // プライバシー同意確認
   final prefs = await SharedPreferences.getInstance();
@@ -110,6 +138,7 @@ class _JsAwakeAppState extends State<JsAwakeApp> {
       title: "J's Inc. 日報報告APP",
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
+      navigatorKey: navigatorKey,
       home: const LoginScreen(),
       routes: {
         '/login':           (_) => const LoginScreen(),
@@ -243,6 +272,8 @@ class WorkerReportItem {
     this.overtimeFlag = false,
     this.overtimeHours,
     this.overtimeContent = '',
+    this.siteId,
+    this.siteName,
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -262,6 +293,8 @@ class WorkerReportItem {
   final bool overtimeFlag;
   final String? overtimeHours;
   final String overtimeContent;
+  final String? siteId;
+  final String? siteName;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -285,6 +318,8 @@ class WorkerReportItem {
     'overtimeFlag':     overtimeFlag,
     'overtimeHours':    overtimeHours,
     'overtimeContent':  overtimeContent,
+    'siteId':           siteId,
+    'siteName':         siteName,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -304,6 +339,8 @@ class WorkerReportItem {
     overtimeFlag:     j['overtimeFlag']     as bool? ?? false,
     overtimeHours:    j['overtimeHours']    as String?,
     overtimeContent:  j['overtimeContent']  as String? ?? '',
+    siteId:           j['siteId']           as String?,
+    siteName:         j['siteName']         as String?,
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -372,6 +409,8 @@ class ReportStore {
           'overtime_flag':    item.overtimeFlag,
           'overtime_hours':   item.overtimeHours != null ? double.tryParse(item.overtimeHours!) : null,
           'overtime_content': item.overtimeContent.isEmpty ? null : item.overtimeContent,
+          if (item.siteId != null) 'site_id': item.siteId,
+          if (item.siteName != null) 'site_name': item.siteName,
         };
         if (item.parkingPhotoPath != null) {
           try {
@@ -504,7 +543,13 @@ class NotificationManager {
       requestSoundPermission: true,
     );
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit));
+      const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: (details) {
+        final payload = details.payload ?? '';
+        if (payload.isNotEmpty) _routeByPayload(payload);
+      },
+      onDidReceiveBackgroundNotificationResponse: _onNotifBackground,
+    );
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList(_K.notifHours);
     if (saved != null && saved.isNotEmpty) {
@@ -594,6 +639,43 @@ class NotificationManager {
       await _plugin.cancel(_overtimeNotifId);
     } catch (e) {
       debugPrint('退勤リマインダーキャンセル失敗: $e');
+    }
+  }
+
+  // アプリ起動元通知のペイロード取得
+  Future<String?> getAppLaunchPayload() async {
+    if (kIsWeb) return null;
+    try {
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp == true) {
+        return details?.notificationResponse?.payload;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // サーバー通知をローカル通知として即時表示
+  Future<void> showInstant(int id, String title, String body,
+      {String? payload}) async {
+    if (kIsWeb) return;
+    try {
+      await _plugin.show(
+        id,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'js_server_notif', 'サーバー通知',
+            channelDescription: 'サーバーからの通知',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(),
+        ),
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('通知表示失敗: $e');
     }
   }
 }
@@ -999,6 +1081,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _submitting   = false;
   bool          _voiceMode    = false;
   bool          _overtimeFlag = false;
+  String?       _siteId;
+  String?       _qrSiteName;
   final _overtimeHoursCtrl   = TextEditingController();
   final _overtimeContentCtrl = TextEditingController();
   final RoutesService _routesService = RoutesService();
@@ -1024,6 +1108,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         ReportStore.instance.retryPending().then((_) => _refreshPendingCount());
       }
     });
+    // 起動時通知ペイロードによるディープリンク
+    if (_pendingNotifPayload != null) {
+      final payload = _pendingNotifPayload!;
+      _pendingNotifPayload = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _routeByPayload(payload));
+    }
+    // サーバー通知をローカル通知として表示
+    _pollServerNotifications();
   }
 
   Future<void> _scheduleOvertimeReminderIfNeeded() async {
@@ -1208,6 +1300,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       overtimeFlag:     _overtimeFlag,
       overtimeHours:    _overtimeFlag ? _overtimeHoursCtrl.text.trim() : null,
       overtimeContent:  _overtimeFlag ? _overtimeContentCtrl.text.trim() : '',
+      siteId:           _siteId,
+      siteName:         _qrSiteName,
     ));
     _refreshPendingCount();
     if (mounted) {
@@ -1215,9 +1309,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       NotificationManager.instance.cancelOvertimeReminder();
       setState(() {
         _submitting    = false;
-        _transports = {TransportType.train};
+        _transports    = {TransportType.train};
         _photoPath     = null;
         _workPhotoPath = null;
+        _siteId        = null;
+        _qrSiteName    = null;
       });
       _nameCtrl.clear();
       _loadUserName();
@@ -1288,6 +1384,84 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           },
         ),
       ));
+    }
+  }
+
+  // QR現場チェックイン
+  Future<void> _scanQr() async {
+    final result = await Navigator.push<QrScanResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const QrScanScreen()),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _siteId     = result.siteId;
+      _qrSiteName = result.siteName;
+      if (result.address != null && result.address!.isNotEmpty) {
+        _gpsAddress = result.address!;
+      }
+    });
+    final label = result.siteName ?? (result.siteId ?? result.rawValue);
+    showJsSnackbar(context, '✅ QR現場チェックイン: $label');
+    if (result.address != null && result.address!.isNotEmpty) {
+      await _calculateRoutes();
+    }
+  }
+
+  // ツールアプリ起動
+  Future<void> _launchToolApp() async {
+    try {
+      final uri = Uri.parse('jstools://home');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (!mounted) return;
+        showJsSnackbar(context, "J's Tool Appを起動してください", isWarning: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      showJsSnackbar(context, "J's Tool Appを起動してください", isWarning: true);
+    }
+  }
+
+  // サーバー通知ポーリング
+  Future<void> _pollServerNotifications() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) return;
+      final res = await http.get(
+        Uri.parse('$API_URL/notifications'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final notifs = (data['notifications'] as List? ?? []).cast<Map<String, dynamic>>();
+      int notifId = 1000;
+      for (final n in notifs) {
+        if (n['is_read'] == true) continue;
+        final type  = n['type']  as String? ?? '';
+        final refId = n['ref_id'] as String? ?? '';
+        String payload;
+        if (type.contains('revision')) {
+          payload = 'revision:$refId';
+        } else if (type.contains('report')) {
+          payload = 'report:$refId';
+        } else if (type.contains('health')) {
+          payload = 'health:$refId';
+        } else {
+          payload = '$type:$refId';
+        }
+        await NotificationManager.instance.showInstant(
+          notifId++,
+          n['title'] as String? ?? '通知',
+          n['body']  as String? ?? '',
+          payload: payload,
+        );
+      }
+    } catch (e) {
+      debugPrint('通知ポーリング失敗: $e');
     }
   }
 
@@ -1372,11 +1546,27 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
           ),
           IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'QR現場チェックイン',
+            onPressed: _scanQr,
+          ),
+          IconButton(
             icon: const Icon(Icons.notifications_active),
             tooltip: '通知設定',
             onPressed: _openNotifSettings,
           ),
+          IconButton(
+            icon: const Icon(Icons.build_circle_outlined),
+            tooltip: 'ツールアプリ',
+            onPressed: _launchToolApp,
+          ),
         ] : [
+          // QR現場チェックイン
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'QR現場チェックイン',
+            onPressed: _scanQr,
+          ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: '月間履歴',
@@ -1403,6 +1593,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                   ),
                 ),
             ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.build_circle_outlined),
+            tooltip: 'ツールアプリ',
+            onPressed: _launchToolApp,
           ),
         ],
       ),
@@ -1448,6 +1643,30 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 ]),
               ),
               const SizedBox(height: 14),
+
+              // QR現場チェックイン済バナー
+              if (_qrSiteName != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: JsColors.success.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: JsColors.success),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.qr_code, color: JsColors.success, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('QR現場: $_qrSiteName',
+                          style: const TextStyle(color: JsColors.success, fontSize: 13, fontWeight: FontWeight.bold)),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() { _siteId = null; _qrSiteName = null; }),
+                      child: const Icon(Icons.close, color: JsColors.success, size: 16),
+                    ),
+                  ]),
+                ),
 
               // GPS位置情報カード
               _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
