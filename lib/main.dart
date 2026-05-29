@@ -11,6 +11,7 @@ import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/revision_inbox_screen.dart';
+import 'screens/welcome_screen.dart';
 import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
 import 'services/work_mode_service.dart';
@@ -720,26 +721,41 @@ class _GateScreenState extends State<GateScreen> {
     backgroundColor: Color(0xFF1A1A1A),
     body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
   Future<void> _pushWorker(BuildContext context) async {
-    final settings = await WorkModeService.instance.fetchFromServer();
+    final prefs    = await SharedPreferences.getInstance();
+    final name     = prefs.getString('user_name') ?? '';
+    final role     = prefs.getString('user_role') ?? 'worker';
     if (!context.mounted) return;
-    if (settings.mode == WorkModeType.actual) {
-      final checkedIn = await WorkModeService.instance.isCheckedIn();
-      if (!context.mounted) return;
-      if (!checkedIn) {
-        await Navigator.push(context, MaterialPageRoute(
-          builder: (_) => WorkModeScreen(
-            screenTitle: '職人用 — 出勤',
-            isBossMode: false,
-            onCheckedIn: () => Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-                screenTitle: '職人用 — 日報報告', isBossMode: false))),
-          ),
-        ));
-        return;
-      }
-    }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-      screenTitle: '職人用 — 日報報告', isBossMode: false)));
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => WelcomeScreen(
+        userName: name,
+        userRole: role,
+        onContinue: () async {
+          final ctx = context;
+          final settings = await WorkModeService.instance.fetchFromServer();
+          if (!ctx.mounted) return;
+          if (settings.mode == WorkModeType.actual) {
+            final checkedIn = await WorkModeService.instance.isCheckedIn();
+            if (!ctx.mounted) return;
+            if (!checkedIn) {
+              Navigator.pushReplacement(ctx, MaterialPageRoute(
+                builder: (_) => WorkModeScreen(
+                  screenTitle: '職人用 — 出勤',
+                  isBossMode: false,
+                  onCheckedIn: () => Navigator.pushReplacement(ctx,
+                    MaterialPageRoute(builder: (_) => const SharedWorkerForm(
+                      screenTitle: '職人用 — 日報報告', isBossMode: false))),
+                ),
+              ));
+              return;
+            }
+          }
+          if (!ctx.mounted) return;
+          Navigator.pushReplacement(ctx, MaterialPageRoute(
+              builder: (_) => const SharedWorkerForm(
+                screenTitle: '職人用 — 日報報告', isBossMode: false)));
+        },
+      ),
+    ));
   }
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
