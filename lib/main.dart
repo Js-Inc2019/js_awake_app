@@ -12,6 +12,7 @@ import 'screens/monthly_history_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/invite_activate_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/privacy_consent_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/revision_inbox_screen.dart';
@@ -60,7 +61,10 @@ void main() async {
   if (!kIsWeb) {
     await NotificationManager.instance.initialize();
   }
-  runApp(const JsAwakeApp());
+  // プライバシー同意確認
+  final prefs = await SharedPreferences.getInstance();
+  final agreedAt = prefs.getString('privacy_agreed_at');
+  runApp(JsAwakeApp(privacyAgreed: agreedAt != null));
 }
 
 // ============================================================
@@ -84,12 +88,25 @@ class JsColors {
 // アプリルート
 // ============================================================
 
-class JsAwakeApp extends StatelessWidget {
-  const JsAwakeApp({super.key});
+class JsAwakeApp extends StatefulWidget {
+  const JsAwakeApp({super.key, required this.privacyAgreed});
+  final bool privacyAgreed;
+  @override
+  State<JsAwakeApp> createState() => _JsAwakeAppState();
+}
+
+class _JsAwakeAppState extends State<JsAwakeApp> {
+  late bool _privacyAgreed;
+
+  @override
+  void initState() {
+    super.initState();
+    _privacyAgreed = widget.privacyAgreed;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    final app = MaterialApp(
       title: "J's Inc. 日報報告APP",
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
@@ -102,6 +119,18 @@ class JsAwakeApp extends StatelessWidget {
         '/register':        (_) => const RegisterScreen(),
       },
     );
+
+    if (!_privacyAgreed) {
+      return MaterialApp(
+        title: "J's Inc.",
+        debugShowCheckedModeBanner: false,
+        theme: _buildTheme(),
+        home: PrivacyConsentScreen(onAgreed: () {
+          if (mounted) setState(() => _privacyAgreed = true);
+        }),
+      );
+    }
+    return app;
   }
 
   ThemeData _buildTheme() {
@@ -211,6 +240,9 @@ class WorkerReportItem {
     this.workPhotoPath,
     this.gpsAddress = '',
     this.originType = 'home',
+    this.overtimeFlag = false,
+    this.overtimeHours,
+    this.overtimeContent = '',
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -227,6 +259,9 @@ class WorkerReportItem {
   final String? workPhotoPath;
   final String gpsAddress;
   final String originType;
+  final bool overtimeFlag;
+  final String? overtimeHours;
+  final String overtimeContent;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -247,6 +282,9 @@ class WorkerReportItem {
     'workPhotoPath':    workPhotoPath,
     'gpsAddress':       gpsAddress,
     'originType':       originType,
+    'overtimeFlag':     overtimeFlag,
+    'overtimeHours':    overtimeHours,
+    'overtimeContent':  overtimeContent,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -263,6 +301,9 @@ class WorkerReportItem {
     workPhotoPath:    j['workPhotoPath']    as String?,
     gpsAddress:       j['gpsAddress']       as String? ?? '',
     originType:       j['originType']       as String? ?? 'home',
+    overtimeFlag:     j['overtimeFlag']     as bool? ?? false,
+    overtimeHours:    j['overtimeHours']    as String?,
+    overtimeContent:  j['overtimeContent']  as String? ?? '',
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -328,6 +369,9 @@ class ReportStore {
           'gps_address':   item.gpsAddress,
           'origin_type':   item.originType,
           'work_content':  item.workContent,
+          'overtime_flag':    item.overtimeFlag,
+          'overtime_hours':   item.overtimeHours != null ? double.tryParse(item.overtimeHours!) : null,
+          'overtime_content': item.overtimeContent.isEmpty ? null : item.overtimeContent,
         };
         if (item.parkingPhotoPath != null) {
           try {
@@ -954,6 +998,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _isListening  = false;
   bool          _submitting   = false;
   bool          _voiceMode    = false;
+  bool          _overtimeFlag = false;
+  final _overtimeHoursCtrl   = TextEditingController();
+  final _overtimeContentCtrl = TextEditingController();
   final RoutesService _routesService = RoutesService();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
@@ -995,6 +1042,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _otherCtrl.dispose();
     _carpoolCtrl.dispose();
     _transportMemoCtrl.dispose();
+    _overtimeHoursCtrl.dispose();
+    _overtimeContentCtrl.dispose();
     _connectivitySub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -1150,12 +1199,15 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
       workContent:      _transport == TransportType.other
-          ? '[その他:\${_otherCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
+          ? '[その他:${_otherCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
           : (_transport == TransportType.car && _carType == 'carpool')
-          ? '[相乗り:\${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
+          ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
           : _workContentCtrl.text.trim(),
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
+      overtimeFlag:     _overtimeFlag,
+      overtimeHours:    _overtimeFlag ? _overtimeHoursCtrl.text.trim() : null,
+      overtimeContent:  _overtimeFlag ? _overtimeContentCtrl.text.trim() : '',
     ));
     _refreshPendingCount();
     if (mounted) {
@@ -1168,13 +1220,15 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         _workPhotoPath = null;
       });
       _nameCtrl.clear();
-            _loadUserName();
+      _loadUserName();
       _feeCtrl.clear();
       _workContentCtrl.clear();
       _otherCtrl.clear();
       _carpoolCtrl.clear();
       _transportMemoCtrl.clear();
-      setState(() { _carType = 'own'; _transports = {TransportType.train}; });
+      _overtimeHoursCtrl.clear();
+      _overtimeContentCtrl.clear();
+      setState(() { _carType = 'own'; _transports = {TransportType.train}; _overtimeFlag = false; });
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
       if (!mounted) return;
@@ -1741,6 +1795,84 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                   ],
                 ),
               ),
+              const SizedBox(height: 14),
+
+              // 4. 残業トグル
+              Container(
+                decoration: BoxDecoration(
+                  color: _overtimeFlag
+                      ? JsColors.warning.withValues(alpha: 0.08)
+                      : JsColors.gunmetal,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: _overtimeFlag ? JsColors.warning : JsColors.divider),
+                ),
+                child: Column(children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _overtimeFlag = !_overtimeFlag),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      child: Row(children: [
+                        Icon(Icons.access_time_filled,
+                            color: _overtimeFlag ? JsColors.warning : JsColors.silver, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('残業あり',
+                              style: TextStyle(
+                                color: _overtimeFlag ? JsColors.warning : JsColors.offWhite,
+                                fontSize: 15, fontWeight: FontWeight.bold)),
+                        ),
+                        Switch(
+                          value: _overtimeFlag,
+                          onChanged: (v) => setState(() => _overtimeFlag = v),
+                          thumbColor: WidgetStateProperty.resolveWith((s) =>
+                              s.contains(WidgetState.selected)
+                                  ? JsColors.warning
+                                  : JsColors.silver),
+                          trackColor: WidgetStateProperty.resolveWith((s) =>
+                              s.contains(WidgetState.selected)
+                                  ? JsColors.warning.withValues(alpha: 0.3)
+                                  : JsColors.divider),
+                        ),
+                      ]),
+                    ),
+                  ),
+                  if (_overtimeFlag)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      decoration: const BoxDecoration(
+                          border: Border(top: BorderSide(color: JsColors.divider))),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Column(children: [
+                          TextField(
+                            controller: _overtimeHoursCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: '残業時間（例：2.5）',
+                              prefixIcon: Icon(Icons.timer, color: JsColors.silver),
+                              suffixText: '時間',
+                            ),
+                            style: const TextStyle(color: JsColors.offWhite),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _overtimeContentCtrl,
+                            maxLines: 2,
+                            decoration: const InputDecoration(
+                              labelText: '残業内容（任意）',
+                              hintText: '例：2階配線工事の続き',
+                              prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
+                              alignLabelWithHint: true,
+                            ),
+                            style: const TextStyle(color: JsColors.offWhite),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ]),
+              ),
+
               const SizedBox(height: 20),
 
               // 報告ボタン

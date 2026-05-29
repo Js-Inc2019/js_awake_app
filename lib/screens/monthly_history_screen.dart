@@ -63,8 +63,8 @@ class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final total    = _reports.length;
-    final approved = _reports.where((r) => r['status'] == 'approved').length;
-    final rejected = _reports.where((r) => r['status'] == 'rejected').length;
+    final approved = _reports.where((r) => r['approved'] == true).length;
+    final rejected = _reports.where((r) => r['revision_requested'] == true).length;
     final pending  = total - approved - rejected;
     final now      = DateTime.now();
     final isCurrentMonth = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
@@ -98,9 +98,9 @@ class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
             ),
           ),
           // 集計バー
-          if (!_loading && _error == null)
+          if (!_loading && _error == null) ...[
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: Row(children: [
                 _StatChip('合計', total, JsColors.silver),
                 const SizedBox(width: 8),
@@ -111,6 +111,40 @@ class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
                 _StatChip('未承認', pending, JsColors.warning),
               ]),
             ),
+            // 残業集計・警告
+            Builder(builder: (ctx) {
+              final otHours = _reports.fold<double>(
+                  0, (s, r) => s + ((r['overtime_hours'] as num?)?.toDouble() ?? 0));
+              if (otHours <= 0) return const SizedBox.shrink();
+              final isOver = otHours >= 45;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: (isOver ? JsColors.error : JsColors.warning).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: isOver ? JsColors.error : JsColors.warning),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.access_time_filled,
+                        color: isOver ? JsColors.error : JsColors.warning, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      isOver
+                          ? '⚠️ 今月の残業合計: ${otHours}h（45時間超過！）'
+                          : '残業合計: ${otHours}h',
+                      style: TextStyle(
+                          color: isOver ? JsColors.error : JsColors.warning,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ]),
+                ),
+              );
+            }),
+          ],
           // リスト
           Expanded(
             child: _loading
@@ -123,7 +157,10 @@ class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
                         : ListView.builder(
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                             itemCount: _reports.length,
-                            itemBuilder: (ctx, i) => _ReportTile(report: _reports[i]),
+                            itemBuilder: (ctx, i) => _ReportTile(
+                              report: _reports[i],
+                              onEdited: _load,
+                            ),
                           ),
           ),
         ],
@@ -155,24 +192,95 @@ class _StatChip extends StatelessWidget {
   );
 }
 
-class _ReportTile extends StatelessWidget {
-  const _ReportTile({required this.report});
+class _ReportTile extends StatefulWidget {
+  const _ReportTile({required this.report, required this.onEdited});
   final Map<String, dynamic> report;
+  final VoidCallback onEdited;
+  @override
+  State<_ReportTile> createState() => _ReportTileState();
+}
+
+class _ReportTileState extends State<_ReportTile> {
+  bool _editing = false;
+  late final TextEditingController _contentCtrl;
+  late final TextEditingController _reasonCtrl;
 
   @override
-  Widget build(BuildContext context) {
-    final status = report['status'] as String? ?? 'pending';
-    late final Color sc;
-    late final String sl;
-    switch (status) {
-      case 'approved': sc = JsColors.success; sl = '承認済'; break;
-      case 'rejected': sc = JsColors.error;   sl = '差戻し'; break;
-      default:         sc = JsColors.silver;  sl = '未承認'; break;
+  void initState() {
+    super.initState();
+    _contentCtrl = TextEditingController(
+        text: widget.report['work_content'] as String? ?? '');
+    _reasonCtrl  = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _contentCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitEdit() async {
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('修正理由を入力してください'),
+          backgroundColor: JsColors.error));
+      return;
     }
+    final reportId = widget.report['report_id'] as String? ?? '';
+    if (reportId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http.put(
+        Uri.parse('$API_URL/reports/$reportId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'work_content': _contentCtrl.text.trim(),
+          'edit_reason':  reason,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        setState(() => _editing = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('修正しました'),
+            backgroundColor: JsColors.success));
+        widget.onEdited();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('修正失敗: ${res.statusCode}'),
+            backgroundColor: JsColors.error));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('エラー: $e'), backgroundColor: JsColors.error));
+    }
+  }
+
+  get report => widget.report;
+
+  @override
+  @override
+  Widget build(BuildContext context) {
+    final approved         = report['approved'] as bool? ?? false;
+    final revisionRequested = report['revision_requested'] as bool? ?? false;
+    final Color sc;
+    final String sl;
+    if (approved) { sc = JsColors.success; sl = '承認済'; }
+    else if (revisionRequested) { sc = JsColors.error; sl = '是正依頼'; }
+    else { sc = JsColors.silver; sl = '未承認'; }
     final date    = report['report_date'] as String? ?? '';
-    final content = report['work_content'] as String? ?? '作業内容 未入力';
     final addr    = report['gps_address']  as String? ?? '';
     final trans   = report['transport_type'] as String? ?? '';
+
+    // 当日のみ修正可能
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final isToday = date.startsWith(today);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -180,15 +288,14 @@ class _ReportTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: JsColors.gunmetal,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: _editing ? JsColors.gold : JsColors.divider),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Text(date, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
                   if (trans.isNotEmpty) ...[
@@ -197,26 +304,86 @@ class _ReportTile extends StatelessWidget {
                   ],
                 ]),
                 const SizedBox(height: 4),
-                Text(content,
-                    style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-                if (addr.isNotEmpty)
-                  Text(addr,
-                      style: const TextStyle(color: JsColors.silver, fontSize: 11),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-              ],
+              ]),
             ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: sc.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: sc),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: sc.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: sc),
+              ),
+              child: Text(sl, style: TextStyle(color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
-            child: Text(sl, style: TextStyle(color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
-          ),
+            if (isToday && !approved) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => setState(() => _editing = !_editing),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: JsColors.gold.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: JsColors.gold),
+                  ),
+                  child: Text(_editing ? 'キャンセル' : '修正',
+                      style: const TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ]),
+          if (!_editing) ...[
+            Text(_contentCtrl.text.isEmpty ? '作業内容 未入力' : _contentCtrl.text,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+                maxLines: 3, overflow: TextOverflow.ellipsis),
+            if (addr.isNotEmpty)
+              Text(addr,
+                  style: const TextStyle(color: JsColors.silver, fontSize: 11),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+          if (_editing) ...[
+            TextField(
+              controller: _contentCtrl,
+              maxLines: 3,
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '作業内容を修正',
+                labelStyle: TextStyle(color: JsColors.silver),
+                filled: true, fillColor: JsColors.surface,
+                border: OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: JsColors.divider)),
+                focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: JsColors.gold, width: 2)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _reasonCtrl,
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '修正理由（必須）',
+                labelStyle: TextStyle(color: JsColors.silver),
+                filled: true, fillColor: JsColors.surface,
+                border: OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: JsColors.divider)),
+                focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: JsColors.gold, width: 2)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _submitEdit,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: JsColors.gold,
+                    foregroundColor: Colors.black),
+                child: const Text('修正を送信'),
+              ),
+            ),
+          ],
         ],
       ),
     );
