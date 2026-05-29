@@ -78,7 +78,8 @@ class _LoginScreenState extends State<LoginScreen> {
     if (isRegistered) {
       await _biometricThenLogin();
     } else {
-      setState(() => _isLoading = false);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/register');
     }
   }
 
