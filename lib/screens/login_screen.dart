@@ -20,22 +20,12 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = true;
   String? _errorMessage;
-  final _companyCodeCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  String _selectedRole = 'worker';
   bool _biometricFailed = false;
 
   @override
   void initState() {
     super.initState();
     _init();
-  }
-
-  @override
-  void dispose() {
-    _companyCodeCtrl.dispose();
-    _nameCtrl.dispose();
-    super.dispose();
   }
 
   Future<String> _getDeviceId() async {
@@ -68,18 +58,18 @@ class _LoginScreenState extends State<LoginScreen> {
       return result;
     } catch (e) {
       debugPrint('生体認証エラー: $e');
-      return true; // エラー時はスキップして続行
+      return true;
     }
   }
 
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
-    final isRegistered = prefs.getString('device_id') != null;
-    if (isRegistered) {
+    final deviceId = prefs.getString('device_id');
+    if (deviceId != null) {
       await _biometricThenLogin();
     } else {
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/register');
+      Navigator.of(context).pushReplacementNamed('/onboarding');
     }
   }
 
@@ -101,54 +91,27 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
         await _saveAndNavigate(data);
         return;
       }
     } catch (e) {
-      print('自動Loginエラー: $e');
+      debugPrint('自動Loginエラー: $e');
     }
-    setState(() => _isLoading = false);
-  }
-
-  Future<void> _register() async {
-    final companyCode = _companyCodeCtrl.text.trim().toUpperCase();
-    final name = _nameCtrl.text.trim();
-    if (companyCode.isEmpty || name.isEmpty) {
-      setState(() => _errorMessage = '会社コードと氏名を入力してください');
-      return;
-    }
-    final ok = await _doBiometric();
-    if (!ok) {
-      setState(() => _errorMessage = '認識に失敗しました');
-      return;
-    }
-    setState(() { _isLoading = true; _errorMessage = null; });
-    try {
-      final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('$_apiBase/auth/register-device'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
-      ).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        await _saveAndNavigate(data);
-      } else {
-        setState(() { _isLoading = false; _errorMessage = data['error'] ?? '登録に失敗しました'; });
-      }
-    } catch (e) {
-      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
-    }
+    // デバイス未登録・トークン無効 → device_id をクリアして初回フローへ
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('device_id');
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed('/onboarding');
   }
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', data['token']);
-    await prefs.setString('user_name', data['name'] ?? '');
-    await prefs.setString('user_role', data['role'] ?? 'worker');
-    await prefs.setString('company_id', data['company_id'] ?? '');
-    await prefs.setString('work_mode', data['work_mode'] ?? 'deemed');
+    await prefs.setString('auth_token', data['token'] as String? ?? '');
+    await prefs.setString('user_name',  data['name']       as String? ?? '');
+    await prefs.setString('user_role',  data['role']       as String? ?? 'worker');
+    await prefs.setString('company_id', data['company_id'] as String? ?? '');
+    await prefs.setString('work_mode',  data['work_mode']  as String? ?? 'deemed');
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
@@ -182,11 +145,8 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('device_id');
-                  if (!mounted) return;
-                  Navigator.of(context).pushNamed('/register');
+                onPressed: () {
+                  Navigator.of(context).pushReplacementNamed('/onboarding');
                 },
                 child: const Text('機種変更（新しいデバイスで再登録）',
                     style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
@@ -196,105 +156,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFD4AF37), fontSize: 28, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('勤務管理システム', style: TextStyle(color: Colors.white70, fontSize: 16)),
-              const SizedBox(height: 48),
-              TextField(
-                controller: _companyCodeCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: '会社コード',
-                  labelStyle: const TextStyle(color: Colors.white54),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFD4AF37)), borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _nameCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: '氏名',
-                  labelStyle: const TextStyle(color: Colors.white54),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFD4AF37)), borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Align(alignment: Alignment.centerLeft, child: Text('役割', style: TextStyle(color: Colors.white54, fontSize: 12))),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedRole = 'worker'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedRole == 'worker' ? const Color(0xFFD4AF37) : Colors.transparent,
-                          border: Border.all(color: _selectedRole == 'worker' ? const Color(0xFFD4AF37) : Colors.white24),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(child: Text('職人', style: TextStyle(color: _selectedRole == 'worker' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedRole = 'boss'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedRole == 'boss' ? const Color(0xFFD4AF37) : Colors.transparent,
-                          border: Border.all(color: _selectedRole == 'boss' ? const Color(0xFFD4AF37) : Colors.white24),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(child: Text('職長・管理', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
-              ],
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _register,
-                  icon: const Icon(Icons.fingerprint),
-                  label: const Text('Sign Up', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed('/register'),
-                  child: const Text(
-                    '機種変更はこちら（管理者から招待コードを受け取った方）',
-                    style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    // フォールバック（通常到達しない）
+    return const Scaffold(
+      backgroundColor: Color(0xFF1A1A1A),
+      body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
     );
   }
 }

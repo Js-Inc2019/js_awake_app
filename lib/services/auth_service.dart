@@ -53,7 +53,7 @@ class AuthService {
 
   Future<String?> getRole() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('role');
+    return prefs.getString('user_role') ?? prefs.getString('role');
   }
 
   // ============================================================
@@ -136,7 +136,7 @@ class AuthService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token',  token);
           await prefs.setString('user_id',     userId);
-          await prefs.setString('role',        role     ?? 'worker');
+          await prefs.setString('user_role',    role     ?? 'worker');
           await prefs.setString('company_id',  companyId ?? '');
           await prefs.setString('user_name',   userName  ?? '');
 
@@ -193,7 +193,7 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
     await prefs.remove('user_id');
-    await prefs.remove('role');
+    await prefs.remove('user_role');
     await prefs.remove('company_id');
     await prefs.remove('user_name');
   }

@@ -9,6 +9,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'screens/login_screen.dart';
 import 'screens/monthly_history_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/invite_activate_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
@@ -93,9 +95,11 @@ class JsAwakeApp extends StatelessWidget {
       theme: _buildTheme(),
       home: const LoginScreen(),
       routes: {
-        '/login': (_) => const LoginScreen(),
-        '/gate': (_) => const GateScreen(),
-        '/register': (_) => const RegisterScreen(),
+        '/login':           (_) => const LoginScreen(),
+        '/gate':            (_) => const GateScreen(),
+        '/onboarding':      (_) => const OnboardingScreen(),
+        '/invite-activate': (_) => const InviteActivateScreen(),
+        '/register':        (_) => const RegisterScreen(),
       },
     );
   }
