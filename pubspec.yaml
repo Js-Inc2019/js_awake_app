@@ -46,6 +46,7 @@ dependencies:
   path_provider: ^2.1.2
   geocoding: ^4.0.0
   device_info_plus: ^12.4.0
+  connectivity_plus: ^6.0.0
 
 dev_dependencies:
   flutter_test:

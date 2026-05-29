@@ -4,9 +4,11 @@
 // v1.1.1変更点：プレビュー画面に写真表示追加
 // ============================================================
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'screens/login_screen.dart';
+import 'screens/monthly_history_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
@@ -36,6 +38,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
 import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
     import 'package:http/http.dart' as http;
+import 'package:google_fonts/google_fonts.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 // ============================================================
 // API設定
@@ -167,6 +171,7 @@ class JsAwakeApp extends StatelessWidget {
         ),
       ),
       dividerTheme: const DividerThemeData(color: JsColors.divider, thickness: 1),
+      fontFamily: GoogleFonts.notoSansJp().fontFamily,
     );
   }
 }
@@ -266,9 +271,10 @@ class WorkerReportItem {
 // ============================================================
 
 class _K {
-  static const reports    = 'worker_reports_history';
-  static const names      = 'registered_worker_names';
-  static const notifHours = 'notification_hours';
+  static const reports        = 'worker_reports_history';
+  static const names          = 'registered_worker_names';
+  static const notifHours     = 'notification_hours';
+  static const pendingReports = 'pending_reports';
 }
 
 // ============================================================
@@ -302,43 +308,81 @@ class ReportStore {
     await _sendToAPI([item]);
   }
 
-Future<void> _sendToAPI(List<WorkerReportItem> items) async {
-    try {
-      for (final item in items) {
+  Future<void> _sendToAPI(List<WorkerReportItem> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token') ?? '';
+    final failed = <WorkerReportItem>[];
+    for (final item in items) {
+      try {
+        final body = <String, dynamic>{
+          'worker_name':   item.name,
+          'worker_company': '',
+          'report_date':   item.timestamp.toIso8601String().substring(0, 10),
+          'clock_in_time': '${item.timeLabel}:00',
+          'transport_type': item.transport.name,
+          'parking_fee':   item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+          'gps_address':   item.gpsAddress,
+          'origin_type':   item.originType,
+          'work_content':  item.workContent,
+        };
+        if (item.parkingPhotoPath != null) {
+          try {
+            body['parking_photo_base64'] = base64Encode(await File(item.parkingPhotoPath!).readAsBytes());
+          } catch (_) {}
+        }
+        if (item.workPhotoPath != null) {
+          try {
+            body['site_photo_base64'] = base64Encode(await File(item.workPhotoPath!).readAsBytes());
+          } catch (_) {}
+        }
         final response = await http.post(
           Uri.parse('$API_URL/reports'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${(await SharedPreferences.getInstance()).getString('auth_token') ?? ""}',
-          },
-          body: jsonEncode({
-            'worker_name': item.name,
-            'worker_company': '',
-            'report_date': item.timestamp.toIso8601String().substring(0, 10),
-            'clock_in_time': item.timeLabel + ':00',
-            'transport_type': item.transport.name,
-            'parking_fee': item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
-            'gps_address': item.gpsAddress,
-            'origin_type': item.originType,
-            'work_content': item.workContent,
-            if (item.parkingPhotoPath != null)
-              'parking_photo_base64': base64Encode(await File(item.parkingPhotoPath!).readAsBytes()),
-            if (item.workPhotoPath != null)
-              'site_photo_base64': base64Encode(await File(item.workPhotoPath!).readAsBytes()),
-          }),
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+          body: jsonEncode(body),
         ).timeout(const Duration(seconds: 10));
-        if (response.statusCode != 200 && response.statusCode != 201) {
-          debugPrint('API エラー: ${response.statusCode} - ${response.body}');
-        } else {
+        if (response.statusCode == 200 || response.statusCode == 201) {
           final resBody = jsonDecode(response.body);
           item.apiReportId = resBody['report_id'] as String?;
           debugPrint('API 送信成功: ${item.name} id=${item.apiReportId}');
+        } else {
+          debugPrint('API エラー: ${response.statusCode}');
+          failed.add(item);
         }
+      } catch (e) {
+        debugPrint('API 送信失敗: $e');
+        failed.add(item);
       }
-    } catch (e) {
-      debugPrint('API 送信失敗: $e');
     }
+    if (failed.isNotEmpty) await _savePending(failed);
   }
+
+  Future<void> _savePending(List<WorkerReportItem> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = await _loadPending();
+    final existingIds = existing.map((e) => e.id).toSet();
+    final newItems = items.where((i) => !existingIds.contains(i.id)).toList();
+    final all = [...existing, ...newItems];
+    await prefs.setString(_K.pendingReports, jsonEncode(all.map((e) => e.toJson()).toList()));
+  }
+
+  Future<List<WorkerReportItem>> _loadPending() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_K.pendingReports);
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List).map((e) => WorkerReportItem.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) { return []; }
+  }
+
+  Future<void> retryPending() async {
+    final pending = await _loadPending();
+    if (pending.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_K.pendingReports);
+    await _sendToAPI(pending);
+  }
+
+  Future<int> pendingCount() async => (await _loadPending()).length;
 
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
@@ -876,6 +920,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool _loadingRoutes = false;
   String _originType = 'home'; // 今日の起点: home / office
   String _companyAddress = '';
+  int _pendingCount = 0;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   @override
   void initState() {
@@ -886,6 +932,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _loadUserName();
     _loadOriginPrefs();
     _scheduleOvertimeReminderIfNeeded();
+    _refreshPendingCount();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      if (results.any((r) => r != ConnectivityResult.none)) {
+        ReportStore.instance.retryPending().then((_) => _refreshPendingCount());
+      }
+    });
   }
 
   Future<void> _scheduleOvertimeReminderIfNeeded() async {
@@ -904,6 +956,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _otherCtrl.dispose();
     _carpoolCtrl.dispose();
     _transportMemoCtrl.dispose();
+    _connectivitySub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -929,6 +982,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _originType     = prefs.getString('default_origin') ?? 'home';
       _companyAddress = prefs.getString('company_address') ?? '';
     });
+  }
+
+  Future<void> _refreshPendingCount() async {
+    final count = await ReportStore.instance.pendingCount();
+    if (mounted) setState(() => _pendingCount = count);
   }
 
   Future<void> _fetchGps() async {
@@ -1060,6 +1118,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
     ));
+    _refreshPendingCount();
     if (mounted) {
       // 退勤忘れリマインダーをキャンセル（報告済みのため）
       NotificationManager.instance.cancelOvertimeReminder();
@@ -1226,10 +1285,31 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           ),
         ] : [
           IconButton(
-            icon: const Icon(Icons.warning_amber),
-            tooltip: '是正依頼',
+            icon: const Icon(Icons.history),
+            tooltip: '月間履歴',
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const RevisionInboxScreen())),
+                MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen())),
+          ),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.warning_amber),
+                tooltip: '是正依頼',
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const RevisionInboxScreen())),
+              ),
+              if (_pendingCount > 0)
+                Positioned(
+                  top: 8, right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(color: JsColors.error, shape: BoxShape.circle),
+                    child: Text('$_pendingCount',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -1279,6 +1359,30 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               // GPS位置情報カード
               _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
               const SizedBox(height: 10),
+
+              // オフライン保留バナー
+              if (_pendingCount > 0)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: JsColors.warning.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: JsColors.warning),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.cloud_off, color: JsColors.warning, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('未送信の日報が${_pendingCount}件あります。ネット接続時に自動送信されます。',
+                          style: const TextStyle(color: JsColors.warning, fontSize: 12)),
+                    ),
+                    TextButton(
+                      onPressed: () => ReportStore.instance.retryPending().then((_) => _refreshPendingCount()),
+                      child: const Text('今すぐ送信', style: TextStyle(color: JsColors.warning, fontSize: 11)),
+                    ),
+                  ]),
+                ),
 
               // 今日の起点選択
               Row(children: [
