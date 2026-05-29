@@ -134,7 +134,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
       // 日報未送信チェック
       final rptRes = await http.get(
-        Uri.parse('$API_URL/workers/attendance/today'),
+        Uri.parse('$API_URL/workers/attendance/today?self=true'),
         headers: headers,
       ).timeout(const Duration(seconds: 8));
       if (rptRes.statusCode == 200) {
