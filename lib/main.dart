@@ -44,7 +44,6 @@ import 'package:geocoding/geocoding.dart'
 import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'screens/qr_scan_screen.dart';
 import 'screens/profile_screen.dart';
 
 // ============================================================
@@ -272,8 +271,6 @@ class WorkerReportItem {
     this.overtimeFlag = false,
     this.overtimeHours,
     this.overtimeContent = '',
-    this.siteId,
-    this.siteName,
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -293,8 +290,6 @@ class WorkerReportItem {
   final bool overtimeFlag;
   final String? overtimeHours;
   final String overtimeContent;
-  final String? siteId;
-  final String? siteName;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -318,8 +313,6 @@ class WorkerReportItem {
     'overtimeFlag':     overtimeFlag,
     'overtimeHours':    overtimeHours,
     'overtimeContent':  overtimeContent,
-    'siteId':           siteId,
-    'siteName':         siteName,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -339,8 +332,6 @@ class WorkerReportItem {
     overtimeFlag:     j['overtimeFlag']     as bool? ?? false,
     overtimeHours:    j['overtimeHours']    as String?,
     overtimeContent:  j['overtimeContent']  as String? ?? '',
-    siteId:           j['siteId']           as String?,
-    siteName:         j['siteName']         as String?,
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -409,8 +400,6 @@ class ReportStore {
           'overtime_flag':    item.overtimeFlag,
           'overtime_hours':   item.overtimeHours != null ? double.tryParse(item.overtimeHours!) : null,
           'overtime_content': item.overtimeContent.isEmpty ? null : item.overtimeContent,
-          if (item.siteId != null) 'site_id': item.siteId,
-          if (item.siteName != null) 'site_name': item.siteName,
         };
         if (item.parkingPhotoPath != null) {
           try {
@@ -1081,8 +1070,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _submitting   = false;
   bool          _voiceMode    = false;
   bool          _overtimeFlag = false;
-  String?       _siteId;
-  String?       _qrSiteName;
   final _overtimeHoursCtrl   = TextEditingController();
   final _overtimeContentCtrl = TextEditingController();
   final RoutesService _routesService = RoutesService();
@@ -1300,8 +1287,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       overtimeFlag:     _overtimeFlag,
       overtimeHours:    _overtimeFlag ? _overtimeHoursCtrl.text.trim() : null,
       overtimeContent:  _overtimeFlag ? _overtimeContentCtrl.text.trim() : '',
-      siteId:           _siteId,
-      siteName:         _qrSiteName,
     ));
     _refreshPendingCount();
     if (mounted) {
@@ -1312,8 +1297,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         _transports    = {TransportType.train};
         _photoPath     = null;
         _workPhotoPath = null;
-        _siteId        = null;
-        _qrSiteName    = null;
       });
       _nameCtrl.clear();
       _loadUserName();
@@ -1384,27 +1367,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           },
         ),
       ));
-    }
-  }
-
-  // QR現場チェックイン
-  Future<void> _scanQr() async {
-    final result = await Navigator.push<QrScanResult>(
-      context,
-      MaterialPageRoute(builder: (_) => const QrScanScreen()),
-    );
-    if (result == null || !mounted) return;
-    setState(() {
-      _siteId     = result.siteId;
-      _qrSiteName = result.siteName;
-      if (result.address != null && result.address!.isNotEmpty) {
-        _gpsAddress = result.address!;
-      }
-    });
-    final label = result.siteName ?? (result.siteId ?? result.rawValue);
-    showJsSnackbar(context, '✅ QR現場チェックイン: $label');
-    if (result.address != null && result.address!.isNotEmpty) {
-      await _calculateRoutes();
     }
   }
 
@@ -1546,11 +1508,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
           ),
           IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: 'QR現場チェックイン',
-            onPressed: _scanQr,
-          ),
-          IconButton(
             icon: const Icon(Icons.notifications_active),
             tooltip: '通知設定',
             onPressed: _openNotifSettings,
@@ -1561,12 +1518,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             onPressed: _launchToolApp,
           ),
         ] : [
-          // QR現場チェックイン
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: 'QR現場チェックイン',
-            onPressed: _scanQr,
-          ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: '月間履歴',
@@ -1643,30 +1594,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 ]),
               ),
               const SizedBox(height: 14),
-
-              // QR現場チェックイン済バナー
-              if (_qrSiteName != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: JsColors.success.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: JsColors.success),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.qr_code, color: JsColors.success, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('QR現場: $_qrSiteName',
-                          style: const TextStyle(color: JsColors.success, fontSize: 13, fontWeight: FontWeight.bold)),
-                    ),
-                    GestureDetector(
-                      onTap: () => setState(() { _siteId = null; _qrSiteName = null; }),
-                      child: const Icon(Icons.close, color: JsColors.success, size: 16),
-                    ),
-                  ]),
-                ),
 
               // GPS位置情報カード
               _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
