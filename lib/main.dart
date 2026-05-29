@@ -70,11 +70,6 @@ void _routeByPayload(String payload) {
   }
 }
 
-@pragma('vm:entry-point')
-void _onNotifBackground(NotificationResponse details) {
-  // バックグラウンド: 処理なし（フォアグラウンド復帰時にhandle）
-}
-
 // ============================================================
 // エントリーポイント
 // ============================================================
@@ -537,7 +532,6 @@ class NotificationManager {
         final payload = details.payload ?? '';
         if (payload.isNotEmpty) _routeByPayload(payload);
       },
-      onDidReceiveBackgroundNotificationResponse: _onNotifBackground,
     );
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList(_K.notifHours);
