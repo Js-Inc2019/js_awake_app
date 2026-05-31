@@ -232,4 +232,32 @@ class AuthService {
       'Authorization': 'Bearer $token',
     };
   }
+
+  // ============================================================
+  // PIN変更
+  // ============================================================
+
+  String? lastError;
+
+  Future<bool> changePin({required String oldPin, required String newPin}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deviceId = prefs.getString('device_id') ?? '';
+      final res = await http.post(
+        Uri.parse('$API_URL/auth/change-pin'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'device_id': deviceId, 'old_pin': oldPin, 'new_pin': newPin}),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) return true;
+      try {
+        lastError = (jsonDecode(res.body)['error'] as String?) ?? 'PIN変更失敗';
+      } catch (_) {
+        lastError = 'PIN変更に失敗しました';
+      }
+      return false;
+    } catch (e) {
+      lastError = '$e';
+      return false;
+    }
+  }
 }

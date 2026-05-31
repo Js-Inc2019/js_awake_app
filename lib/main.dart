@@ -45,6 +45,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'screens/profile_screen.dart';
+import 'screens/settings_screen.dart';
 
 // ============================================================
 // API設定
@@ -140,6 +141,7 @@ class _JsAwakeAppState extends State<JsAwakeApp> {
         '/onboarding':      (_) => const OnboardingScreen(),
         '/invite-activate': (_) => const InviteActivateScreen(),
         '/register':        (_) => const RegisterScreen(),
+        '/settings':        (_) => const SettingsScreen(),
       },
     );
 
@@ -1083,6 +1085,10 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _loadUserName();
     _loadOriginPrefs();
     _restoreDraft();
+    _workContentCtrl.addListener(_saveDraft);
+    _feeCtrl.addListener(_saveDraft);
+    _overtimeHoursCtrl.addListener(_saveDraft);
+    _overtimeContentCtrl.addListener(_saveDraft);
     _scheduleOvertimeReminderIfNeeded();
     _refreshPendingCount();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
@@ -1621,6 +1627,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             icon: const Icon(Icons.build_circle_outlined),
             tooltip: 'ツールアプリ',
             onPressed: _launchToolApp,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '設定',
+            onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),
         ],
       ),
