@@ -140,6 +140,10 @@ class AuthService {
           await prefs.setString('user_role',    role     ?? 'worker');
           await prefs.setString('company_id',  companyId ?? '');
           await prefs.setString('user_name',   userName  ?? '');
+          await prefs.setInt('experience_months',
+              (data['experience_months'] as num?)?.toInt() ?? 0);
+          await prefs.setInt('foreman_years',
+              (data['foreman_years'] as num?)?.toInt() ?? 0);
 
           debugPrint('✅ ログイン成功: role=$role, company_id=$companyId');
 
