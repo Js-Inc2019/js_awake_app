@@ -39,12 +39,13 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     if (dart.library.html) 'stub/notifications_stub.dart';
 import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
-    import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/api_cache.dart';
+import 'services/http_client.dart';
 
 // ============================================================
 // API設定
@@ -78,13 +79,18 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
+
+  // SharedPreferences を事前ロード（以降の呼び出しはキャッシュから即座に返る）
+  final prefs = await SharedPreferences.getInstance();
+
   if (!kIsWeb) {
-    await NotificationManager.instance.initialize();
-    // アプリが通知タップで起動した場合のペイロード保存
+    // 通知初期化 と Heroku ウォームアップを並列実行
+    final notifFuture = NotificationManager.instance.initialize();
+    AppHttpClient.warmUp(); // fire & forget
+    await notifFuture;
     _pendingNotifPayload = await NotificationManager.instance.getAppLaunchPayload();
   }
-  // プライバシー同意確認
-  final prefs = await SharedPreferences.getInstance();
+
   final agreedAt = prefs.getString('privacy_agreed_at');
   runApp(JsAwakeApp(privacyAgreed: agreedAt != null));
 }
@@ -407,11 +413,11 @@ class ReportStore {
             body['site_photo_base64'] = base64Encode(await File(item.workPhotoPath!).readAsBytes());
           } catch (_) {}
         }
-        final response = await http.post(
-          Uri.parse('$API_URL/reports'),
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        final response = await AppHttpClient.instance.authPost(
+          '/reports',
+          token: token,
           body: jsonEncode(body),
-        ).timeout(const Duration(seconds: 10));
+        );
         if (response.statusCode == 200 || response.statusCode == 201) {
           final resBody = jsonDecode(response.body);
           item.apiReportId = resBody['report_id'] as String?;
@@ -1198,10 +1204,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     final addr = await fetchGpsAddress();
     if (mounted) {
       setState(() { _gpsAddress = addr; _gpsLoading = false; });
-      await _calculateRoutes();
+      _calculateRoutes(); // unawaited - フォーム表示をブロックしない
     }
   }
-
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
@@ -1213,7 +1218,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     } else {
       originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市中央区三宮町1丁目';
     }
-    setState(() => _loadingRoutes = true);
+    if (mounted) setState(() => _loadingRoutes = true);
     final routes = await _routesService.compareRoutesV2(
       origin: originAddr,
       destination: _gpsAddress,
@@ -1463,17 +1468,21 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     }
   }
 
-  // サーバー通知ポーリング
+  // サーバー通知ポーリング（30秒キャッシュ）
   Future<void> _pollServerNotifications() async {
     if (kIsWeb) return;
     try {
+      // 30秒以内の重複呼び出しはスキップ
+      if (ApiCache.instance.get<bool>('notif:polled') == true) return;
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) return;
-      final res = await http.get(
-        Uri.parse('$API_URL/notifications'),
-        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+      ApiCache.instance.set('notif:polled', true, const Duration(seconds: 30));
+      final res = await AppHttpClient.instance.authGet(
+        '/notifications',
+        token: token,
+        timeout: const Duration(seconds: 8),
+      );
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final notifs = (data['notifications'] as List? ?? []).cast<Map<String, dynamic>>();

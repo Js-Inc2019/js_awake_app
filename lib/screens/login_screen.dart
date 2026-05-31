@@ -1,15 +1,11 @@
-// ============================================================
-// lib/screens/login_screen.dart - デバイス認証＋生体認証
-// ============================================================
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:local_auth/local_auth.dart';
-import 'dart:io';
+// lib/screens/login_screen.dart - デバイス認証＋生体認証（高速化版）
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-
-const String _apiBase = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/http_client.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,6 +21,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    // Heroku dyno を並列でウォームアップ開始（biometric と並列）
+    AppHttpClient.warmUp();
     _init();
   }
 
@@ -34,11 +32,9 @@ class _LoginScreenState extends State<LoginScreen> {
     if (deviceId != null) return deviceId;
     final info = DeviceInfoPlugin();
     if (Platform.isAndroid) {
-      final androidInfo = await info.androidInfo;
-      deviceId = androidInfo.id;
+      deviceId = (await info.androidInfo).id;
     } else if (Platform.isIOS) {
-      final iosInfo = await info.iosInfo;
-      deviceId = iosInfo.identifierForVendor ?? 'ios-unknown';
+      deviceId = (await info.iosInfo).identifierForVendor ?? 'ios-unknown';
     } else {
       deviceId = 'unknown-device';
     }
@@ -51,11 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final auth = LocalAuthentication();
       final canCheck = await auth.canCheckBiometrics;
       if (!canCheck) return true;
-      final result = await auth.authenticate(
+      return await auth.authenticate(
         localizedReason: '本人確認を行ってください',
         options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
-      return result;
     } catch (e) {
       debugPrint('生体認証エラー: $e');
       return true;
@@ -74,54 +69,72 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _biometricThenLogin() async {
-    setState(() { _isLoading = true; _biometricFailed = false; _errorMessage = null; });
-    final ok = await _doBiometric();
+    if (mounted) setState(() { _isLoading = true; _biometricFailed = false; _errorMessage = null; });
+
+    // biometric と同時に SharedPrefs から token を読み込んでおく
+    final biometricFuture = _doBiometric();
+    final prefsFuture = SharedPreferences.getInstance();
+
+    final ok = await biometricFuture;
     if (!ok) {
-      setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
+      if (mounted) setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
       return;
     }
-    await _autoLogin();
+    await _autoLogin(await prefsFuture);
   }
 
-  Future<void> _autoLogin() async {
+  Future<void> _autoLogin(SharedPreferences prefs) async {
     try {
       final deviceId = await _getDeviceId();
-      final response = await http.get(
-        Uri.parse('$_apiBase/auth/verify-device?device_id=$deviceId'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+      final response = await AppHttpClient.instance.get(
+        '/auth/verify-device?device_id=$deviceId',
+        timeout: const Duration(seconds: 12),
+      );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        await _saveAndNavigate(data);
+        await _saveAndNavigate(prefs, data);
         return;
       }
     } catch (e) {
       debugPrint('自動Loginエラー: $e');
     }
-    // デバイス未登録・トークン無効 → device_id をクリアして初回フローへ
-    final prefs = await SharedPreferences.getInstance();
+    // デバイス未登録 → クリアして初回フローへ
     await prefs.remove('device_id');
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/onboarding');
   }
 
-  Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', data['token'] as String? ?? '');
-    await prefs.setString('user_name',  data['name']       as String? ?? '');
-    await prefs.setString('user_role',  data['role']       as String? ?? 'worker');
-    await prefs.setString('company_id', data['company_id'] as String? ?? '');
-    await prefs.setString('work_mode',  data['work_mode']  as String? ?? 'deemed');
+  Future<void> _saveAndNavigate(SharedPreferences prefs, Map<String, dynamic> data) async {
+    await Future.wait([
+      prefs.setString('auth_token', data['token'] as String? ?? ''),
+      prefs.setString('user_name',  data['name']       as String? ?? ''),
+      prefs.setString('user_role',  data['role']       as String? ?? 'worker'),
+      prefs.setString('company_id', data['company_id'] as String? ?? ''),
+      prefs.setString('work_mode',  data['work_mode']  as String? ?? 'deemed'),
+    ]);
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoading && !_biometricFailed) {
       return const Scaffold(
         backgroundColor: Color(0xFF1A1A1A),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text("J's Inc.", style: TextStyle(
+                  color: Color(0xFFD4AF37), fontSize: 28,
+                  fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              SizedBox(height: 32),
+              CircularProgressIndicator(color: Color(0xFFD4AF37)),
+              SizedBox(height: 16),
+              Text('認証中...', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+            ],
+          ),
+        ),
       );
     }
     if (_biometricFailed) {
@@ -133,21 +146,24 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Icon(Icons.fingerprint, color: Color(0xFFD4AF37), size: 80),
               const SizedBox(height: 24),
-              const Text('Login', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+              const Text('Login', style: TextStyle(
+                  color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text(_errorMessage ?? '', style: const TextStyle(color: Colors.white54), textAlign: TextAlign.center),
+              Text(_errorMessage ?? '', style: const TextStyle(color: Colors.white54),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: _biometricThenLogin,
                 icon: const Icon(Icons.fingerprint),
                 label: const Text('Retry'),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).pushReplacementNamed('/onboarding');
-                },
+                onPressed: () => Navigator.of(context).pushReplacementNamed('/onboarding'),
                 child: const Text('機種変更（新しいデバイスで再登録）',
                     style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
               ),
@@ -156,7 +172,6 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
-    // フォールバック（通常到達しない）
     return const Scaffold(
       backgroundColor: Color(0xFF1A1A1A),
       body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
