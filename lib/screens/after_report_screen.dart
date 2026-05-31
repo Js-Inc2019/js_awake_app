@@ -145,7 +145,7 @@ class _SlideBtn extends StatefulWidget {
 class _SlideBtnState extends State<_SlideBtn> {
   double _offset = 0;
   bool _done = false;
-  bool _animating = false;
+  final bool _animating = false;
   static const double _max = 220.0;
 
   void _onUpdate(DragUpdateDetails d) {

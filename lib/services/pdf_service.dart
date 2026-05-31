@@ -36,9 +36,9 @@ class PdfService {
           // ヘッダー
           pw.Container(
             padding: const pw.EdgeInsets.all(16),
-            decoration: pw.BoxDecoration(
-              color: const PdfColor.fromInt(0xFFD4AF37),
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            decoration: const pw.BoxDecoration(
+              color: PdfColor.fromInt(0xFFD4AF37),
+              borderRadius: pw.BorderRadius.all(pw.Radius.circular(8)),
             ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,

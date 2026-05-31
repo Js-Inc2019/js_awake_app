@@ -1069,8 +1069,17 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   bool          _gpsLoading   = false;
   bool          _isListening  = false;
   bool          _submitting   = false;
+  bool          _submitted    = false;
   bool          _voiceMode    = false;
   bool          _overtimeFlag = false;
+  // 送信済みデータ（読み取り専用表示用）
+  String _submittedName       = '';
+  String _submittedTransport  = '';
+  String _submittedWork       = '';
+  String _submittedGPS        = '';
+  bool   _submittedOT         = false;
+  String _submittedOTHours    = '';
+  String _submittedTime       = '';
   final _overtimeHoursCtrl   = TextEditingController();
   final _overtimeContentCtrl = TextEditingController();
   final RoutesService _routesService = RoutesService();
@@ -1096,6 +1105,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _overtimeContentCtrl.addListener(_saveDraft);
     _scheduleOvertimeReminderIfNeeded();
     _refreshPendingCount();
+    if (!widget.isBossMode) _checkSubmittedToday();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
         ReportStore.instance.retryPending().then((_) => _refreshPendingCount());
@@ -1116,6 +1126,23 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString('work_mode') == 'actual') {
       NotificationManager.instance.scheduleOvertimeReminder();
+    }
+  }
+
+  Future<void> _checkSubmittedToday() async {
+    final today = await ReportStore.instance.loadToday();
+    if (today.isNotEmpty && mounted) {
+      final r = today.last;
+      setState(() {
+        _submitted         = true;
+        _submittedName     = r.name;
+        _submittedTransport = r.transport.label;
+        _submittedWork     = r.workContent;
+        _submittedGPS      = r.gpsAddress;
+        _submittedOT       = r.overtimeFlag;
+        _submittedOTHours  = r.overtimeHours ?? '';
+        _submittedTime     = r.timeLabel;
+      });
     }
   }
 
@@ -1151,10 +1178,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _loadOriginPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() {
-      _originType     = prefs.getString('default_origin') ?? 'home';
-      _companyAddress = prefs.getString('company_address') ?? '';
-    });
+    if (mounted) {
+      setState(() {
+        _originType     = prefs.getString('default_origin') ?? 'home';
+        _companyAddress = prefs.getString('company_address') ?? '';
+      });
+    }
   }
 
   Future<void> _refreshPendingCount() async {
@@ -1224,10 +1253,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       destination: _gpsAddress,
       authToken: token,
     );
-    if (mounted) setState(() {
-      _routeComparisons = routes;
-      _loadingRoutes = false;
-    });
+    if (mounted) {
+      setState(() {
+        _routeComparisons = routes;
+        _loadingRoutes = false;
+      });
+    }
   }
 
   Future<void> _startVoiceWork() async {
@@ -1308,7 +1339,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Future<void> _submit() async {
     if (_submitting) return;
     final valid = await _validate();
-    if (!valid) return;
+    if (!valid || !mounted) return;
 
     // 送信前確認ダイアログ
     final transportLabel = _transport.label;
@@ -1351,6 +1382,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
     setState(() => _submitting = true);
     final name = _nameCtrl.text.trim();
+    // 送信前にデータをキャプチャ（フォームクリア前）
+    final capturedTransport   = _transport.label;
+    final capturedWork        = _workContentCtrl.text.trim();
+    final capturedGPS         = _gpsAddress;
+    final capturedOT          = _overtimeFlag;
+    final capturedOTHours     = _overtimeHoursCtrl.text.trim();
+    final now = DateTime.now();
+    final capturedTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     await WorkerNameStore.instance.add(name);
     await ReportStore.instance.addReport(WorkerReportItem(
       name:             name,
@@ -1388,7 +1427,21 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _transportMemoCtrl.clear();
       _overtimeHoursCtrl.clear();
       _overtimeContentCtrl.clear();
-      setState(() { _carType = 'own'; _transports = {TransportType.train}; _overtimeFlag = false; });
+      setState(() {
+        _carType = 'own';
+        _transports = {TransportType.train};
+        _overtimeFlag = false;
+        if (!widget.isBossMode) {
+          _submitted          = true;
+          _submittedName      = name;
+          _submittedTransport = capturedTransport;
+          _submittedWork      = capturedWork;
+          _submittedGPS       = capturedGPS;
+          _submittedOT        = capturedOT;
+          _submittedOTHours   = capturedOTHours;
+          _submittedTime      = capturedTime;
+        }
+      });
       _clearDraft();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
@@ -1399,6 +1452,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           onMoveToNextSite: () {
             Navigator.pop(context);
             setState(() {
+              _submitted  = false;
               _gpsAddress = '';
               _transports = {TransportType.train};
               _photoPath = null;
@@ -1415,8 +1469,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
           onNightShift: () {
             Navigator.pop(context);
             setState(() {
-              _transports = {TransportType.train};
-              _photoPath = null;
+              _submitted    = false;
+              _transports   = {TransportType.train};
+              _photoPath    = null;
               _workPhotoPath = null;
               _routeComparisons = {};
             });
@@ -1541,7 +1596,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 activeColor: JsColors.gold,
                 checkColor: Colors.black,
                 onChanged: (v) => setSt(() {
-                  if (v == true) current.add(i); else current.remove(i);
+                  if (v == true) { current.add(i); } else { current.remove(i); }
                 }),
               ),
             ),
@@ -1577,14 +1632,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             icon: const Icon(Icons.inbox),
             tooltip: '受信トレイ',
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => InboxScreen())),
+                MaterialPageRoute(builder: (_) => const InboxScreen())),
           ),
           IconButton(
             icon: const Icon(Icons.location_on),
             tooltip: '現場選択',
             onPressed: () async {
               await Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => SiteSelectScreen()));
+                  MaterialPageRoute(builder: (_) => const SiteSelectScreen()));
             },
           ),
           IconButton(
@@ -1704,7 +1759,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                     const Icon(Icons.cloud_off, color: JsColors.warning, size: 16),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text('未送信の日報が${_pendingCount}件あります。ネット接続時に自動送信されます。',
+                      child: Text('未送信の日報が$_pendingCount件あります。ネット接続時に自動送信されます。',
                           style: const TextStyle(color: JsColors.warning, fontSize: 12)),
                     ),
                     TextButton(
@@ -2034,84 +2089,137 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
               ),
               const SizedBox(height: 14),
 
-              // 4. 残業トグル
-              Container(
-                decoration: BoxDecoration(
-                  color: _overtimeFlag
-                      ? JsColors.warning.withValues(alpha: 0.08)
-                      : JsColors.gunmetal,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: _overtimeFlag ? JsColors.warning : JsColors.divider),
-                ),
-                child: Column(children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _overtimeFlag = !_overtimeFlag),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      child: Row(children: [
-                        Icon(Icons.access_time_filled,
-                            color: _overtimeFlag ? JsColors.warning : JsColors.silver, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text('残業あり',
-                              style: TextStyle(
-                                color: _overtimeFlag ? JsColors.warning : JsColors.offWhite,
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                        ),
-                        Switch(
-                          value: _overtimeFlag,
-                          onChanged: (v) => setState(() => _overtimeFlag = v),
-                          thumbColor: WidgetStateProperty.resolveWith((s) =>
-                              s.contains(WidgetState.selected)
-                                  ? JsColors.warning
-                                  : JsColors.silver),
-                          trackColor: WidgetStateProperty.resolveWith((s) =>
-                              s.contains(WidgetState.selected)
-                                  ? JsColors.warning.withValues(alpha: 0.3)
-                                  : JsColors.divider),
-                        ),
-                      ]),
-                    ),
+              // 4. 残業トグル（送信済み時は非表示）
+              if (!_submitted) ...[
+                Container(
+                  decoration: BoxDecoration(
+                    color: _overtimeFlag
+                        ? JsColors.warning.withValues(alpha: 0.08)
+                        : JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: _overtimeFlag ? JsColors.warning : JsColors.divider),
                   ),
-                  if (_overtimeFlag)
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                      decoration: const BoxDecoration(
-                          border: Border(top: BorderSide(color: JsColors.divider))),
+                  child: Column(children: [
+                    GestureDetector(
+                      onTap: () => setState(() => _overtimeFlag = !_overtimeFlag),
                       child: Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Column(children: [
-                          TextField(
-                            controller: _overtimeHoursCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: '残業時間（例：2.5）',
-                              prefixIcon: Icon(Icons.timer, color: JsColors.silver),
-                              suffixText: '時間',
-                            ),
-                            style: const TextStyle(color: JsColors.offWhite),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        child: Row(children: [
+                          Icon(Icons.access_time_filled,
+                              color: _overtimeFlag ? JsColors.warning : JsColors.silver, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text('残業あり',
+                                style: TextStyle(
+                                  color: _overtimeFlag ? JsColors.warning : JsColors.offWhite,
+                                  fontSize: 15, fontWeight: FontWeight.bold)),
                           ),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: _overtimeContentCtrl,
-                            maxLines: 2,
-                            decoration: const InputDecoration(
-                              labelText: '残業内容（任意）',
-                              hintText: '例：2階配線工事の続き',
-                              prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
-                              alignLabelWithHint: true,
-                            ),
-                            style: const TextStyle(color: JsColors.offWhite),
+                          Switch(
+                            value: _overtimeFlag,
+                            onChanged: (v) => setState(() => _overtimeFlag = v),
+                            thumbColor: WidgetStateProperty.resolveWith((s) =>
+                                s.contains(WidgetState.selected)
+                                    ? JsColors.warning
+                                    : JsColors.silver),
+                            trackColor: WidgetStateProperty.resolveWith((s) =>
+                                s.contains(WidgetState.selected)
+                                    ? JsColors.warning.withValues(alpha: 0.3)
+                                    : JsColors.divider),
                           ),
                         ]),
                       ),
                     ),
-                ]),
-              ),
+                    if (_overtimeFlag)
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        decoration: const BoxDecoration(
+                            border: Border(top: BorderSide(color: JsColors.divider))),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Column(children: [
+                            TextField(
+                              controller: _overtimeHoursCtrl,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: '残業時間（例：2.5）',
+                                prefixIcon: Icon(Icons.timer, color: JsColors.silver),
+                                suffixText: '時間',
+                              ),
+                              style: const TextStyle(color: JsColors.offWhite),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _overtimeContentCtrl,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                labelText: '残業内容（任意）',
+                                hintText: '例：2階配線工事の続き',
+                                prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
+                                alignLabelWithHint: true,
+                              ),
+                              style: const TextStyle(color: JsColors.offWhite),
+                            ),
+                          ]),
+                        ),
+                      ),
+                  ]),
+                ),
+                const SizedBox(height: 20),
+              ],
 
-              const SizedBox(height: 20),
+              // 送信済みカード（送信後は読み取り専用表示）
+              if (_submitted) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A3A2A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2E7D5E)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        const Icon(Icons.check_circle, color: Color(0xFF2E7D5E), size: 18),
+                        const SizedBox(width: 6),
+                        const Text('本日の日報を送信済みです',
+                            style: TextStyle(color: Color(0xFF2E7D5E),
+                                fontSize: 13, fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Text(_submittedTime,
+                            style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+                      ]),
+                      const Divider(color: Color(0xFF2E7D5E), height: 16),
+                      _ReadOnlyRow(label: '氏名', value: _submittedName),
+                      _ReadOnlyRow(label: '交通手段', value: _submittedTransport),
+                      if (_submittedGPS.isNotEmpty)
+                        _ReadOnlyRow(label: '現場GPS', value: _submittedGPS),
+                      if (_submittedWork.isNotEmpty)
+                        _ReadOnlyRow(label: '作業内容', value: _submittedWork, maxLines: 3),
+                      if (_submittedOT)
+                        _ReadOnlyRow(label: '残業', value: '$_submittedOTHours時間'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() { _submitted = false; _fetchGps(); }),
+                    icon: const Icon(Icons.add_location_alt_outlined, color: JsColors.gold),
+                    label: const Text('次の現場の日報を作成',
+                        style: TextStyle(color: JsColors.gold)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: JsColors.gold),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
 
+              if (!_submitted) ...[
               // 報告ボタン
               SizedBox(
                 width: double.infinity,
@@ -2123,6 +2231,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                       : const Text('報告を送信する'),
                 ),
               ),
+              ],
 
             ],
           ),
@@ -2164,6 +2273,31 @@ class _ConfirmRow extends StatelessWidget {
       ),
       Expanded(child: Text(value.isEmpty ? '—' : value,
           style: const TextStyle(color: Color(0xFFF5F5F0), fontSize: 13),
+          maxLines: maxLines, overflow: TextOverflow.ellipsis)),
+    ]),
+  );
+}
+
+// ============================================================
+// 送信済み読み取り専用行ヘルパー
+// ============================================================
+
+class _ReadOnlyRow extends StatelessWidget {
+  const _ReadOnlyRow({required this.label, required this.value, this.maxLines = 2});
+  final String label, value;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(
+        width: 68,
+        child: Text('$label：', style: const TextStyle(
+            color: JsColors.silver, fontSize: 12)),
+      ),
+      Expanded(child: Text(value.isEmpty ? '—' : value,
+          style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
           maxLines: maxLines, overflow: TextOverflow.ellipsis)),
     ]),
   );
@@ -2322,9 +2456,9 @@ class _ParkingSection extends StatelessWidget {
           ),
         ),
       if (photoPath == null)
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(children: const [
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Row(children: [
             Icon(Icons.info_outline, color: JsColors.silver, size: 14),
             SizedBox(width: 4),
             Text('領収書の写真も撮影することを推奨します',
@@ -2438,11 +2572,11 @@ class _RouteResultCard extends StatelessWidget {
         const SizedBox(height: 6),
         if (c.totalNormal > 0)
           Row(children: [
-            Text('合計(普通): ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            const Text('合計(普通): ', style: TextStyle(color: JsColors.silver, fontSize: 12)),
             Text('¥${c.totalNormal}',
                 style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
             const SizedBox(width: 12),
-            Text('軽: ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            const Text('軽: ', style: TextStyle(color: JsColors.silver, fontSize: 12)),
             Text('¥${c.totalLight}',
                 style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
           ])
@@ -2560,7 +2694,9 @@ class _OvertimeDialogState extends State<_OvertimeDialog> {
       initialTime: isStart ? _start : (_end ?? TimeOfDay.now()),
     );
     if (picked != null && mounted) {
-      setState(() { if (isStart) _start = picked; else _end = picked; });
+      setState(() {
+        if (isStart) { _start = picked; } else { _end = picked; }
+      });
     }
   }
 

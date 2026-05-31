@@ -35,7 +35,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _hasPendingReport   = false;
   bool _notCheckedIn       = false;
   bool _hasUnreadRevision  = false;
-  bool _hasPendingApproval = false;
+  final bool _hasPendingApproval = false;
 
   @override
   void initState() {
@@ -143,10 +143,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       // 天気キャッシュ確認
       final cachedWeather = ApiCache.instance.get<Map<String, dynamic>>('weather');
       if (cachedWeather != null) {
-        if (mounted) setState(() {
-          _weather = cachedWeather;
-          _weatherLoaded = true;
-        });
+        if (mounted) {
+          setState(() {
+            _weather = cachedWeather;
+            _weatherLoaded = true;
+          });
+        }
         // キャッシュがあっても Claude message が未ロードなら取得
         if (cachedDate != today || cachedMsg.isEmpty) {
           _loadClaudeMessage(prefs, token, cachedWeather, today);
@@ -168,9 +170,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           );
           lat = pos.latitude.toString();
           lon = pos.longitude.toString();
-          if (mounted) setState(() {
-            _gpsAddress = '${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
-          });
+          if (mounted) {
+            setState(() {
+              _gpsAddress = '${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
+            });
+          }
         }
       } catch (_) {}
 

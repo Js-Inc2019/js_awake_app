@@ -257,8 +257,10 @@ class _ReportTileState extends State<_ReportTile> {
             backgroundColor: JsColors.error));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('エラー: $e'), backgroundColor: JsColors.error));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('エラー: $e'), backgroundColor: JsColors.error));
+      }
     }
   }
 

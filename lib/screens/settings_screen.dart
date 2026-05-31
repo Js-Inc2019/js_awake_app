@@ -83,7 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 activeColor: JsColors.gold,
                 checkColor: Colors.black,
                 onChanged: (v) => setSt(() {
-                  if (v == true) current.add(i); else current.remove(i);
+                  if (v == true) { current.add(i); } else { current.remove(i); }
                 }),
               ),
             ),
@@ -237,7 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 8),
 
                 // ── アカウント ─────────────────────────────────
-                _SectionHeader('アカウント'),
+                const _SectionHeader('アカウント'),
                 _SettingsTile(
                   icon: Icons.person_outline,
                   title: 'プロフィール・自宅住所',
@@ -253,7 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
 
                 // ── セキュリティ ───────────────────────────────
-                _SectionHeader('セキュリティ'),
+                const _SectionHeader('セキュリティ'),
                 if (_biometricAvailable)
                   _SettingsSwitchTile(
                     icon: Icons.fingerprint,
@@ -264,7 +264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
 
                 // ── 通知 ───────────────────────────────────────
-                _SectionHeader('通知'),
+                const _SectionHeader('通知'),
                 _SettingsTile(
                   icon: Icons.notifications_outlined,
                   title: '日報リマインダー',
@@ -427,7 +427,7 @@ class _SettingsSwitchTile extends StatelessWidget {
             : null,
         value: value,
         onChanged: onChanged,
-        activeColor: JsColors.gold,
+        activeThumbColor: JsColors.gold,
         activeTrackColor: JsColors.gold.withValues(alpha: 0.3),
       );
 }

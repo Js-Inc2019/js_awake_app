@@ -289,7 +289,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildStep1() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _StepIndicator(current: 1, total: 4),
+      const _StepIndicator(current: 1, total: 4),
       const SizedBox(height: 24),
       _field(_nameCtrl,    '名前（必須）',    Icons.person),
       const SizedBox(height: 14),
@@ -429,7 +429,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildStep2() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _StepIndicator(current: 2, total: 4),
+      const _StepIndicator(current: 2, total: 4),
       const SizedBox(height: 8),
       const Text('緊急連絡先は任意です。後からプロフィール画面で入力できます。',
           style: TextStyle(color: JsColors.silver, fontSize: 12, height: 1.5)),
@@ -469,7 +469,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildStep3() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _StepIndicator(current: 3, total: 4),
+      const _StepIndicator(current: 3, total: 4),
       const SizedBox(height: 8),
       const Text('ログイン時に使用する6桁のPINを設定してください。\nPINは安全な場所に控えてください。',
           style: TextStyle(color: JsColors.silver, fontSize: 12, height: 1.5)),

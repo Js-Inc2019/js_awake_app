@@ -4,6 +4,7 @@
 // ============================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -107,8 +108,8 @@ class AuthService {
 
   Future<Map<String, dynamic>> loginWithPin(String pin) async {
     try {
-      print('🔍 ログイン試行: PIN=$pin');
-      print('🔍 API URL: $API_URL/auth/verify-pin');
+      debugPrint('🔍 ログイン試行: PIN=$pin');
+      debugPrint('🔍 API URL: $API_URL/auth/verify-pin');
 
       final response = await http.post(
         Uri.parse('$API_URL/auth/verify-pin'),
@@ -120,8 +121,8 @@ class AuthService {
         }),
       ).timeout(const Duration(seconds: 15));
 
-      print('🔍 ステータスコード: ${response.statusCode}');
-      print('🔍 レスポンス: ${response.body}');
+      debugPrint('🔍 ステータスコード: ${response.statusCode}');
+      debugPrint('🔍 レスポンス: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -140,7 +141,7 @@ class AuthService {
           await prefs.setString('company_id',  companyId ?? '');
           await prefs.setString('user_name',   userName  ?? '');
 
-          print('✅ ログイン成功: role=$role, company_id=$companyId');
+          debugPrint('✅ ログイン成功: role=$role, company_id=$companyId');
 
           return {
             'success':    true,
@@ -177,7 +178,7 @@ class AuthService {
         'code': '',
       };
     } catch (e) {
-      print('❌ ログインエラー: $e');
+      debugPrint('❌ ログインエラー: $e');
       return {
         'success': false,
         'message': 'サーバーに接続できません。ネットワークを確認してください。',

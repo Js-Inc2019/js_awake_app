@@ -90,11 +90,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                        p.thoroughfare, p.subThoroughfare]
             .where((e) => e != null && e.isNotEmpty).toList();
         final address = parts.join('');
-        if (mounted) {
-          setState(() => _homeAddressCtrl.text = address);
-          await _service.setHomeAddress(address);
-          showJsSnackbar(context, 'GPS から自宅住所を取得しました');
-        }
+        if (mounted) setState(() => _homeAddressCtrl.text = address);
+        await _service.setHomeAddress(address);
+        if (mounted) showJsSnackbar(context, 'GPS から自宅住所を取得しました');
       }
     } catch (e) {
       if (mounted) showJsSnackbar(context, 'GPS取得失敗: $e', isError: true);

@@ -36,13 +36,15 @@ class _RetentionScreenState extends State<RetentionScreen> {
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (mounted) setState(() {
-          _expired = (data['expired'] as List? ?? [])
-              .map((e) => e as Map<String, dynamic>).toList();
-          _warning = (data['warning'] as List? ?? [])
-              .map((e) => e as Map<String, dynamic>).toList();
-          _loading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _expired = (data['expired'] as List? ?? [])
+                .map((e) => e as Map<String, dynamic>).toList();
+            _warning = (data['warning'] as List? ?? [])
+                .map((e) => e as Map<String, dynamic>).toList();
+            _loading = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);

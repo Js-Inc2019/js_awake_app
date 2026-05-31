@@ -50,10 +50,10 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: JsColors.divider),
                   ),
-                  child: SingleChildScrollView(
+                  child: const SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         _Section(
                           icon: Icons.location_on,
                           title: '位置情報（GPS）の収集',
