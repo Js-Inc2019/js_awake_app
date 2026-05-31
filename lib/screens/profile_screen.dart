@@ -77,6 +77,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _currentHomeAddress = address;
           });
           await _service.setHomeAddress(address);
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('自宅住所: $address'), backgroundColor: Colors.green)
           );
@@ -259,6 +260,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final eAddr     = TextEditingController();
     final ePhone    = TextEditingController();
     final reasonCtrl = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
 
     final submitted = await showDialog<bool>(
       context: context,
@@ -301,10 +303,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
 
-    if (submitted != true || !mounted) return;
+    if (submitted != true) return;
+    if (!mounted) return;
 
     if (reasonCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      messenger.showSnackBar(const SnackBar(
           content: Text('変更理由を入力してください'),
           backgroundColor: JsColors.error));
       return;
@@ -333,16 +336,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        messenger.showSnackBar(const SnackBar(
             content: Text('✅ 変更申請を送信しました。担当者確認後に反映されます。'),
             backgroundColor: JsColors.success));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        messenger.showSnackBar(SnackBar(
             content: Text('送信失敗: ${res.statusCode}'),
             backgroundColor: JsColors.error));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      messenger.showSnackBar(SnackBar(
           content: Text('エラー: $e'), backgroundColor: JsColors.error));
     }
   }

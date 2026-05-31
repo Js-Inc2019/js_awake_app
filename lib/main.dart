@@ -1082,6 +1082,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _fetchGps();
     _loadUserName();
     _loadOriginPrefs();
+    _restoreDraft();
     _scheduleOvertimeReminderIfNeeded();
     _refreshPendingCount();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
@@ -1148,6 +1149,43 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Future<void> _refreshPendingCount() async {
     final count = await ReportStore.instance.pendingCount();
     if (mounted) setState(() => _pendingCount = count);
+  }
+
+  // 下書き自動保存
+  Future<void> _saveDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('draft_work_content', _workContentCtrl.text);
+    await prefs.setString('draft_fee', _feeCtrl.text);
+    await prefs.setBool('draft_overtime_flag', _overtimeFlag);
+    await prefs.setString('draft_overtime_hours', _overtimeHoursCtrl.text);
+    await prefs.setString('draft_overtime_content', _overtimeContentCtrl.text);
+  }
+
+  Future<void> _restoreDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    final work = prefs.getString('draft_work_content') ?? '';
+    final fee = prefs.getString('draft_fee') ?? '';
+    final ot = prefs.getBool('draft_overtime_flag') ?? false;
+    final otH = prefs.getString('draft_overtime_hours') ?? '';
+    final otC = prefs.getString('draft_overtime_content') ?? '';
+    if (mounted && (work.isNotEmpty || fee.isNotEmpty || ot)) {
+      setState(() {
+        _workContentCtrl.text = work;
+        _feeCtrl.text = fee;
+        _overtimeFlag = ot;
+        _overtimeHoursCtrl.text = otH;
+        _overtimeContentCtrl.text = otC;
+      });
+    }
+  }
+
+  Future<void> _clearDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('draft_work_content');
+    await prefs.remove('draft_fee');
+    await prefs.remove('draft_overtime_flag');
+    await prefs.remove('draft_overtime_hours');
+    await prefs.remove('draft_overtime_content');
   }
 
   Future<void> _fetchGps() async {
@@ -1262,6 +1300,45 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     final valid = await _validate();
     if (!valid) return;
 
+    // 送信前確認ダイアログ
+    final transportLabel = _transport.label;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('この内容で送信しますか？',
+            style: TextStyle(color: Color(0xFFD4AF37), fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ConfirmRow('名前', _nameCtrl.text.trim()),
+            _ConfirmRow('交通手段', transportLabel),
+            if (_overtimeFlag) _ConfirmRow('残業', '${_overtimeHoursCtrl.text}時間'),
+            if (_workContentCtrl.text.trim().isNotEmpty)
+              _ConfirmRow('作業', _workContentCtrl.text.trim(),
+                  maxLines: 2),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('戻る',
+                style: TextStyle(color: Color(0xFF9E9E9E))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('送信する'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
     setState(() => _submitting = true);
     final name = _nameCtrl.text.trim();
     await WorkerNameStore.instance.add(name);
@@ -1302,6 +1379,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       _overtimeHoursCtrl.clear();
       _overtimeContentCtrl.clear();
       setState(() { _carType = 'own'; _transports = {TransportType.train}; _overtimeFlag = false; });
+      _clearDraft();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
       if (!mounted) return;
@@ -2048,6 +2126,31 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
 
 // ============================================================
+// 送信確認ダイアログ用ヘルパー
+// ============================================================
+
+class _ConfirmRow extends StatelessWidget {
+  const _ConfirmRow(this.label, this.value, {this.maxLines = 1});
+  final String label, value;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(
+        width: 60,
+        child: Text('$label：', style: const TextStyle(
+            color: Color(0xFF9E9E9E), fontSize: 12)),
+      ),
+      Expanded(child: Text(value.isEmpty ? '—' : value,
+          style: const TextStyle(color: Color(0xFFF5F5F0), fontSize: 13),
+          maxLines: maxLines, overflow: TextOverflow.ellipsis)),
+    ]),
+  );
+}
+
+// ============================================================
 // 展開式セクション
 // ============================================================
 
@@ -2728,12 +2831,11 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorder: (oldIndex, newIndex) async {
-                  if (newIndex > oldIndex) newIndex--;
+                onReorderItem: (oldIndex, newIndex) {
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
                   setState(() => _names = list);
-                  await WorkerNameStore.instance.saveAll(list);
+                  WorkerNameStore.instance.saveAll(list);
                 },
               ),
       ),
