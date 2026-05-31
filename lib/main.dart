@@ -9,7 +9,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'screens/login_screen.dart';
 import 'screens/monthly_history_screen.dart';
-import 'screens/onboarding_screen.dart';
 import 'screens/invite_activate_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/privacy_consent_screen.dart';
@@ -138,7 +137,7 @@ class _JsAwakeAppState extends State<JsAwakeApp> {
       routes: {
         '/login':           (_) => const LoginScreen(),
         '/gate':            (_) => const GateScreen(),
-        '/onboarding':      (_) => const OnboardingScreen(),
+        '/onboarding':      (_) => const RegisterScreen(),
         '/invite-activate': (_) => const InviteActivateScreen(),
         '/register':        (_) => const RegisterScreen(),
         '/settings':        (_) => const SettingsScreen(),

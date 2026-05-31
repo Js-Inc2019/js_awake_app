@@ -183,6 +183,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JsColors.black,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text("J's Awake"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '設定',
+            onPressed: () => Navigator.pushNamed(context, '/settings'),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
