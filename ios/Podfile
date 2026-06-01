@@ -1,0 +1,75 @@
+# Uncomment this line to define a global platform for your project
+# platform :ios, '13.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+
+  # CwlCatchExceptionSupport は CocoaPods 版が空ポッドのため git ソースで上書き
+  pod 'CwlCatchException', :git => 'https://github.com/mattgallagher/CwlCatchException.git', :tag => '2.2.1'
+  pod 'CwlCatchExceptionSupport', :git => 'https://github.com/mattgallagher/CwlCatchException.git', :tag => '2.2.1'
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+
+  end
+
+  # CwlCatchException の Swift コードが CwlCatchExceptionSupport を import するが
+  # CocoaPods が xcconfig に自動追加しないため xcconfig を直接パッチ
+  Dir.glob(File.join(__dir__, 'Pods/Target Support Files/CwlCatchException/CwlCatchException.*.xcconfig')).each do |path|
+    content = File.read(path)
+    next if content.include?('CwlCatchExceptionSupport')
+    File.open(path, 'a') do |f|
+      f.puts 'FRAMEWORK_SEARCH_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/CwlCatchExceptionSupport"'
+    end
+  end
+
+  # iOS 26 / macOS 26: resource fork detritus を除去してコード署名エラーを防ぐ
+  runner_target = installer.aggregate_targets.find { |t| t.name == 'Pods-Runner' }
+  if runner_target
+    runner_target.user_project.targets.each do |target|
+      next unless target.name == 'Runner'
+      phase = target.new_shell_script_build_phase('Clear Extended Attributes')
+      phase.shell_script = 'find "$BUILT_PRODUCTS_DIR" -name "*.app" -o -name "*.framework" -o -name "*.dylib" | xargs xattr -cr 2>/dev/null; true'
+      phase.run_only_for_deployment_postprocessing = '0'
+      # コード署名フェーズの直前に移動
+      target.build_phases.delete(phase)
+      codesign_idx = target.build_phases.index { |p| p.respond_to?(:name) && p.name.to_s.include?('Sign') }
+      insert_idx = codesign_idx ? codesign_idx : target.build_phases.length - 1
+      target.build_phases.insert(insert_idx, phase)
+    end
+    runner_target.user_project.save
+  end
+end
