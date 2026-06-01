@@ -86,7 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'device_id':   deviceId,
           'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
         }),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 30));
       if (!mounted) return;
       final body = jsonDecode(res.body);
       if (res.statusCode == 200) {
@@ -152,7 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'device_id':    deviceId,
           'device_name':  Platform.isAndroid ? 'Android' : 'iPhone',
         }),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 30));
       if (!mounted) return;
       final body = jsonDecode(res.body);
       if (res.statusCode == 200 || res.statusCode == 201) {
