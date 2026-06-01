@@ -13,12 +13,13 @@ import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/revision_inbox_screen.dart';
-import 'screens/welcome_screen.dart';
 import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
 import 'services/work_mode_service.dart';
+import 'services/site_service.dart';
 import 'screens/work_mode_screen.dart';
 import 'screens/after_report_screen.dart';
+import 'screens/work_settings_screen.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -770,41 +771,27 @@ class _GateScreenState extends State<GateScreen> {
     backgroundColor: Color(0xFF1A1A1A),
     body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
   Future<void> _pushWorker(BuildContext context) async {
-    final prefs    = await SharedPreferences.getInstance();
-    final name     = prefs.getString('user_name') ?? '';
-    final role     = prefs.getString('user_role') ?? 'worker';
+    final settings = await WorkModeService.instance.fetchFromServer();
     if (!context.mounted) return;
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => WelcomeScreen(
-        userName: name,
-        userRole: role,
-        onContinue: () async {
-          final ctx = context;
-          final settings = await WorkModeService.instance.fetchFromServer();
-          if (!ctx.mounted) return;
-          if (settings.mode == WorkModeType.actual) {
-            final checkedIn = await WorkModeService.instance.isCheckedIn();
-            if (!ctx.mounted) return;
-            if (!checkedIn) {
-              Navigator.pushReplacement(ctx, MaterialPageRoute(
-                builder: (_) => WorkModeScreen(
-                  screenTitle: '職人用 — 出勤',
-                  isBossMode: false,
-                  onCheckedIn: () => Navigator.pushReplacement(ctx,
-                    MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-                      screenTitle: '職人用 — 日報報告', isBossMode: false))),
-                ),
-              ));
-              return;
-            }
-          }
-          if (!ctx.mounted) return;
-          Navigator.pushReplacement(ctx, MaterialPageRoute(
-              builder: (_) => const SharedWorkerForm(
-                screenTitle: '職人用 — 日報報告', isBossMode: false)));
-        },
-      ),
-    ));
+    if (settings.mode == WorkModeType.actual) {
+      final checkedIn = await WorkModeService.instance.isCheckedIn();
+      if (!context.mounted) return;
+      if (!checkedIn) {
+        Navigator.pushReplacement(context, MaterialPageRoute(
+          builder: (_) => WorkModeScreen(
+            screenTitle: '職人用 — 出勤',
+            isBossMode: false,
+            onCheckedIn: () => Navigator.pushReplacement(context,
+              MaterialPageRoute(builder: (_) => const SharedWorkerForm(
+                screenTitle: '職人用 — 日報報告', isBossMode: false))),
+          ),
+        ));
+        return;
+      }
+    }
+    Navigator.pushReplacement(context, MaterialPageRoute(
+      builder: (_) => const SharedWorkerForm(
+        screenTitle: '職人用 — 日報報告', isBossMode: false)));
   }
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
@@ -911,14 +898,18 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   String?       _photoPath;
   String?       _workPhotoPath;
   String        _gpsAddress   = '';
+  String        _siteName     = '';
+  double?       _gpsLat;
+  double?       _gpsLng;
   bool          _gpsLoading   = false;
   bool          _isListening  = false;
   bool          _submitting   = false;
   bool          _voiceMode    = false;
+  bool          _hasRevisions = false;
   final RoutesService _routesService = RoutesService();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
-  String _originType = 'home'; // 今日の起点: home / office
+  String _originType = 'home';
   String _companyAddress = '';
   int _pendingCount = 0;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
@@ -933,6 +924,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _loadOriginPrefs();
     _scheduleOvertimeReminderIfNeeded();
     _refreshPendingCount();
+    _checkRevisions();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
         ReportStore.instance.retryPending().then((_) => _refreshPendingCount());
@@ -991,11 +983,90 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _fetchGps() async {
     setState(() => _gpsLoading = true);
-    final addr = await fetchGpsAddress();
-    if (mounted) {
-      setState(() { _gpsAddress = addr; _gpsLoading = false; });
-      await _calculateRoutes();
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever || permission == LocationPermission.denied) {
+        if (mounted) setState(() { _gpsAddress = '位置情報の権限がありません'; _gpsLoading = false; });
+        return;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() { _gpsAddress = 'GPS が無効です'; _gpsLoading = false; });
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+
+      // 住所変換
+      String addr = '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+      if (!kIsWeb) {
+        try {
+          final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+          if (placemarks.isNotEmpty) {
+            final p = placemarks.first;
+            if (p.street != null && p.street!.isNotEmpty) {
+              final s   = p.street!;
+              final sub = p.subLocality ?? '';
+              final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
+              if (idx >= 0) {
+                addr = '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
+              } else {
+                final parts = [p.administrativeArea, p.locality, p.subLocality, p.thoroughfare, p.subThoroughfare]
+                    .where((e) => e != null && e.isNotEmpty).toList();
+                if (parts.isNotEmpty) addr = parts.join('');
+              }
+            } else {
+              final parts = [p.administrativeArea, p.locality, p.subLocality, p.thoroughfare, p.subThoroughfare]
+                  .where((e) => e != null && e.isNotEmpty).toList();
+              if (parts.isNotEmpty) addr = parts.join('');
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 現場GPS照合
+      String siteName = '';
+      try {
+        final sites = await SiteService().matchSites(pos.latitude, pos.longitude);
+        if (sites.length == 1) {
+          siteName = sites.first['site_name'] as String? ?? '';
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _gpsAddress = addr;
+          _siteName   = siteName;
+          _gpsLat     = pos.latitude;
+          _gpsLng     = pos.longitude;
+          _gpsLoading = false;
+        });
+        await _calculateRoutes();
+      }
+    } catch (e) {
+      if (mounted) setState(() { _gpsAddress = 'GPS取得失敗'; _gpsLoading = false; });
     }
+  }
+
+  Future<void> _checkRevisions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res   = await http.get(
+        Uri.parse('$API_URL/revisions/mine'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data      = jsonDecode(res.body) as Map<String, dynamic>;
+        final revisions = (data['revisions'] as List? ?? []);
+        if (mounted) setState(() => _hasRevisions = revisions.isNotEmpty);
+      }
+    } catch (_) {}
   }
 
 
@@ -1251,474 +1322,443 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text(widget.screenTitle),
-        actions: widget.isBossMode ? [
-          IconButton(
-            icon: const Icon(Icons.inbox),
-            tooltip: '受信トレイ',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => InboxScreen())),
-          ),
-          IconButton(
-            icon: const Icon(Icons.location_on),
-            tooltip: '現場選択',
-            onPressed: () async {
-              await Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => SiteSelectScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.people),
-            tooltip: '職人名管理',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications_active),
-            tooltip: '通知設定',
-            onPressed: _openNotifSettings,
-          ),
-        ] : [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: '月間履歴',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen())),
-          ),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.warning_amber),
-                tooltip: '是正依頼',
-                onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const RevisionInboxScreen())),
+  Widget _buildHeaderRow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: JsColors.divider)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.lock, color: JsColors.silver, size: 14),
+        const SizedBox(width: 6),
+        Expanded(child: Text(
+          _nameCtrl.text.isEmpty ? '読み込み中...' : _nameCtrl.text,
+          style: const TextStyle(color: JsColors.offWhite, fontSize: 14, fontWeight: FontWeight.bold),
+          overflow: TextOverflow.ellipsis,
+        )),
+        if (_pendingCount > 0) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => ReportStore.instance.retryPending().then((_) => _refreshPendingCount()),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: JsColors.warning.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: JsColors.warning),
               ),
-              if (_pendingCount > 0)
-                Positioned(
-                  top: 8, right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(color: JsColors.error, shape: BoxShape.circle),
-                    child: Text('$_pendingCount',
-                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-            ],
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.cloud_off, color: JsColors.warning, size: 11),
+                const SizedBox(width: 3),
+                Text('未送信$_pendingCount件', style: const TextStyle(color: JsColors.warning, fontSize: 10)),
+              ]),
+            ),
           ),
         ],
-      ),
-      floatingActionButton: widget.isBossMode
-          ? FloatingActionButton.extended(
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const SummaryScreen())),
-              backgroundColor: JsColors.gold,
-              foregroundColor: Colors.black,
-              icon:  const Icon(Icons.assessment),
-              label: const Text('集計モードへ',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-            )
-          : null,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: _fetchGps,
+          child: const Icon(Icons.refresh, color: JsColors.silver, size: 16),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildTransportPanel() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('移動手段', style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 5,
+            crossAxisSpacing: 5,
+            childAspectRatio: 2.4,
             children: [
-
-              // 1. 会社名・氏名
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: JsColors.gunmetal,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: JsColors.divider),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.lock, color: JsColors.silver, size: 16),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('株式会社J\'s', style: TextStyle(color: JsColors.silver, fontSize: 11)),
-                      Text(
-                        _nameCtrl.text.isEmpty ? '読み込み中...' : _nameCtrl.text,
-                        style: const TextStyle(color: JsColors.offWhite, fontSize: 15, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 14),
-
-              // GPS位置情報カード
-              _GpsCard(address: _gpsAddress, isLoading: _gpsLoading, onRefresh: _fetchGps),
-              const SizedBox(height: 10),
-
-              // オフライン保留バナー
-              if (_pendingCount > 0)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              TransportType.car,
+              TransportType.train,
+              TransportType.bus,
+              TransportType.other,
+            ].map((t) {
+              final selected = _transports.contains(t);
+              return GestureDetector(
+                onTap: () async {
+                  final newSet = {t};
+                  if (!newSet.contains(TransportType.car)) { _feeCtrl.clear(); _photoPath = null; }
+                  setState(() => _transports = newSet);
+                  await _calculateRoutes();
+                },
+                onDoubleTap: () async {
+                  final newSet = Set<TransportType>.from(_transports);
+                  if (!newSet.contains(t)) {
+                    newSet.add(t);
+                    if (newSet.length >= 2 && mounted) {
+                      final ok = await showConfirmDialog(context,
+                        title: '⚠️ 複数の移動手段',
+                        message: '移動手段が2つ以上選択されています。よろしいですか？',
+                        confirmText: 'OK', cancelText: 'キャンセル');
+                      if (!ok) return;
+                    }
+                    if (!newSet.contains(TransportType.car)) { _feeCtrl.clear(); _photoPath = null; }
+                    setState(() => _transports = newSet);
+                    await _calculateRoutes();
+                  }
+                },
+                child: Container(
                   decoration: BoxDecoration(
-                    color: JsColors.warning.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: JsColors.warning),
+                    color: selected ? JsColors.gold : JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: selected ? JsColors.gold : JsColors.divider),
                   ),
-                  child: Row(children: [
-                    const Icon(Icons.cloud_off, color: JsColors.warning, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('未送信の日報が${_pendingCount}件あります。ネット接続時に自動送信されます。',
-                          style: const TextStyle(color: JsColors.warning, fontSize: 12)),
-                    ),
-                    TextButton(
-                      onPressed: () => ReportStore.instance.retryPending().then((_) => _refreshPendingCount()),
-                      child: const Text('今すぐ送信', style: TextStyle(color: JsColors.warning, fontSize: 11)),
-                    ),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(t.icon, size: 13, color: selected ? Colors.black : JsColors.silver),
+                    const SizedBox(width: 4),
+                    Text(t.label, style: TextStyle(
+                      color: selected ? Colors.black : JsColors.offWhite,
+                      fontSize: 11, fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    )),
                   ]),
                 ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
 
-              // 今日の起点選択
+          if (_transports.contains(TransportType.car)) ...[
+            Row(children: [
+              Expanded(child: GestureDetector(
+                onTap: () => setState(() => _carType = 'own'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
+                  ),
+                  child: Center(child: Text('社用車/自家用車', style: TextStyle(
+                    color: _carType == 'own' ? Colors.black : JsColors.offWhite, fontSize: 11,
+                    fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
+                  ))),
+                ),
+              )),
+              const SizedBox(width: 5),
+              Expanded(child: GestureDetector(
+                onTap: () => setState(() { _carType = 'carpool'; _feeCtrl.clear(); _photoPath = null; }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
+                  ),
+                  child: Center(child: Text('相乗り', style: TextStyle(
+                    color: _carType == 'carpool' ? Colors.black : JsColors.offWhite, fontSize: 11,
+                    fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
+                  ))),
+                ),
+              )),
+            ]),
+            const SizedBox(height: 6),
+            if (_carType == 'carpool')
+              TextField(
+                controller: _carpoolCtrl,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+                decoration: const InputDecoration(
+                  labelText: '誰の相乗りか（任意）',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+              ),
+            if (_carType == 'own') ...[
               Row(children: [
-                const Text('今日の起点:', style: TextStyle(color: JsColors.silver, fontSize: 13)),
-                const SizedBox(width: 10),
-                ...['home', 'office'].map((type) {
-                  final label = type == 'home' ? '自宅' : '会社';
-                  final sel   = _originType == type;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () async {
-                        setState(() => _originType = type);
-                        await _calculateRoutes();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: sel ? JsColors.gold.withValues(alpha: 0.15) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
-                        ),
-                        child: Text(label,
-                            style: TextStyle(
-                                color: sel ? JsColors.gold : JsColors.silver,
-                                fontSize: 13,
-                                fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
-                      ),
-                    ),
-                  );
-                }),
+                Expanded(child: TextField(
+                  controller: _feeCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+                  decoration: const InputDecoration(
+                    labelText: '駐車料金（円）',
+                    suffixText: '円',
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                )),
+                const SizedBox(width: 6),
+                _CameraBtn(hasPhoto: _photoPath != null, onTap: _takeParkingPhoto),
               ]),
-              const SizedBox(height: 14),
+              if (_photoPath != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Stack(alignment: Alignment.topRight, children: [
+                    ClipRRect(borderRadius: BorderRadius.circular(6),
+                      child: Image.file(File(_photoPath!), height: 70, width: double.infinity, fit: BoxFit.cover)),
+                    GestureDetector(onTap: () => setState(() => _photoPath = null),
+                      child: Container(margin: const EdgeInsets.all(4), padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                        child: const Icon(Icons.close, color: Colors.white, size: 12))),
+                  ]),
+                ),
+            ],
+          ],
 
-              // 2. 移動手段（展開式）
-              _ExpandableSection(
-                icon: Icons.directions_car,
-                title: '移動手段  ※複数はダブルタップ',
-                child: Column(
+          if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
+            const SizedBox(height: 6),
+            TextField(
+              controller: _transportMemoCtrl,
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+              decoration: const InputDecoration(
+                labelText: '移動手段の補足（任意）',
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+            ),
+          ],
+
+          if (_loadingRoutes)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Row(children: [
+                SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+                SizedBox(width: 8),
+                Text('計算中...', style: TextStyle(color: JsColors.silver, fontSize: 11)),
+              ]),
+            ),
+          if (!_loadingRoutes && _routeComparisons.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _RouteResultCard(comparisons: _routeComparisons, selectedTransport: _transport),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkContentPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+          child: Row(children: [
+            Expanded(child: GestureDetector(
+              onTap: () => setState(() => _voiceMode = false),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: !_voiceMode ? JsColors.gold : JsColors.gunmetal,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: !_voiceMode ? JsColors.gold : JsColors.divider),
+                ),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.keyboard, size: 13, color: !_voiceMode ? Colors.black : JsColors.silver),
+                  const SizedBox(width: 3),
+                  Text('テキスト', style: TextStyle(
+                    color: !_voiceMode ? Colors.black : JsColors.offWhite, fontSize: 11,
+                    fontWeight: !_voiceMode ? FontWeight.bold : FontWeight.normal,
+                  )),
+                ]),
+              ),
+            )),
+            const SizedBox(width: 5),
+            Expanded(child: GestureDetector(
+              onTap: _isListening ? null : _startVoiceWork,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: _voiceMode ? JsColors.gold : JsColors.gunmetal,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _voiceMode ? JsColors.gold : JsColors.divider),
+                ),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(_isListening && _voiceMode ? Icons.mic : Icons.mic_none,
+                    size: 13, color: _voiceMode ? Colors.black : JsColors.silver),
+                  const SizedBox(width: 3),
+                  Text(_isListening && _voiceMode ? '聞いています' : '音声入力',
+                    style: TextStyle(
+                      color: _voiceMode ? Colors.black : JsColors.offWhite, fontSize: 11,
+                      fontWeight: _voiceMode ? FontWeight.bold : FontWeight.normal,
+                    )),
+                ]),
+              ),
+            )),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: TextField(
+              controller: _workContentCtrl,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: '例：1階電気配線工事\nコンセント10箇所設置',
+                contentPadding: EdgeInsets.all(10),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+          child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
+          ]),
+        ),
+        if (_workPhotoPath != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+            child: Stack(alignment: Alignment.topRight, children: [
+              ClipRRect(borderRadius: BorderRadius.circular(6),
+                child: Image.file(File(_workPhotoPath!), height: 70, width: double.infinity, fit: BoxFit.cover)),
+              GestureDetector(onTap: () => setState(() => _workPhotoPath = null),
+                child: Container(margin: const EdgeInsets.all(4), padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, color: Colors.white, size: 12))),
+            ]),
+          ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locationText = _gpsLoading
+        ? 'GPS取得中...'
+        : (_siteName.isNotEmpty ? _siteName : (_gpsAddress.isEmpty ? '現場未取得' : _gpsAddress));
+
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: widget.isBossMode
+              ? IconButton(
+                  icon: const Icon(Icons.inbox),
+                  tooltip: '受信トレイ',
+                  onPressed: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => InboxScreen())),
+                )
+              : GestureDetector(
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const RevisionInboxScreen()));
+                    _checkRevisions();
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _hasRevisions ? JsColors.error : JsColors.gunmetal,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _hasRevisions ? JsColors.error : JsColors.divider),
+                    ),
+                    child: Icon(
+                      Icons.warning_amber,
+                      color: _hasRevisions ? Colors.white : JsColors.silver,
+                      size: 20,
+                    ),
+                  ),
+                ),
+          title: Text(
+            locationText,
+            style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          actions: widget.isBossMode
+              ? [
+                  IconButton(
+                    icon: const Icon(Icons.location_on),
+                    tooltip: '現場選択',
+                    onPressed: () async {
+                      await Navigator.push(context, MaterialPageRoute(builder: (_) => SiteSelectScreen()));
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.people),
+                    tooltip: '職人名管理',
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const WorkerNameScreen())),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    tooltip: '設定',
+                    onPressed: _openNotifSettings,
+                  ),
+                ]
+              : [
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    tooltip: '設定',
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const WorkSettingsScreen())),
+                  ),
+                ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeaderRow(),
+              Expanded(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 4択横並び
-                    Row(children: [
-                      TransportType.car,
-                      TransportType.train,
-                      TransportType.bus,
-                      TransportType.other,
-                    ].map((t) {
-                      final selected = _transports.contains(t);
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () async {
-                            final newSet = Set<TransportType>.from(_transports);
-                            if (!selected) {
-                              // 1タップ: 排他選択
-                              newSet.clear();
-                              newSet.add(t);
-                            } else if (newSet.length > 1) {
-                              newSet.remove(t);
-                            }
-                            if (!newSet.contains(TransportType.car)) {
-                              _feeCtrl.clear(); _photoPath = null;
-                            }
-                            setState(() => _transports = newSet);
-                            await _calculateRoutes();
-                          },
-                          onDoubleTap: () async {
-                            final newSet = Set<TransportType>.from(_transports);
-                            if (!newSet.contains(t)) {
-                              newSet.add(t);
-                              if (newSet.length >= 2) {
-                                if (!context.mounted) return;
-                                final ok = await showConfirmDialog(context,
-                                  title: '⚠️ 複数の移動手段',
-                                  message: '移動手段が2つ以上選択されています。\nよろしいですか？',
-                                  confirmText: 'OK', cancelText: 'キャンセル',
-                                );
-                                if (!ok) return;
-                              }
-                              if (!newSet.contains(TransportType.car)) {
-                                _feeCtrl.clear(); _photoPath = null;
-                              }
-                              setState(() => _transports = newSet);
-                              await _calculateRoutes();
-                            }
-                          },
-                          child: Container(
-                            margin: EdgeInsets.only(right: t != TransportType.other ? 6 : 0),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: selected ? JsColors.gold : JsColors.gunmetal,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: selected ? JsColors.gold : JsColors.divider),
-                            ),
-                            child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(t.icon, size: 16, color: selected ? Colors.black : JsColors.silver),
-                              const SizedBox(height: 3),
-                              Text(t.label, style: TextStyle(
-                                color: selected ? Colors.black : JsColors.offWhite,
-                                fontSize: 11,
-                                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                              )),
-                            ]),
-                          ),
-                        ),
-                      );
-                    }).toList()),
-                    const SizedBox(height: 12),
-
-                    // 車選択時: 社用車/相乗り
-                    if (_transports.contains(TransportType.car)) ...[
-                      Row(children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _carType = 'own'),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
-                              ),
-                              child: Center(child: Text('社用車・自家用車',
-                                style: TextStyle(
-                                  color: _carType == 'own' ? Colors.black : JsColors.offWhite,
-                                  fontSize: 12, fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
-                                ))),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() { _carType = 'carpool'; _feeCtrl.clear(); _photoPath = null; }),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
-                              ),
-                              child: Center(child: Text('相乗り',
-                                style: TextStyle(
-                                  color: _carType == 'carpool' ? Colors.black : JsColors.offWhite,
-                                  fontSize: 12, fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
-                                ))),
-                            ),
-                          ),
-                        ),
-                      ]),
-                      const SizedBox(height: 10),
-                      if (_carType == 'carpool') ...[
-                        TextField(
-                          controller: _carpoolCtrl,
-                          decoration: const InputDecoration(
-                            labelText: '誰の相乗りか（任意）',
-                            hintText: '例：田中さんの車',
-                            prefixIcon: Icon(Icons.people, color: JsColors.silver),
-                          ),
-                          style: const TextStyle(color: JsColors.offWhite),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      if (_carType == 'own') ...[
-                        _ParkingSection(
-                          controller: _feeCtrl,
-                          photoPath: _photoPath,
-                          onTakePhoto: _takeParkingPhoto,
-                          onClearPhoto: () => setState(() => _photoPath = null),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ],
-
-                    // 補足テキスト（その他 or 複数選択時）
-                    if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
-                      TextField(
-                        controller: _transportMemoCtrl,
-                        decoration: const InputDecoration(
-                          labelText: '移動手段の補足（任意）',
-                          hintText: '例：バイクで駅まで → 電車 → 徒歩10分',
-                          prefixIcon: Icon(Icons.edit_note, color: JsColors.silver),
-                        ),
-                        style: const TextStyle(color: JsColors.offWhite),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-
-                    // ルート計算結果
-                    if (_loadingRoutes)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Row(children: [
-                          SizedBox(width: 16, height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
-                          SizedBox(width: 10),
-                          Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 13)),
-                        ]),
-                      ),
-                    if (!_loadingRoutes && _routeComparisons.isNotEmpty) ...[
-                      _RouteResultCard(
-                        comparisons: _routeComparisons,
-                        selectedTransport: _transport,
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text('※実際の距離・料金と異なる場合があります',
-                          style: TextStyle(color: JsColors.silver, fontSize: 10),
-                          textAlign: TextAlign.right),
-                      ),
-                    ],
+                    Expanded(child: _buildTransportPanel()),
+                    Container(width: 1, color: JsColors.divider),
+                    Expanded(child: _buildWorkContentPanel()),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-
-              // 3. 作業内容（展開式）
-              _ExpandableSection(
-                icon: Icons.construction,
-                title: '作業内容',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // テキスト/音声選択
-                    Row(children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _voiceMode = false),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: !_voiceMode ? JsColors.gold : JsColors.gunmetal,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: !_voiceMode ? JsColors.gold : JsColors.divider),
-                            ),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Icon(Icons.keyboard, size: 16, color: !_voiceMode ? Colors.black : JsColors.silver),
-                              const SizedBox(width: 5),
-                              Text('テキスト入力', style: TextStyle(
-                                color: !_voiceMode ? Colors.black : JsColors.offWhite,
-                                fontSize: 12, fontWeight: !_voiceMode ? FontWeight.bold : FontWeight.normal,
-                              )),
-                            ]),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: _isListening ? null : _startVoiceWork,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: _voiceMode ? JsColors.gold : JsColors.gunmetal,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: _voiceMode ? JsColors.gold : JsColors.divider),
-                            ),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Icon(_isListening && _voiceMode ? Icons.mic : Icons.mic_none,
-                                size: 16, color: _voiceMode ? Colors.black : JsColors.silver),
-                              const SizedBox(width: 5),
-                              Text(_isListening && _voiceMode ? '聞いています...' : '音声入力',
-                                style: TextStyle(
-                                  color: _voiceMode ? Colors.black : JsColors.offWhite,
-                                  fontSize: 12, fontWeight: _voiceMode ? FontWeight.bold : FontWeight.normal,
-                                )),
-                            ]),
-                          ),
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 10),
-
-                    // テキスト入力欄
-                    if (!_voiceMode) ...[
-                      TextField(
-                        controller: _workContentCtrl,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          hintText: '例：1階電気配線工事 コンセント10箇所設置',
-                          prefixIcon: Icon(Icons.construction, color: JsColors.silver),
-                          alignLabelWithHint: true,
-                        ),
-                        style: const TextStyle(color: JsColors.offWhite),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-
-                    // カメラボタン
-                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                      _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
-                    ]),
-
-                    if (_workPhotoPath != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Stack(
-                          alignment: Alignment.topRight,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(_workPhotoPath!),
-                                  height: 120, width: double.infinity, fit: BoxFit.cover),
-                            ),
-                            GestureDetector(
-                              onTap: () => setState(() => _workPhotoPath = null),
-                              child: Container(
-                                margin: const EdgeInsets.all(6),
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                                child: const Icon(Icons.close, color: Colors.white, size: 16),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: _submitting ? null : _submit,
+                    child: _submitting
+                        ? const SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
+                        : const Text('報告を送信する'),
+                  ),
                 ),
               ),
-              const SizedBox(height: 20),
-
-              // 報告ボタン
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: _submitting
-                      ? const SizedBox(width: 22, height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
-                      : const Text('報告を送信する'),
-                ),
-              ),
-
             ],
           ),
         ),
+        bottomNavigationBar: Container(
+          height: 52,
+          decoration: const BoxDecoration(
+            color: JsColors.surface,
+            border: Border(top: BorderSide(color: JsColors.divider)),
+          ),
+          child: Row(children: [
+            Expanded(child: TextButton(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen())),
+              child: const Text('月間履歴', style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            )),
+            Container(width: 1, height: 28, color: JsColors.divider),
+            Expanded(child: TextButton(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const WorkSettingsScreen())),
+              child: const Text('TOOL', style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            )),
+          ]),
+        ),
+        floatingActionButton: widget.isBossMode
+            ? FloatingActionButton.extended(
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const SummaryScreen())),
+                backgroundColor: JsColors.gold,
+                foregroundColor: Colors.black,
+                icon:  const Icon(Icons.assessment),
+                label: const Text('集計モードへ',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              )
+            : null,
       ),
     );
   }

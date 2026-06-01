@@ -132,6 +132,28 @@ class SiteService {
   }
 
   // ============================================================
+  // GPS座標照合（半径50m以内の現場を返す）
+  // ============================================================
+
+  Future<List<Map<String, dynamic>>> matchSites(double lat, double lng) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$API_URL/sites/match?lat=$lat&lon=$lng'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return (data['sites'] as List? ?? []).cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ============================================================
   // 現場を無効化（削除）
   // ============================================================
 
