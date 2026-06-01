@@ -270,6 +270,28 @@ String _owmIdToIcon(int id) {
 }
 
 // ─────────────────────────────────────────────
+// リトライヘルパー（Herokuコールドスタート対策）
+// ─────────────────────────────────────────────
+Future<T> _withRetry<T>(
+  Future<T> Function() fn, {
+  int maxAttempts = 3,
+  Duration firstTimeout = const Duration(seconds: 60),
+}) async {
+  Object? lastErr;
+  for (var i = 0; i < maxAttempts; i++) {
+    try {
+      return await fn().timeout(firstTimeout + Duration(seconds: i * 20));
+    } catch (e) {
+      lastErr = e;
+      if (i < maxAttempts - 1) {
+        await Future.delayed(Duration(seconds: 1 << i)); // 1s → 2s → 4s
+      }
+    }
+  }
+  throw lastErr!;
+}
+
+// ─────────────────────────────────────────────
 // HomeScreen
 // ─────────────────────────────────────────────
 class HomeScreen extends StatefulWidget {
@@ -330,12 +352,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _speechMgr.initialize();
-    _loadUserData();
-    _fetchGps(); // GPS取得完了後に天気も自動更新
     _initSeasonAndDaily();
-    _loadRevisionCount();
-    _refreshPendingCount();
+    _loadCacheAndStart();
+    // 起動に不要な処理は2秒後に遅延実行（UI描画を優先）
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        _speechMgr.initialize();
+        ReportStore.instance.retryPending();
+      }
+    });
   }
 
   @override
@@ -350,21 +375,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) _fetchGps();
   }
 
-  Future<void> _loadUserData() async {
+  // ─── キャッシュで即時表示 → バックグラウンド最新取得（SWR）───────
+  Future<void> _loadCacheAndStart() async {
     final prefs = await SharedPreferences.getInstance();
-    final hcIso = prefs.getString('health_check_date_iso');
+
+    // ① SharedPreferences からキャッシュを即時反映
+    final cachedLat    = prefs.getDouble('gps_lat');
+    final cachedLon    = prefs.getDouble('gps_lon');
+    final cachedAddr   = prefs.getString('gps_address') ?? '';
+    final revCount     = prefs.getInt('cache_revision_count') ?? 0;
+    final hcIso        = prefs.getString('health_check_date_iso');
+    final wIcon        = prefs.getString('cache_weather_icon');
+    final wTempC       = prefs.getDouble('cache_weather_temp');
+    final wDesc        = prefs.getString('cache_weather_desc') ?? '';
+    final wPrecip      = prefs.getInt('cache_weather_precip') ?? 0;
+
     if (mounted) {
       setState(() {
-        _userName = prefs.getString('user_name') ?? '';
-        _companyName = prefs.getString('company_name') ?? '株式会社J\'s';
+        _userName        = prefs.getString('user_name') ?? '';
+        _companyName     = prefs.getString('company_name') ?? "株式会社J's";
         _healthCheckDate = hcIso != null ? DateTime.tryParse(hcIso) : null;
+        _revisionCount   = revCount;
+        if (cachedAddr.isNotEmpty) _gpsAddress = cachedAddr;
+        if (wIcon != null && wTempC != null) {
+          _weather = _WeatherData(
+              icon: wIcon, desc: wDesc, tempC: wTempC, precipPct: wPrecip);
+        }
       });
     }
+
+    // 前回GPS座標があれば即時セットして天気・ルートを先行開始
+    if (cachedLat != null && cachedLon != null) {
+      _lat = cachedLat;
+      _lon = cachedLon;
+      _loadWeather(); // キャッシュ座標で天気を先行取得（非 await）
+    }
+
+    // ② GPS取得 と 是正依頼数取得 を並列実行
+    await Future.wait([
+      _fetchGps(prefs: prefs),
+      _loadRevisionCount(prefs: prefs),
+    ]);
   }
 
-  Future<void> _fetchGps() async {
-    setState(() => _gpsLoading = true);
-    // GPS座標も取得する
+  // ─── GPS取得（SharedPreferences に座標をキャッシュ）──────────────
+  Future<void> _fetchGps({SharedPreferences? prefs}) async {
+    if (mounted) setState(() => _gpsLoading = true);
     try {
       final permission = await Geolocator.checkPermission();
       if (permission != LocationPermission.denied &&
@@ -375,9 +431,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _lat = pos.latitude;
         _lon = pos.longitude;
+        if (prefs != null) {
+          prefs.setDouble('gps_lat', _lat!);
+          prefs.setDouble('gps_lon', _lon!);
+        }
       }
     } catch (_) {}
     final addr = await fetchGpsAddress();
+    if (addr.isNotEmpty) prefs?.setString('gps_address', addr);
     if (mounted) {
       setState(() { _gpsAddress = addr; _gpsLoading = false; });
       _loadWeather();
@@ -385,14 +446,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  // ─── 天気取得（取得後にキャッシュ保存）──────────────────────────
   Future<void> _loadWeather() async {
-    setState(() => _weatherLoading = true);
+    if (mounted) setState(() => _weatherLoading = true);
     final (data, forecast) = await _fetchWeatherFull(lat: _lat, lon: _lon);
-    if (mounted) {
-      setState(() {
-        _weather = data;
-        _forecast = forecast;
-        _weatherLoading = false;
+    if (!mounted) return;
+    setState(() {
+      _weather  = data;
+      _forecast = forecast;
+      _weatherLoading = false;
+    });
+    if (data != null) {
+      SharedPreferences.getInstance().then((p) {
+        p.setString('cache_weather_icon',  data.icon);
+        p.setDouble('cache_weather_temp',  data.tempC);
+        p.setString('cache_weather_desc',  data.desc);
+        p.setInt('cache_weather_precip',   data.precipPct);
       });
     }
   }
@@ -414,23 +483,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  Future<void> _loadRevisionCount() async {
+  // ─── 是正依頼数取得（リトライ + キャッシュ保存）────────────────
+  Future<void> _loadRevisionCount({SharedPreferences? prefs}) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http.get(
-        Uri.parse('$API_URL/revisions/unread-count'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 6));
+      final p = prefs ?? await SharedPreferences.getInstance();
+      final token = p.getString('auth_token') ?? '';
+      final res = await _withRetry(
+        () => http.get(
+          Uri.parse('$API_URL/revisions/unread-count'),
+          headers: {'Authorization': 'Bearer $token'},
+        ),
+        firstTimeout: const Duration(seconds: 60),
+      );
       if (res.statusCode == 200 && mounted) {
         final j = jsonDecode(res.body) as Map<String, dynamic>;
-        setState(() => _revisionCount = (j['count'] as int?) ?? 0);
+        final count = (j['count'] as int?) ?? 0;
+        p.setInt('cache_revision_count', count);
+        setState(() => _revisionCount = count);
       }
     } catch (_) {}
-  }
-
-  Future<void> _refreshPendingCount() async {
-    await ReportStore.instance.retryPending();
   }
 
   Future<void> _calculateRoutes() async {
@@ -500,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         workPhotoPath: _workPhotoPath,
         gpsAddress: _gpsAddress,
       ));
-      await _refreshPendingCount();
+      await ReportStore.instance.retryPending();
       NotificationManager.instance.cancelOvertimeReminder();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
@@ -691,7 +762,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const ProfileScreen()),
-          ).then((_) => _loadUserData()),
+          ).then((_) => _loadCacheAndStart()),
         ),
       ],
     );
