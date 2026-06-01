@@ -110,6 +110,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await prefs.setString('user_role',  body['role']       ?? 'worker');
         await prefs.setString('company_id', body['company_id'] ?? '');
         await prefs.setString('device_id',  deviceId);
+        await prefs.setBool('is_registered', true); // 登録済みフラグ
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed('/gate');
       } else {
@@ -183,7 +184,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             _isLoading    = false;
           });
         } else {
-          // PIN設定不要（PIN付き登録の場合）→ ホームへ
+          // PIN設定不要（PIN付き登録の場合）→ 登録済みフラグをセットしてホームへ
+          await prefs.setBool('is_registered', true);
+          if (!mounted) return;
           Navigator.of(context).pushReplacementNamed('/gate');
         }
       } else {
@@ -223,6 +226,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ).timeout(const Duration(seconds: 30));
       if (!mounted) return;
       if (res.statusCode == 200) {
+        // PIN設定完了 → 登録済みフラグをセットしてホームへ
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_registered', true);
+        if (!mounted) return;
         Navigator.of(context).pushReplacementNamed('/gate');
       } else {
         final body = jsonDecode(res.body);

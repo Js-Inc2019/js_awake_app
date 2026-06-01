@@ -18,7 +18,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool _isLoading = true;
+  bool _isLoading    = true;
+  bool _isRegistered = false; // 登録済みフラグ（prefs: is_registered）
   String? _errorMessage;
   final _companyCodeCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
@@ -74,12 +75,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
-    final isRegistered = prefs.getString('device_id') != null;
-    if (isRegistered) {
+    final hasDevice  = prefs.getString('device_id') != null;
+    final registered = prefs.getBool('is_registered') ?? false;
+    if (mounted) setState(() => _isRegistered = registered);
+    if (hasDevice) {
       await _biometricThenLogin();
     } else {
+      // 未登録ユーザー: 自動リダイレクトせずログイン画面を表示し「新規登録」ボタンを案内
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/register');
+      setState(() => _isLoading = false);
     }
   }
 
@@ -280,7 +284,42 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
                 ),
               ),
-              const SizedBox(height: 16),
+              // 未登録ユーザー向け「新規登録はこちら」ボタン
+              if (!_isRegistered) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context)
+                        .pushNamed('/register')
+                        .then((_) async {
+                      // 登録完了後にフラグを再読み込みしてボタンを隠す
+                      final prefs = await SharedPreferences.getInstance();
+                      if (mounted) {
+                        setState(() {
+                          _isRegistered = prefs.getBool('is_registered') ?? false;
+                        });
+                      }
+                    }),
+                    icon: const Icon(Icons.person_add_alt_1,
+                        color: Color(0xFFD4AF37)),
+                    label: const Text(
+                      '新規登録はこちら',
+                      style: TextStyle(
+                          color: Color(0xFFD4AF37),
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFD4AF37)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
               Center(
                 child: TextButton(
                   onPressed: () => Navigator.of(context).pushNamed('/register'),
