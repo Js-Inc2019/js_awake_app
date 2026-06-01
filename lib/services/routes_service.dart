@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
-const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _kApiUrl = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
 // 電車ルート情報
 class TransitRoute {
@@ -113,7 +113,7 @@ class RoutesService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/routes/compare'),
+        Uri.parse('$_kApiUrl/routes/compare'),
         headers: {
           'Content-Type':  'application/json',
           'Authorization': 'Bearer $authToken',
