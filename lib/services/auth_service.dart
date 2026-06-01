@@ -4,6 +4,7 @@
 // ============================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -107,9 +108,6 @@ class AuthService {
 
   Future<Map<String, dynamic>> loginWithPin(String pin) async {
     try {
-      print('🔍 ログイン試行: PIN=$pin');
-      print('🔍 API URL: $API_URL/auth/verify-pin');
-
       final response = await http.post(
         Uri.parse('$API_URL/auth/verify-pin'),
         headers: {'Content-Type': 'application/json'},
@@ -120,28 +118,21 @@ class AuthService {
         }),
       ).timeout(const Duration(seconds: 15));
 
-      print('🔍 ステータスコード: ${response.statusCode}');
-      print('🔍 レスポンス: ${response.body}');
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final token    = data['token']      as String?;
-        final userId   = data['user_id']    as String?;
-        final role     = data['role']       as String?;
+        final token     = data['token']      as String?;
+        final userId    = data['user_id']    as String?;
+        final role      = data['role']       as String?;
         final companyId = data['company_id'] as String?;
-        final userName = data['name']       as String?;
+        final userName  = data['name']       as String?;
 
         if (token != null && userId != null) {
-          // SharedPreferencesに保存
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token',  token);
           await prefs.setString('user_id',     userId);
-          await prefs.setString('role',        role     ?? 'worker');
+          await prefs.setString('role',        role      ?? 'worker');
           await prefs.setString('company_id',  companyId ?? '');
           await prefs.setString('user_name',   userName  ?? '');
-
-          print('✅ ログイン成功: role=$role, company_id=$companyId');
-
           return {
             'success':    true,
             'message':    'ログインに成功しました',
@@ -153,18 +144,12 @@ class AuthService {
           };
         }
       } else if (response.statusCode == 401) {
-        return {
-          'success': false,
-          'message': 'PINが間違っています',
-        };
+        return {'success': false, 'message': 'PINが間違っています'};
       }
 
-      return {
-        'success': false,
-        'message': 'ログインに失敗しました',
-      };
+      return {'success': false, 'message': 'ログインに失敗しました'};
     } catch (e) {
-      print('❌ ログインエラー: $e');
+      debugPrint('ログインエラー: $e');
       return {
         'success': false,
         'message': 'サーバーに接続できません。ネットワークを確認してください。',
@@ -216,7 +201,7 @@ class AuthService {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
+      'Authorization': 'Bearer ${token ?? ''}',
     };
   }
 }

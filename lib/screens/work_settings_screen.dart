@@ -86,8 +86,8 @@ class _WorkSettingsScreenState extends State<WorkSettingsScreen> {
                                 fontWeight: FontWeight.bold)),
                         subtitle: Text(
                           isDeemed
-                              ? 'みなし: $start〜$end 休憩${breakMin}分'
-                              : '実勤務 休憩${breakMin}分',
+                              ? 'みなし: $start〜$end 休憩$breakMin分'
+                              : '実勤務 休憩$breakMin分',
                           style: const TextStyle(
                               color: JsColors.silver, fontSize: 12)),
                         trailing: IconButton(

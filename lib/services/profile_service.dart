@@ -5,8 +5,6 @@
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
-
 class ProfileService {
   static final ProfileService _instance = ProfileService._internal();
 

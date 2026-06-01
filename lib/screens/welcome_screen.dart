@@ -276,7 +276,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       ),
       child: Column(
         children: [
-          Row(children: const [
+          const Row(children: [
             Icon(Icons.wb_sunny_outlined, color: JsColors.gold, size: 20),
             SizedBox(width: 8),
             Text('現在の天気',
@@ -300,8 +300,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text('$wbgtEmoji ', style: const TextStyle(fontSize: 18)),
-                Text('熱中症危険度: ',
-                    style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+                const Text('熱中症危険度: ',
+                    style: TextStyle(color: JsColors.silver, fontSize: 13)),
                 Text('$wbgtLevel  (WBGT $wbgt℃)',
                     style: TextStyle(
                         color: wColor ?? JsColors.warning,

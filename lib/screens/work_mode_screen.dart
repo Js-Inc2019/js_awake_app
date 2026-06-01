@@ -66,14 +66,14 @@ class _WorkModeScreenState extends State<WorkModeScreen>
                   width: 180, height: 180,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Color(0xFFD4AF37).withValues(alpha: 0.08 + _pulse.value * 0.08),
+                    color: const Color(0xFFD4AF37).withValues(alpha: 0.08 + _pulse.value * 0.08),
                   ),
                   child: Center(
                     child: Container(
                       width: 140, height: 140,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Color(0xFFD4AF37).withValues(alpha: 0.15 + _pulse.value * 0.1),
+                        color: const Color(0xFFD4AF37).withValues(alpha: 0.15 + _pulse.value * 0.1),
                       ),
                       child: const Center(
                         child: Icon(Icons.login, color: Color(0xFFD4AF37), size: 64),

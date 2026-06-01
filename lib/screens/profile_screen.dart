@@ -73,9 +73,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _homeAddressCtrl.text = address;
             _currentHomeAddress = address;
           });
-          await _service.setHomeAddress(address);
+        }
+        await _service.setHomeAddress(address);
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('自宅住所: $address'), backgroundColor: Colors.green)
+            SnackBar(content: Text('自宅住所: $address'), backgroundColor: Colors.green),
           );
         }
       }

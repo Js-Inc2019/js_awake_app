@@ -139,7 +139,7 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
           ],
         ),
       ),
-    );
+    ).whenComplete(controller.dispose);
   }
 
   Future<void> _resubmit(String revisionId, String comment) async {

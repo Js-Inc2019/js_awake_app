@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/monthly_history_screen.dart';
 import 'screens/register_screen.dart';
@@ -791,8 +792,7 @@ class _GateScreenState extends State<GateScreen> {
                   screenTitle: '職人用 — 出勤',
                   isBossMode: false,
                   onCheckedIn: () => Navigator.pushReplacement(ctx,
-                    MaterialPageRoute(builder: (_) => const SharedWorkerForm(
-                      screenTitle: '職人用 — 日報報告', isBossMode: false))),
+                    MaterialPageRoute(builder: (_) => const HomeScreen())),
                 ),
               ));
               return;
@@ -800,8 +800,7 @@ class _GateScreenState extends State<GateScreen> {
           }
           if (!ctx.mounted) return;
           Navigator.pushReplacement(ctx, MaterialPageRoute(
-              builder: (_) => const SharedWorkerForm(
-                screenTitle: '職人用 — 日報報告', isBossMode: false)));
+              builder: (_) => const HomeScreen()));
         },
       ),
     ));
@@ -817,7 +816,7 @@ class _GateScreenState extends State<GateScreen> {
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
-        debugPrint('🔐 認証結果: ok=\$ok');
+        debugPrint('🔐 認証結果: ok=$ok');
       } else {
         // 生体認証未対応の場合は拒否
         ok = false;
@@ -825,9 +824,9 @@ class _GateScreenState extends State<GateScreen> {
           showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
         }
       }
-    } catch (e) { 
+    } catch (e) {
       ok = false;
-      debugPrint('🔐 catch: \$e ok=\$ok');
+      debugPrint('🔐 catch: $e ok=$ok');
     }
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
@@ -839,43 +838,6 @@ class _GateScreenState extends State<GateScreen> {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 // ============================================================
@@ -978,10 +940,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _loadOriginPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() {
-      _originType     = prefs.getString('default_origin') ?? 'home';
-      _companyAddress = prefs.getString('company_address') ?? '';
-    });
+    if (mounted) {
+      setState(() {
+        _originType     = prefs.getString('default_origin') ?? 'home';
+        _companyAddress = prefs.getString('company_address') ?? '';
+      });
+    }
   }
 
   Future<void> _refreshPendingCount() async {
@@ -1015,10 +979,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       destination: _gpsAddress,
       authToken: token,
     );
-    if (mounted) setState(() {
-      _routeComparisons = routes;
-      _loadingRoutes = false;
-    });
+    if (mounted) {
+      setState(() {
+        _routeComparisons = routes;
+        _loadingRoutes = false;
+      });
+    }
   }
 
   Future<void> _startVoiceWork() async {
@@ -1111,9 +1077,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
       workContent:      _transport == TransportType.other
-          ? '[その他:\${_otherCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
+          ? '[その他:${_otherCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
           : (_transport == TransportType.car && _carType == 'carpool')
-          ? '[相乗り:\${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] \${_workContentCtrl.text.trim()}'
+          ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
           : _workContentCtrl.text.trim(),
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
@@ -1122,20 +1088,20 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (mounted) {
       // 退勤忘れリマインダーをキャンセル（報告済みのため）
       NotificationManager.instance.cancelOvertimeReminder();
-      setState(() {
-        _submitting    = false;
-        _transports = {TransportType.train};
-        _photoPath     = null;
-        _workPhotoPath = null;
-      });
       _nameCtrl.clear();
-            _loadUserName();
+      _loadUserName();
       _feeCtrl.clear();
       _workContentCtrl.clear();
       _otherCtrl.clear();
       _carpoolCtrl.clear();
       _transportMemoCtrl.clear();
-      setState(() { _carType = 'own'; _transports = {TransportType.train}; });
+      setState(() {
+        _submitting    = false;
+        _carType       = 'own';
+        _transports    = {TransportType.train};
+        _photoPath     = null;
+        _workPhotoPath = null;
+      });
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
       if (!mounted) return;
@@ -1226,7 +1192,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 activeColor: JsColors.gold,
                 checkColor: Colors.black,
                 onChanged: (v) => setSt(() {
-                  if (v == true) current.add(i); else current.remove(i);
+                  if (v == true) { current.add(i); } else { current.remove(i); }
                 }),
               ),
             ),
@@ -1262,14 +1228,14 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             icon: const Icon(Icons.inbox),
             tooltip: '受信トレイ',
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => InboxScreen())),
+                MaterialPageRoute(builder: (_) => const InboxScreen())),
           ),
           IconButton(
             icon: const Icon(Icons.location_on),
             tooltip: '現場選択',
             onPressed: () async {
               await Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => SiteSelectScreen()));
+                  MaterialPageRoute(builder: (_) => const SiteSelectScreen()));
             },
           ),
           IconButton(
@@ -1374,7 +1340,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                     const Icon(Icons.cloud_off, color: JsColors.warning, size: 16),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text('未送信の日報が${_pendingCount}件あります。ネット接続時に自動送信されます。',
+                      child: Text('未送信の日報が$_pendingCount件あります。ネット接続時に自動送信されます。',
                           style: const TextStyle(color: JsColors.warning, fontSize: 12)),
                     ),
                     TextButton(
@@ -1889,9 +1855,9 @@ class _ParkingSection extends StatelessWidget {
           ),
         ),
       if (photoPath == null)
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(children: const [
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Row(children: [
             Icon(Icons.info_outline, color: JsColors.silver, size: 14),
             SizedBox(width: 4),
             Text('領収書の写真も撮影することを推奨します',
@@ -2005,11 +1971,11 @@ class _RouteResultCard extends StatelessWidget {
         const SizedBox(height: 6),
         if (c.totalNormal > 0)
           Row(children: [
-            Text('合計(普通): ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            const Text('合計(普通): ', style: TextStyle(color: JsColors.silver, fontSize: 12)),
             Text('¥${c.totalNormal}',
                 style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
             const SizedBox(width: 12),
-            Text('軽: ', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+            const Text('軽: ', style: TextStyle(color: JsColors.silver, fontSize: 12)),
             Text('¥${c.totalLight}',
                 style: const TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold, fontSize: 13)),
           ])
@@ -2127,7 +2093,9 @@ class _OvertimeDialogState extends State<_OvertimeDialog> {
       initialTime: isStart ? _start : (_end ?? TimeOfDay.now()),
     );
     if (picked != null && mounted) {
-      setState(() { if (isStart) _start = picked; else _end = picked; });
+      setState(() {
+        if (isStart) { _start = picked; } else { _end = picked; }
+      });
     }
   }
 
@@ -2417,8 +2385,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorder: (oldIndex, newIndex) async {
-                  if (newIndex > oldIndex) newIndex--;
+                onReorderItem: (oldIndex, newIndex) async {
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
                   setState(() => _names = list);

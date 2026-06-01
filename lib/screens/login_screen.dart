@@ -106,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
     } catch (e) {
-      print('自動Loginエラー: $e');
+      debugPrint('自動Loginエラー: $e');
     }
     setState(() => _isLoading = false);
   }
@@ -144,11 +144,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', data['token']);
-    await prefs.setString('user_name', data['name'] ?? '');
-    await prefs.setString('user_role', data['role'] ?? 'worker');
-    await prefs.setString('company_id', data['company_id'] ?? '');
-    await prefs.setString('work_mode', data['work_mode'] ?? 'deemed');
+    await prefs.setString('auth_token', data['token'] as String? ?? '');
+    await prefs.setString('user_name', data['name'] as String? ?? '');
+    await prefs.setString('user_role', data['role'] as String? ?? 'worker');
+    await prefs.setString('company_id', data['company_id'] as String? ?? '');
+    await prefs.setString('work_mode', data['work_mode'] as String? ?? 'deemed');
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
@@ -183,10 +183,10 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () async {
+                  final nav = Navigator.of(context);
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.remove('device_id');
-                  if (!mounted) return;
-                  Navigator.of(context).pushNamed('/register');
+                  nav.pushNamed('/register');
                 },
                 child: const Text('機種変更（新しいデバイスで再登録）',
                     style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)),
