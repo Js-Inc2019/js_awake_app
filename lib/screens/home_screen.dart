@@ -27,6 +27,8 @@ import '../main.dart'
 import 'revision_inbox_screen.dart';
 import 'monthly_history_screen.dart';
 import 'profile_screen.dart';
+import '../services/routes_service.dart';
+import '../services/profile_service.dart';
 
 // ─────────────────────────────────────────────
 // 今日の一言リスト（日付ベースローテーション）
@@ -297,8 +299,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _seasonWarning;
   String _dailyMessage = '';
 
+  // 健康診断
+  DateTime? _healthCheckDate;
+
   // 移動手段
   TransportType _transport = TransportType.car;
+
+  // ルート情報
+  Map<String, dynamic> _routeComparisons = {};
+  bool _loadingRoutes = false;
 
   // 作業内容
   final _workCtrl = TextEditingController();
@@ -343,10 +352,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
+    final hcIso = prefs.getString('health_check_date_iso');
     if (mounted) {
       setState(() {
         _userName = prefs.getString('user_name') ?? '';
         _companyName = prefs.getString('company_name') ?? '株式会社J\'s';
+        _healthCheckDate = hcIso != null ? DateTime.tryParse(hcIso) : null;
       });
     }
   }
@@ -369,7 +380,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final addr = await fetchGpsAddress();
     if (mounted) {
       setState(() { _gpsAddress = addr; _gpsLoading = false; });
-      _loadWeather(); // GPS取得後に天気を更新
+      _loadWeather();
+      _calculateRoutes();
     }
   }
 
@@ -392,6 +404,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _dailyMessage = _dailyMessages[dayOfYear % _dailyMessages.length];
   }
 
+  String? _buildHealthBannerMsg() {
+    final hc = _healthCheckDate;
+    if (hc == null) return null;
+    final next = DateTime(hc.year + 1, hc.month, hc.day);
+    final days = next.difference(DateTime.now()).inDays;
+    if (days <= 14) return '🔴 健康診断期限まで$days日 — 今すぐ予約を！';
+    if (days <= 30) return '🟡 健康診断まで$days日 — 早めに予約を';
+    return null;
+  }
+
   Future<void> _loadRevisionCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -409,6 +431,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _refreshPendingCount() async {
     await ReportStore.instance.retryPending();
+  }
+
+  Future<void> _calculateRoutes() async {
+    if (_gpsAddress.isEmpty) return;
+    final homeAddr = await ProfileService().getHomeAddress();
+    if (homeAddr == null || homeAddr.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token') ?? '';
+    setState(() => _loadingRoutes = true);
+    final routes = await RoutesService().compareRoutesV2(
+      origin: homeAddr,
+      destination: _gpsAddress,
+      authToken: token,
+    );
+    if (mounted) {
+      setState(() {
+        _routeComparisons = routes;
+        _loadingRoutes = false;
+      });
+    }
   }
 
   Future<void> _startVoice() async {
@@ -508,7 +550,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 gpsLoading: _gpsLoading,
                 onRefreshGps: _fetchGps,
               ),
-              // ③ 季節注意（6〜9月のみ）
+              // ③ 健康診断警告（期限30日以内）
+              if (_buildHealthBannerMsg() != null) ...[
+                const SizedBox(height: 6),
+                _HealthCheckBanner(message: _buildHealthBannerMsg()!),
+              ],
+              // ③b 季節注意（6〜9月のみ）
               if (_seasonWarning != null) ...[
                 const SizedBox(height: 6),
                 _SeasonBanner(message: _seasonWarning!),
@@ -522,6 +569,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 selected: _transport,
                 onChanged: (t) => setState(() => _transport = t),
               ),
+              if (_loadingRoutes || _routeComparisons.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _RouteInfoBar(
+                  transport: _transport,
+                  comparisons: _routeComparisons,
+                  loading: _loadingRoutes,
+                ),
+              ],
               const SizedBox(height: 8),
               // ⑥ 作業内容 + 残業 — Expanded
               Expanded(
@@ -1008,7 +1063,38 @@ class _ForecastRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// ③ 季節注意喚起バナー
+// ③ 健康診断警告バナー
+// ─────────────────────────────────────────────
+class _HealthCheckBanner extends StatelessWidget {
+  const _HealthCheckBanner({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDanger = message.startsWith('🔴');
+    final base = isDanger ? const Color(0xFFB71C1C) : const Color(0xFFE65100);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: base.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: base.withValues(alpha: 0.6)),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(
+            color: isDanger ? const Color(0xFFEF9A9A) : const Color(0xFFFFCC80),
+            fontSize: 12,
+            fontWeight: FontWeight.w500),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// ③b 季節注意喚起バナー
 // ─────────────────────────────────────────────
 class _SeasonBanner extends StatelessWidget {
   const _SeasonBanner({required this.message});
@@ -1619,4 +1705,101 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
             child: const Text('確定')),
     ],
   );
+}
+
+// ─────────────────────────────────────────────
+// ルート情報バー
+// ─────────────────────────────────────────────
+class _RouteInfoBar extends StatelessWidget {
+  const _RouteInfoBar({
+    required this.transport,
+    required this.comparisons,
+    required this.loading,
+  });
+  final TransportType transport;
+  final Map<String, dynamic> comparisons;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: JsColors.divider),
+        ),
+        child: const Row(children: [
+          SizedBox(width: 14, height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+          SizedBox(width: 8),
+          Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+        ]),
+      );
+    }
+
+    if (comparisons.isEmpty) return const SizedBox.shrink();
+
+    String? timeStr, costStr, distStr;
+
+    if (transport == TransportType.car || transport == TransportType.other) {
+      final c = comparisons['car'] as CarRoute?;
+      if (c != null) {
+        timeStr = '${c.time}分';
+        distStr = c.distanceText;
+        if (c.gasCost > 0) costStr = '⛽¥${c.gasCost}';
+      }
+    } else if (transport == TransportType.train || transport == TransportType.bus) {
+      final t = comparisons['transit'] as TransitRoute?;
+      if (t != null) {
+        timeStr = '${t.time}分';
+        costStr = '💴¥${t.fareIc}';
+        if (t.depStation.isNotEmpty && t.arrStation.isNotEmpty) {
+          distStr = '${t.depStation}→${t.arrStation}';
+        }
+      }
+    } else if (transport == TransportType.bike) {
+      final b = comparisons['bicycling'] as SimpleRoute?;
+      if (b != null) { timeStr = b.duration; distStr = b.distance; }
+    } else {
+      final w = comparisons['walking'] as SimpleRoute?;
+      if (w != null) { timeStr = w.duration; distStr = w.distance; }
+    }
+
+    if (timeStr == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: JsColors.gold.withValues(alpha: 0.35)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.route, color: JsColors.gold, size: 14),
+        const SizedBox(width: 6),
+        if (distStr != null) ...[
+          Flexible(
+            child: Text(distStr,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+                overflow: TextOverflow.ellipsis, maxLines: 1),
+          ),
+          const SizedBox(width: 10),
+        ],
+        const Icon(Icons.access_time, color: JsColors.silver, size: 13),
+        const SizedBox(width: 3),
+        Text(timeStr,
+            style: const TextStyle(
+                color: JsColors.offWhite, fontSize: 12, fontWeight: FontWeight.bold)),
+        if (costStr != null) ...[
+          const SizedBox(width: 10),
+          Text(costStr,
+              style: const TextStyle(
+                  color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+        ],
+      ]),
+    );
+  }
 }
