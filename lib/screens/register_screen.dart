@@ -99,7 +99,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'device_id':   deviceId,
           'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
         }),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(const Duration(seconds: 60)); // Herokuコールドスタート対応
       if (!mounted) return;
       final body = jsonDecode(res.body);
       if (res.statusCode == 200) {
@@ -223,7 +223,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode({'new_pin': pin}),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(const Duration(seconds: 60));
       if (!mounted) return;
       if (res.statusCode == 200) {
         // PIN設定完了 → 登録済みフラグをセットしてホームへ

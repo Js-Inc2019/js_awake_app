@@ -9,7 +9,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-const String _apiBase = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _apiBase    = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _healthUrl  = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/health';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -74,6 +75,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _init() async {
+    // ① Heroku コールドスタート対策 — 先に /health を叩いてdynoを起こす（60秒許容）
+    http.get(Uri.parse(_healthUrl)).timeout(const Duration(seconds: 60)).ignore();
+
     final prefs = await SharedPreferences.getInstance();
     final hasDevice  = prefs.getString('device_id') != null;
     final registered = prefs.getBool('is_registered') ?? false;

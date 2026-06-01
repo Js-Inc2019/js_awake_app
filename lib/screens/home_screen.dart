@@ -302,6 +302,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  // 初回キャッシュ読み込み前のスケルトン表示フラグ
+  bool _initialLoading = true;
+
   // ユーザー情報
   String _companyName = '株式会社J\'s';
   String _userName = '';
@@ -401,6 +404,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _weather = _WeatherData(
               icon: wIcon, desc: wDesc, tempC: wTempC, precipPct: wPrecip);
         }
+        _initialLoading = false; // キャッシュ読み込み完了 → スケルトン解除
       });
     }
 
@@ -600,6 +604,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ─────────────────────── BUILD ───────────────────────
   @override
   Widget build(BuildContext context) {
+    if (_initialLoading) {
+      return Scaffold(
+        backgroundColor: JsColors.black,
+        appBar: _buildAppBar(),
+        body: const SafeArea(child: _HomeSkeletonBody()),
+      );
+    }
     return Scaffold(
       backgroundColor: JsColors.black,
       appBar: _buildAppBar(),
@@ -1129,6 +1140,117 @@ class _ForecastRow extends StatelessWidget {
           ]),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// スケルトンローディング（初回キャッシュなし時）
+// ─────────────────────────────────────────────
+class _HomeSkeletonBody extends StatefulWidget {
+  const _HomeSkeletonBody();
+  @override
+  State<_HomeSkeletonBody> createState() => _HomeSkeletonBodyState();
+}
+
+class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1100))
+      ..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.25, end: 0.55).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  Widget _box({double h = 16, double? w, double radius = 8}) =>
+      AnimatedBuilder(
+        animation: _anim,
+        builder: (_, __) => Container(
+          height: h,
+          width: w,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: _anim.value),
+            borderRadius: BorderRadius.circular(radius),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // 会社名 / 氏名 行
+        Row(children: [
+          _box(h: 14, w: 100),
+          const SizedBox(width: 12),
+          _box(h: 14, w: 80),
+        ]),
+        const SizedBox(height: 10),
+        // 天気行
+        Container(
+          height: 72,
+          decoration: BoxDecoration(
+            color: JsColors.gunmetal,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            _box(h: 40, w: 40, radius: 20),
+            const SizedBox(width: 12),
+            Column(crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center, children: [
+              _box(h: 12, w: 60),
+              const SizedBox(height: 6),
+              _box(h: 10, w: 100),
+            ]),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        // 一言 行
+        _box(h: 12, w: double.infinity),
+        const SizedBox(height: 4),
+        _box(h: 12, w: 180),
+        const SizedBox(height: 12),
+        // 移動手段 行
+        Row(children: [
+          for (var i = 0; i < 4; i++) ...[
+            Expanded(child: _box(h: 38, radius: 8)),
+            if (i < 3) const SizedBox(width: 8),
+          ],
+        ]),
+        const SizedBox(height: 12),
+        // 作業内容エリア
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: JsColors.gunmetal,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _box(h: 12, w: 80),
+              const SizedBox(height: 10),
+              _box(h: 12, w: double.infinity),
+              const SizedBox(height: 6),
+              _box(h: 12, w: 220),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // 報告ボタン
+        _box(h: 48, w: double.infinity, radius: 12),
+        const SizedBox(height: 8),
+      ]),
     );
   }
 }
