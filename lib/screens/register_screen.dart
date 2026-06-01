@@ -142,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       final deviceId = await _deviceId();
       final res = await http.post(
-        Uri.parse('$_apiUrl/workers/register-new'),
+        Uri.parse('$_apiUrl/workers/self-register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name':         _directNameCtrl.text.trim(),
