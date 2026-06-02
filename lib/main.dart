@@ -38,8 +38,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
 import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
     import 'package:http/http.dart' as http;
-import 'package:google_fonts/google_fonts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'core/theme/app_theme.dart';
 
 // ============================================================
 // API設定
@@ -66,16 +66,16 @@ void main() async {
 // ============================================================
 
 class JsColors {
-  static const black    = Color(0xFF111111);
-  static const gunmetal = Color(0xFF2A2A2A);
-  static const gold     = Color(0xFFD4AF37);
-  static const silver   = Color(0xFF9E9E9E);
+  static const black    = Color(0xFF0D1B2A); // darkNavy
+  static const gunmetal = Color(0xFF2C2C2C); // HP gunmetal
+  static const gold     = Color(0xFFC9A84C); // HP gold
+  static const silver   = Color(0xFF8A9BA8); // HP steelSilver
   static const offWhite = Color(0xFFF5F5F0);
-  static const surface  = Color(0xFF1E1E1E);
-  static const divider  = Color(0xFF3A3A3A);
-  static const success  = Color(0xFF2E7D5E);
-  static const error    = Color(0xFFB71C1C);
-  static const warning  = Color(0xFFE65100);
+  static const surface  = Color(0xFF3D3D3D); // HP gunmetalLight
+  static const divider  = Color(0xFF4A4A4A);
+  static const success  = Color(0xFF4CAF50); // HP success
+  static const error    = Color(0xFFE53935); // HP error
+  static const warning  = Color(0xFFC9A84C); // HP gold (warning)
 }
 
 // ============================================================
@@ -88,90 +88,15 @@ class JsAwakeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: "J's Inc. 日報報告APP",
+      title: "J's FIELD",
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(),
+      theme: AppTheme().darkTheme,
       home: const LoginScreen(),
       routes: {
         '/login': (_) => const LoginScreen(),
         '/gate': (_) => const GateScreen(),
         '/register': (_) => const RegisterScreen(),
       },
-    );
-  }
-
-  ThemeData _buildTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: JsColors.black,
-      colorScheme: const ColorScheme.dark(
-        primary:      JsColors.gold,
-        secondary:    JsColors.silver,
-        surface:      JsColors.black,
-        error:        JsColors.error,
-        onPrimary:    Colors.black,
-        onSecondary:  JsColors.offWhite,
-        onSurface:    JsColors.offWhite,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: JsColors.black,
-        foregroundColor: JsColors.gold,
-        elevation: 0,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: JsColors.gold,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
-        iconTheme: IconThemeData(color: JsColors.gold),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: JsColors.gold,
-          foregroundColor: Colors.black,
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: JsColors.gold,
-          side: const BorderSide(color: JsColors.gold),
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: JsColors.gunmetal,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.divider),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.divider),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.gold, width: 2),
-        ),
-        labelStyle: const TextStyle(color: JsColors.silver),
-        hintStyle: const TextStyle(color: Color(0xFF666666)),
-      ),
-      cardTheme: CardThemeData(
-        color: JsColors.gunmetal,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: JsColors.divider),
-        ),
-      ),
-      dividerTheme: const DividerThemeData(color: JsColors.divider, thickness: 1),
-      fontFamily: GoogleFonts.notoSansJp().fontFamily,
     );
   }
 }
