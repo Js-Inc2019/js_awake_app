@@ -84,7 +84,7 @@ String? _getSeasonWarning(DateTime now) {
 // ─────────────────────────────────────────────
 // OWM API キー
 // ─────────────────────────────────────────────
-const String _owmApiKey = 'dc43d12592a8f1e519cb534329f9a148';
+const String _owmApiKey = 'b0c0fa1306217e124c6aef44ed8721cf';
 
 // ─────────────────────────────────────────────
 // 天気データモデル
