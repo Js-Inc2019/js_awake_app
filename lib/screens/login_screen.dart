@@ -102,21 +102,35 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _autoLogin() async {
+    bool serverResponded = false;
     try {
       final deviceId = await _getDeviceId();
       final response = await http.get(
         Uri.parse('$_apiBase/auth/verify-device?device_id=$deviceId'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
+      serverResponded = true;
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         await _saveAndNavigate(data);
         return;
       }
+      // サーバーが応答して非200を返した場合（トークン期限切れ・デバイス無効など）
+      // → キャッシュを信頼せず登録フォームを表示
     } catch (e) {
       debugPrint('自動Loginエラー: $e');
+      // ネットワーク到達不可（タイムアウト・例外）
     }
-    setState(() => _isLoading = false);
+    if (!serverResponded) {
+      // オフライン時のみキャッシュ済みトークンでゲートへ
+      final prefs = await SharedPreferences.getInstance();
+      final cachedToken = prefs.getString('auth_token') ?? '';
+      if (cachedToken.isNotEmpty && mounted) {
+        Navigator.of(context).pushReplacementNamed('/gate');
+        return;
+      }
+    }
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _register() async {
@@ -282,7 +296,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           border: Border.all(color: _selectedRole == 'boss' ? const Color(0xFFD4AF37) : Colors.white24),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Center(child: Text('管理職', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
+                        child: Center(child: Text('職長', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
                       ),
                     ),
                   ),

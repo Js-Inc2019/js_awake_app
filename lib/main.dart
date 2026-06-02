@@ -687,8 +687,7 @@ class _GateScreenState extends State<GateScreen> {
     final prefs = await SharedPreferences.getInstance();
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
-    if (role == 'boss' || role == 'admin') { _pushBoss(context); }
-    else if (role == 'foreman') { await _pushForeman(context); }
+    if (role == 'boss' || role == 'foreman') { _pushBoss(context); }
     else { await _pushWorker(context); }
   }
   @override
@@ -2326,7 +2325,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorderItem: (oldIndex, newIndex) async {
+                onReorder: (oldIndex, newIndex) async {
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
                   setState(() => _names = list);
