@@ -256,7 +256,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedRole = 'foreman'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: _selectedRole == 'foreman' ? const Color(0xFFD4AF37) : Colors.transparent,
+                          border: Border.all(color: _selectedRole == 'foreman' ? const Color(0xFFD4AF37) : Colors.white24),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(child: Text('職長', style: TextStyle(color: _selectedRole == 'foreman' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: GestureDetector(
                       onTap: () => setState(() => _selectedRole = 'boss'),
@@ -267,7 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           border: Border.all(color: _selectedRole == 'boss' ? const Color(0xFFD4AF37) : Colors.white24),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Center(child: Text('職長・管理', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
+                        child: Center(child: Text('管理職', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : Colors.white70, fontWeight: FontWeight.bold))),
                       ),
                     ),
                   ),

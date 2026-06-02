@@ -5,13 +5,16 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, API_URL;
 
-class MonthlyHistoryScreen extends StatefulWidget {
-  const MonthlyHistoryScreen({super.key});
+// ─────────────────────────────────────────────
+// MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
+// ─────────────────────────────────────────────
+class MonthlyHistoryBody extends StatefulWidget {
+  const MonthlyHistoryBody({super.key});
   @override
-  State<MonthlyHistoryScreen> createState() => _MonthlyHistoryScreenState();
+  State<MonthlyHistoryBody> createState() => _MonthlyHistoryBodyState();
 }
 
-class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
+class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   bool _loading = true;
   List<Map<String, dynamic>> _reports = [];
   DateTime _selectedMonth = DateTime.now();
@@ -69,69 +72,92 @@ class _MonthlyHistoryScreenState extends State<MonthlyHistoryScreen> {
     final now      = DateTime.now();
     final isCurrentMonth = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
 
-    return Scaffold(
-      backgroundColor: JsColors.black,
-      appBar: AppBar(title: const Text('月間履歴')),
-      body: Column(
-        children: [
-          // 月選択バー
-          Container(
-            color: JsColors.gunmetal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left, color: JsColors.gold),
-                  onPressed: _prevMonth,
-                ),
-                Text(
-                  '${_selectedMonth.year}年${_selectedMonth.month}月',
-                  style: const TextStyle(color: JsColors.offWhite, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                  icon: Icon(Icons.chevron_right,
-                      color: isCurrentMonth ? JsColors.divider : JsColors.gold),
-                  onPressed: isCurrentMonth ? null : _nextMonth,
-                ),
-              ],
-            ),
+    return Column(
+      children: [
+        // 月選択バー
+        Container(
+          color: JsColors.gunmetal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                onPressed: _prevMonth,
+              ),
+              Text(
+                '${_selectedMonth.year}年${_selectedMonth.month}月',
+                style: const TextStyle(
+                    color: JsColors.offWhite, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: Icon(Icons.chevron_right,
+                    color: isCurrentMonth ? JsColors.divider : JsColors.gold),
+                onPressed: isCurrentMonth ? null : _nextMonth,
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: JsColors.silver, size: 20),
+                onPressed: _load,
+                tooltip: '再読み込み',
+              ),
+            ],
           ),
-          // 集計バー
-          if (!_loading && _error == null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(children: [
-                _StatChip('合計', total, JsColors.silver),
-                const SizedBox(width: 8),
-                _StatChip('承認', approved, JsColors.success),
-                const SizedBox(width: 8),
-                _StatChip('差戻', rejected, JsColors.error),
-                const SizedBox(width: 8),
-                _StatChip('未承認', pending, JsColors.warning),
-              ]),
-            ),
-          // リスト
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
-                : _error != null
-                    ? Center(child: Text(_error!, style: const TextStyle(color: JsColors.error)))
-                    : _reports.isEmpty
-                        ? const Center(
-                            child: Text('この月の記録はありません', style: TextStyle(color: JsColors.silver)))
-                        : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            itemCount: _reports.length,
-                            itemBuilder: (ctx, i) => _ReportTile(report: _reports[i]),
-                          ),
+        ),
+        // 集計バー
+        if (!_loading && _error == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(children: [
+              _StatChip('合計', total, JsColors.silver),
+              const SizedBox(width: 8),
+              _StatChip('承認', approved, JsColors.success),
+              const SizedBox(width: 8),
+              _StatChip('差戻', rejected, JsColors.error),
+              const SizedBox(width: 8),
+              _StatChip('未承認', pending, JsColors.warning),
+            ]),
           ),
-        ],
-      ),
+        // リスト
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+              : _error != null
+                  ? Center(child: Text(_error!, style: const TextStyle(color: JsColors.error)))
+                  : _reports.isEmpty
+                      ? const Center(
+                          child: Text('この月の記録はありません',
+                              style: TextStyle(color: JsColors.silver)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          itemCount: _reports.length,
+                          itemBuilder: (ctx, i) => _ReportTile(report: _reports[i]),
+                        ),
+        ),
+      ],
     );
   }
 }
 
+// ─────────────────────────────────────────────
+// MonthlyHistoryScreen — 単体プッシュ用（Scaffold ラッパー）
+// ─────────────────────────────────────────────
+class MonthlyHistoryScreen extends StatelessWidget {
+  const MonthlyHistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: JsColors.black,
+      appBar: AppBar(title: const Text('月間履歴')),
+      body: const MonthlyHistoryBody(),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Sub-widgets
+// ─────────────────────────────────────────────
 class _StatChip extends StatelessWidget {
   const _StatChip(this.label, this.count, this.color);
   final String label;
@@ -148,7 +174,8 @@ class _StatChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Column(children: [
-        Text('$count', style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text('$count',
+            style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
         Text(label, style: TextStyle(color: color, fontSize: 11)),
       ]),
     ),
@@ -190,20 +217,24 @@ class _ReportTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  Text(date, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+                  Text(date,
+                      style: const TextStyle(color: JsColors.silver, fontSize: 12)),
                   if (trans.isNotEmpty) ...[
                     const SizedBox(width: 8),
-                    Text(trans, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+                    Text(trans,
+                        style: const TextStyle(color: JsColors.silver, fontSize: 11)),
                   ],
                 ]),
                 const SizedBox(height: 4),
                 Text(content,
                     style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
                 if (addr.isNotEmpty)
                   Text(addr,
                       style: const TextStyle(color: JsColors.silver, fontSize: 11),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -215,7 +246,9 @@ class _ReportTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: sc),
             ),
-            child: Text(sl, style: TextStyle(color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Text(sl,
+                style: TextStyle(
+                    color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

@@ -1,9 +1,10 @@
 // lib/screens/home_screen.dart
-// ホーム画面 — スクロールなし1画面レイアウト
+// JsMainShell — 全画面共通 2段AppBar + 永続BottomBar + IndexedStack
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -23,10 +24,12 @@ import '../main.dart'
         fetchGpsAddress,
         showJsSnackbar,
         NotificationManager,
+        OvertimeDialog,
         API_URL;
 import 'revision_inbox_screen.dart';
-import 'monthly_history_screen.dart';
+import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 import 'profile_screen.dart';
+import 'after_report_screen.dart';
 import '../services/routes_service.dart';
 import '../services/profile_service.dart';
 
@@ -67,22 +70,21 @@ const _dailyMessages = [
 ];
 
 // ─────────────────────────────────────────────
-// 季節注意喚起メッセージ（6〜9月）
+// 季節注意喚起（6〜9月）
 // ─────────────────────────────────────────────
 String? _getSeasonWarning(DateTime now) {
   final m = now.month;
-  if (m == 6) return '☀️ 梅雨・暑熱始まり — こまめな水分補給を忘れずに';
-  if (m == 7) return '🌡️ 猛暑注意 — 熱中症指数が高い日は無理せず休憩を';
-  if (m == 8) return '🔥 熱中症最警戒 — 30分に1回は水分・塩分補給を';
-  if (m == 9) return '🌤️ 残暑注意 — まだ暑さが続きます。油断せず対策を';
+  if (m == 6) return '梅雨・暑熱始まり — こまめな水分補給を';
+  if (m == 7) return '猛暑注意 — 熱中症指数が高い日は無理せず休憩を';
+  if (m == 8) return '熱中症最警戒 — 30分に1回は水分・塩分補給を';
+  if (m == 9) return '残暑注意 — まだ暑さが続きます。油断せず対策を';
   return null;
 }
 
 // ─────────────────────────────────────────────
-// OpenWeatherMap API キー
+// OWM API キー
 // ─────────────────────────────────────────────
-// TODO: OWM_API_KEY を実際のキーに置き換える
-const String _owmApiKey = '***REMOVED***';
+const String _owmApiKey = 'dc43d12592a8f1e519cb534329f9a148';
 
 // ─────────────────────────────────────────────
 // 天気データモデル
@@ -91,12 +93,14 @@ class _WeatherData {
   final String icon;
   final String desc;
   final double tempC;
-  final int precipPct; // 降水確率 %
+  final int precipPct;
+  final int humidity;
   const _WeatherData({
     required this.icon,
     required this.desc,
     required this.tempC,
     required this.precipPct,
+    this.humidity = 60,
   });
 }
 
@@ -116,6 +120,37 @@ class _ForecastDay {
 }
 
 // ─────────────────────────────────────────────
+// WBGT（暑さ指数）計算
+// ─────────────────────────────────────────────
+double _calcWBGT(double tempC, int humidity) {
+  if (humidity <= 0) return tempC * 0.6;
+  final rh = humidity.toDouble().clamp(1.0, 100.0);
+  // Stull (2011) 湿球温度近似
+  final tw = tempC * atan(0.151977 * sqrt(rh + 8.313659))
+      + atan(tempC + rh)
+      - atan(rh - 1.676331)
+      + 0.00391838 * pow(rh, 1.5) * atan(0.023101 * rh)
+      - 4.686035;
+  return 0.7 * tw + 0.3 * tempC;
+}
+
+String _wbgtLevel(double wbgt) {
+  if (wbgt < 21) return 'ほぼ安全';
+  if (wbgt < 25) return '注意';
+  if (wbgt < 28) return '警戒';
+  if (wbgt < 31) return '厳重警戒';
+  return '危険';
+}
+
+Color _wbgtColor(double wbgt) {
+  if (wbgt < 21) return JsColors.silver;
+  if (wbgt < 25) return const Color(0xFF43A047);
+  if (wbgt < 28) return const Color(0xFFF9A825);
+  if (wbgt < 31) return const Color(0xFFE65100);
+  return JsColors.error;
+}
+
+// ─────────────────────────────────────────────
 // 天気取得（OWM → wttr.in フォールバック）
 // ─────────────────────────────────────────────
 Future<(_WeatherData?, List<_ForecastDay>)> _fetchWeatherFull({
@@ -130,13 +165,11 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWeatherFull({
 
 Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) async {
   try {
-    // 現在天気
     final curRes = await http.get(Uri.parse(
       'https://api.openweathermap.org/data/2.5/weather'
       '?lat=$lat&lon=$lon&appid=$_owmApiKey&units=metric&lang=ja',
     )).timeout(const Duration(seconds: 8));
 
-    // 5日/3時間予報
     final fcRes = await http.get(Uri.parse(
       'https://api.openweathermap.org/data/2.5/forecast'
       '?lat=$lat&lon=$lon&appid=$_owmApiKey&units=metric&lang=ja&cnt=40',
@@ -150,22 +183,24 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) as
     final desc = (weatherArr.first as Map<String, dynamic>)['description'] as String? ?? '';
     final temp = ((curJ['main'] as Map)['temp'] as num).toDouble();
     final rainPop = ((curJ['clouds'] as Map?)?['all'] as int? ?? 0).clamp(0, 100);
+    final humidity = ((curJ['main'] as Map)['humidity'] as int?) ?? 60;
 
     final current = _WeatherData(
       icon: _owmIdToIcon(owmId),
       desc: desc,
       tempC: temp,
       precipPct: rainPop,
+      humidity: humidity,
     );
 
-    // 予報集計
     final forecast = <_ForecastDay>[];
     if (fcRes.statusCode == 200) {
       final fcJ = jsonDecode(fcRes.body) as Map<String, dynamic>;
       final items = (fcJ['list'] as List).cast<Map<String, dynamic>>();
       final Map<String, List<Map<String, dynamic>>> byDay = {};
       for (final item in items) {
-        final dt = DateTime.fromMillisecondsSinceEpoch((item['dt'] as int) * 1000, isUtc: true)
+        final dt = DateTime.fromMillisecondsSinceEpoch(
+                (item['dt'] as int) * 1000, isUtc: true)
             .toLocal();
         final key = '${dt.year}-${dt.month}-${dt.day}';
         byDay.putIfAbsent(key, () => []).add(item);
@@ -177,10 +212,17 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) as
         final parts = entry.key.split('-');
         final dt = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
         final dayItems = entry.value;
-        final maxC = dayItems.map((e) => ((e['main'] as Map)['temp_max'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
-        final minC = dayItems.map((e) => ((e['main'] as Map)['temp_min'] as num).toDouble()).reduce((a, b) => a < b ? a : b);
-        final maxPop = dayItems.map((e) => ((e['pop'] as num?)?.toDouble() ?? 0.0)).reduce((a, b) => a > b ? a : b);
-        final repId = ((dayItems[dayItems.length ~/ 2]['weather'] as List).first as Map)['id'] as int? ?? 800;
+        final maxC = dayItems
+            .map((e) => ((e['main'] as Map)['temp_max'] as num).toDouble())
+            .reduce((a, b) => a > b ? a : b);
+        final minC = dayItems
+            .map((e) => ((e['main'] as Map)['temp_min'] as num).toDouble())
+            .reduce((a, b) => a < b ? a : b);
+        final maxPop = dayItems
+            .map((e) => ((e['pop'] as num?)?.toDouble() ?? 0.0))
+            .reduce((a, b) => a > b ? a : b);
+        final repId =
+            ((dayItems[dayItems.length ~/ 2]['weather'] as List).first as Map)['id'] as int? ?? 800;
         forecast.add(_ForecastDay(
           weekday: weekJa[dt.weekday - 1],
           icon: _owmIdToIcon(repId),
@@ -207,13 +249,20 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWttr() async {
     final cur = (j['current_condition'] as List).first as Map<String, dynamic>;
     final tempC = double.tryParse(cur['temp_C'] as String? ?? '0') ?? 0;
     final rawDesc =
-        ((cur['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ?? '';
+        ((cur['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ??
+            '';
     final precip = int.tryParse(cur['precipMM'] as String? ?? '0') ?? 0;
+    final humidity = int.tryParse(cur['humidity'] as String? ?? '60') ?? 60;
     final (icon, desc) = _mapDescStr(rawDesc);
 
-    final current = _WeatherData(icon: icon, desc: desc, tempC: tempC, precipPct: precip.clamp(0, 100));
+    final current = _WeatherData(
+      icon: icon,
+      desc: desc,
+      tempC: tempC,
+      precipPct: precip.clamp(0, 100),
+      humidity: humidity,
+    );
 
-    // wttr.in 3日予報
     const weekJa = ['月', '火', '水', '木', '金', '土', '日'];
     final forecast = <_ForecastDay>[];
     final weatherDays = (j['weather'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -224,8 +273,11 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWttr() async {
       final maxC = double.tryParse(day['maxtempC'] as String? ?? '0') ?? 0;
       final minC = double.tryParse(day['mintempC'] as String? ?? '0') ?? 0;
       final hourly = (day['hourly'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      final maxPrecip = hourly.map((h) => int.tryParse(h['chanceofrain'] as String? ?? '0') ?? 0).fold(0, (a, b) => a > b ? a : b);
-      final rawD = ((day['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ?? '';
+      final maxPrecip = hourly
+          .map((h) => int.tryParse(h['chanceofrain'] as String? ?? '0') ?? 0)
+          .fold(0, (a, b) => a > b ? a : b);
+      final rawD =
+          ((day['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ?? '';
       final (fIcon, _) = _mapDescStr(rawD);
       forecast.add(_ForecastDay(
         weekday: dt != null ? weekJa[dt.weekday - 1] : '-',
@@ -270,7 +322,7 @@ String _owmIdToIcon(int id) {
 }
 
 // ─────────────────────────────────────────────
-// リトライヘルパー（Herokuコールドスタート対策）
+// リトライヘルパー
 // ─────────────────────────────────────────────
 Future<T> _withRetry<T>(
   Future<T> Function() fn, {
@@ -283,73 +335,69 @@ Future<T> _withRetry<T>(
       return await fn().timeout(firstTimeout + Duration(seconds: i * 20));
     } catch (e) {
       lastErr = e;
-      if (i < maxAttempts - 1) {
-        await Future.delayed(Duration(seconds: 1 << i)); // 1s → 2s → 4s
-      }
+      if (i < maxAttempts - 1) await Future.delayed(Duration(seconds: 1 << i));
     }
   }
   throw lastErr!;
 }
 
 // ─────────────────────────────────────────────
-// HomeScreen
+// JsMainShell — 全画面共通シェル
 // ─────────────────────────────────────────────
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class JsMainShell extends StatefulWidget {
+  const JsMainShell({super.key, this.isForeman = false});
+  final bool isForeman;
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<JsMainShell> createState() => _JsMainShellState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  // 初回キャッシュ読み込み前のスケルトン表示フラグ
+class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
+  // ─── タブ ───
+  int _tabIndex = 0;
+
+  // ─── ユーザー情報 ───
   bool _initialLoading = true;
-
-  // ユーザー情報
-  String _companyName = '株式会社J\'s';
+  String _companyName = "株式会社J's";
   String _userName = '';
+  int _revisionCount = 0;
 
-  // GPS
+  // ─── GPS ───
   String _gpsAddress = '';
   bool _gpsLoading = false;
   double? _lat;
   double? _lon;
 
-  // 天気
+  // ─── 天気 ───
   _WeatherData? _weather;
   List<_ForecastDay> _forecast = [];
   bool _weatherLoading = false;
 
-  // 季節・一言
+  // ─── 季節・一言 ───
   String? _seasonWarning;
   String _dailyMessage = '';
-
-  // 健康診断
   DateTime? _healthCheckDate;
 
-  // 移動手段
+  // ─── 移動手段 ───
   TransportType _transport = TransportType.car;
-
-  // ルート情報
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
 
-  // 作業内容
+  // ─── 作業内容 ───
   final _workCtrl = TextEditingController();
+  final _otherCtrl = TextEditingController();
   String? _workPhotoPath;
-  bool _workExpanded = false;
   bool _isListening = false;
   final _speechMgr = SpeechManager();
   final _imagePicker = ImagePicker();
 
-  // 残業
+  // ─── 残業 ───
   bool _overtimeExpanded = false;
   int _overtimeHours = 0;
   int _overtimeMinutes = 0;
 
-  // 送信
+  // ─── 送信 ───
   bool _submitting = false;
-  int _revisionCount = 0;
 
   @override
   void initState() {
@@ -357,7 +405,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initSeasonAndDaily();
     _loadCacheAndStart();
-    // 起動に不要な処理は2秒後に遅延実行（UI描画を優先）
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _speechMgr.initialize();
@@ -369,6 +416,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _workCtrl.dispose();
+    _otherCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -378,20 +426,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) _fetchGps();
   }
 
-  // ─── キャッシュで即時表示 → バックグラウンド最新取得（SWR）───────
+  // ─── キャッシュ即時表示 → バックグラウンド最新取得 ───
   Future<void> _loadCacheAndStart() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // ① SharedPreferences からキャッシュを即時反映
-    final cachedLat    = prefs.getDouble('gps_lat');
-    final cachedLon    = prefs.getDouble('gps_lon');
-    final cachedAddr   = prefs.getString('gps_address') ?? '';
-    final revCount     = prefs.getInt('cache_revision_count') ?? 0;
-    final hcIso        = prefs.getString('health_check_date_iso');
-    final wIcon        = prefs.getString('cache_weather_icon');
-    final wTempC       = prefs.getDouble('cache_weather_temp');
-    final wDesc        = prefs.getString('cache_weather_desc') ?? '';
-    final wPrecip      = prefs.getInt('cache_weather_precip') ?? 0;
+    final cachedLat  = prefs.getDouble('gps_lat');
+    final cachedLon  = prefs.getDouble('gps_lon');
+    final cachedAddr = prefs.getString('gps_address') ?? '';
+    final revCount   = prefs.getInt('cache_revision_count') ?? 0;
+    final hcIso      = prefs.getString('health_check_date_iso');
+    final wIcon      = prefs.getString('cache_weather_icon');
+    final wTempC     = prefs.getDouble('cache_weather_temp');
+    final wDesc      = prefs.getString('cache_weather_desc') ?? '';
+    final wPrecip    = prefs.getInt('cache_weather_precip') ?? 0;
+    final wHumidity  = prefs.getInt('cache_weather_humidity') ?? 60;
 
     if (mounted) {
       setState(() {
@@ -402,27 +449,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (cachedAddr.isNotEmpty) _gpsAddress = cachedAddr;
         if (wIcon != null && wTempC != null) {
           _weather = _WeatherData(
-              icon: wIcon, desc: wDesc, tempC: wTempC, precipPct: wPrecip);
+            icon: wIcon, desc: wDesc, tempC: wTempC,
+            precipPct: wPrecip, humidity: wHumidity);
         }
-        _initialLoading = false; // キャッシュ読み込み完了 → スケルトン解除
+        _initialLoading = false;
       });
     }
 
-    // 前回GPS座標があれば即時セットして天気・ルートを先行開始
     if (cachedLat != null && cachedLon != null) {
       _lat = cachedLat;
       _lon = cachedLon;
-      _loadWeather(); // キャッシュ座標で天気を先行取得（非 await）
+      _loadWeather();
     }
 
-    // ② GPS取得 と 是正依頼数取得 を並列実行
     await Future.wait([
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
     ]);
   }
 
-  // ─── GPS取得（SharedPreferences に座標をキャッシュ）──────────────
   Future<void> _fetchGps({SharedPreferences? prefs}) async {
     if (mounted) setState(() => _gpsLoading = true);
     try {
@@ -435,10 +480,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         _lat = pos.latitude;
         _lon = pos.longitude;
-        if (prefs != null) {
-          prefs.setDouble('gps_lat', _lat!);
-          prefs.setDouble('gps_lon', _lon!);
-        }
+        prefs?.setDouble('gps_lat', _lat!);
+        prefs?.setDouble('gps_lon', _lon!);
       }
     } catch (_) {}
     final addr = await fetchGpsAddress();
@@ -450,7 +493,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ─── 天気取得（取得後にキャッシュ保存）──────────────────────────
   Future<void> _loadWeather() async {
     if (mounted) setState(() => _weatherLoading = true);
     final (data, forecast) = await _fetchWeatherFull(lat: _lat, lon: _lon);
@@ -462,10 +504,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     if (data != null) {
       SharedPreferences.getInstance().then((p) {
-        p.setString('cache_weather_icon',  data.icon);
-        p.setDouble('cache_weather_temp',  data.tempC);
-        p.setString('cache_weather_desc',  data.desc);
-        p.setInt('cache_weather_precip',   data.precipPct);
+        p.setString('cache_weather_icon',     data.icon);
+        p.setDouble('cache_weather_temp',     data.tempC);
+        p.setString('cache_weather_desc',     data.desc);
+        p.setInt('cache_weather_precip',      data.precipPct);
+        p.setInt('cache_weather_humidity',    data.humidity);
       });
     }
   }
@@ -487,7 +530,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  // ─── 是正依頼数取得（リトライ + キャッシュ保存）────────────────
   Future<void> _loadRevisionCount({SharedPreferences? prefs}) async {
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
@@ -514,12 +556,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (homeAddr == null || homeAddr.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
-    setState(() => _loadingRoutes = true);
-    final routes = await RoutesService().compareRoutesV2(
-      origin: homeAddr,
-      destination: _gpsAddress,
-      authToken: token,
-    );
+    if (mounted) setState(() => _loadingRoutes = true);
+    Map<String, dynamic> routes = {};
+    for (int attempt = 0; attempt < 3 && routes.isEmpty; attempt++) {
+      if (attempt > 0) await Future.delayed(Duration(seconds: attempt * 2));
+      routes = await RoutesService().compareRoutesV2(
+        origin: homeAddr,
+        destination: _gpsAddress,
+        authToken: token,
+      );
+    }
     if (mounted) {
       setState(() {
         _routeComparisons = routes;
@@ -538,8 +584,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onConfirm: (text) {
           Navigator.pop(ctx);
           setState(() {
-            _workCtrl.text = _workCtrl.text.isEmpty ? text : '${_workCtrl.text}。$text';
-            _workExpanded = true;
+            _workCtrl.text =
+                _workCtrl.text.isEmpty ? text : '${_workCtrl.text}。$text';
           });
         },
         onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); },
@@ -549,9 +595,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _takeWorkPhoto() async {
-    final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    final f = await _imagePicker.pickImage(
+        source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) {
-      setState(() { _workPhotoPath = f.path; _workExpanded = true; });
+      setState(() => _workPhotoPath = f.path);
       showJsSnackbar(context, '✅ 作業写真を撮影しました');
     }
   }
@@ -563,17 +610,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     setState(() => _submitting = true);
+    final name = _userName;
+    final gpsAddr = _gpsAddress;
     try {
       final overtimeNote = (_overtimeHours > 0 || _overtimeMinutes > 0)
           ? ' 【残業$_overtimeHours時間$_overtimeMinutes分】'
           : '';
-      await WorkerNameStore.instance.add(_userName);
+      await WorkerNameStore.instance.add(name);
       await ReportStore.instance.addReport(WorkerReportItem(
-        name: _userName,
+        name: name,
         transport: _transport,
-        workContent: _workCtrl.text.trim() + overtimeNote,
+        workContent: (_transport == TransportType.other && _otherCtrl.text.trim().isNotEmpty
+            ? '[その他:${_otherCtrl.text.trim()}] '
+            : '') + _workCtrl.text.trim() + overtimeNote,
         workPhotoPath: _workPhotoPath,
-        gpsAddress: _gpsAddress,
+        gpsAddress: gpsAddr,
       ));
       await ReportStore.instance.retryPending();
       NotificationManager.instance.cancelOvertimeReminder();
@@ -582,23 +633,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _transport = TransportType.car;
         _workCtrl.clear();
+        _otherCtrl.clear();
         _workPhotoPath = null;
-        _workExpanded = false;
         _overtimeExpanded = false;
         _overtimeHours = 0;
         _overtimeMinutes = 0;
       });
+      if (!mounted) return;
+      await Navigator.push(context, MaterialPageRoute(
+        builder: (_) => AfterReportScreen(
+          workerName: name,
+          onMoveToNextSite: () {
+            Navigator.pop(context);
+            _otherCtrl.clear();
+            setState(() {
+              _gpsAddress = '';
+              _transport = TransportType.car;
+              _routeComparisons = {};
+              _workPhotoPath = null;
+            });
+            _fetchGps();
+          },
+          onNightShift: () {
+            Navigator.pop(context);
+            if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
+          },
+          onOvertime: () async {
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => OvertimeDialog(
+                workerName: name,
+                gpsAddress: gpsAddr,
+                onSubmit: (start, end, overtime) async {
+                  await ReportStore.instance.addReport(WorkerReportItem(
+                    name: name,
+                    transport: TransportType.other,
+                    workContent: '【残業】$start〜$end $overtime',
+                    gpsAddress: gpsAddr,
+                  ));
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) showJsSnackbar(context, '✅ 残業報告を送信しました');
+                },
+              ),
+            );
+          },
+        ),
+      ));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
-  // ─── AppBar日付フォーマット ───
+  // ─── 日付ラベル ───
   String get _dateLabel {
     final n = DateTime.now();
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     final w = weekdays[n.weekday - 1];
-    return '${n.month}/${n.day}（$w）';
+    return '${n.year}/${n.month.toString().padLeft(2, '0')}/${n.day.toString().padLeft(2, '0')}（$w）';
   }
 
   // ─────────────────────── BUILD ───────────────────────
@@ -611,138 +703,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         body: const SafeArea(child: _HomeSkeletonBody()),
       );
     }
+
+    // IndexedStack の children リスト
+    final tabChildren = <Widget>[
+      _buildHomeTabContent(),
+      const MonthlyHistoryBody(),
+      if (widget.isForeman) const _ForemanManagementBody(),
+    ];
+
     return Scaffold(
       backgroundColor: JsColors.black,
       appBar: _buildAppBar(),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              // ① 会社名 / 氏名
-              _CompanyNameRow(company: _companyName, name: _userName),
-              const SizedBox(height: 8),
-              // ② 天気 / GPS
-              _WeatherGpsRow(
-                weather: _weather,
-                forecast: _forecast,
-                weatherLoading: _weatherLoading,
-                gpsAddress: _gpsAddress,
-                gpsLoading: _gpsLoading,
-                onRefreshGps: _fetchGps,
-              ),
-              // ③ 健康診断警告（期限30日以内）
-              if (_buildHealthBannerMsg() != null) ...[
-                const SizedBox(height: 6),
-                _HealthCheckBanner(message: _buildHealthBannerMsg()!),
-              ],
-              // ③b 季節注意（6〜9月のみ）
-              if (_seasonWarning != null) ...[
-                const SizedBox(height: 6),
-                _SeasonBanner(message: _seasonWarning!),
-              ],
-              const SizedBox(height: 6),
-              // ④ 今日の一言
-              _DailyMessageRow(message: _dailyMessage),
-              const SizedBox(height: 8),
-              // ⑤ 移動手段4択
-              _TransportRow(
-                selected: _transport,
-                onChanged: (t) => setState(() => _transport = t),
-              ),
-              if (_loadingRoutes || _routeComparisons.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                _RouteInfoBar(
-                  transport: _transport,
-                  comparisons: _routeComparisons,
-                  loading: _loadingRoutes,
-                ),
-              ],
-              const SizedBox(height: 8),
-              // ⑥ 作業内容 + 残業 — Expanded
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // 作業内容 flex:2
-                    Flexible(
-                      flex: 2,
-                      child: _WorkContentCard(
-                        controller: _workCtrl,
-                        photoPath: _workPhotoPath,
-                        expanded: _workExpanded,
-                        isListening: _isListening,
-                        onToggle: () => setState(() => _workExpanded = !_workExpanded),
-                        onVoice: _startVoice,
-                        onCamera: _takeWorkPhoto,
-                        onClearPhoto: () => setState(() => _workPhotoPath = null),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // 残業 flex:1
-                    Flexible(
-                      flex: 1,
-                      child: _OvertimeCard(
-                        hours: _overtimeHours,
-                        minutes: _overtimeMinutes,
-                        expanded: _overtimeExpanded,
-                        onToggle: () => setState(() => _overtimeExpanded = !_overtimeExpanded),
-                        onChanged: (h, m) => setState(() {
-                          _overtimeHours = h;
-                          _overtimeMinutes = m;
-                        }),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              // ⑦ 報告ボタン
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: _submitting
-                      ? const SizedBox(
-                          width: 22, height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
-                      : const Text('報告を送信する',
-                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
+        child: IndexedStack(
+          index: _tabIndex.clamp(0, tabChildren.length - 1),
+          children: tabChildren,
         ),
       ),
       bottomNavigationBar: _buildBottomBar(),
     );
   }
 
-  // ─── AppBar ───
+  // ─── 2段 AppBar ───
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       automaticallyImplyLeading: false,
       backgroundColor: JsColors.black,
+      elevation: 0,
+      titleSpacing: 12,
       title: Row(
         children: [
-          const Text('日報報告',
-              style: TextStyle(
-                  color: JsColors.gold, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(width: 10),
-          Text(_dateLabel,
-              style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+          const Text(
+            '日報報告',
+            style: TextStyle(
+                color: JsColors.gold, fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          Text(
+            _dateLabel,
+            style: const TextStyle(color: JsColors.silver, fontSize: 11),
+          ),
+          const Spacer(),
         ],
       ),
       actions: [
-        // 是正依頼アイコン（未読あれば赤）
+        // ⚠️ 是正依頼ボタン（未読バッジ付き）
         Stack(
           alignment: Alignment.center,
           children: [
             IconButton(
-              icon: Icon(Icons.warning_amber,
+              icon: Icon(Icons.warning_amber_rounded,
                   color: _revisionCount > 0 ? JsColors.error : JsColors.silver),
               tooltip: '是正依頼',
               onPressed: () => Navigator.push(
@@ -767,6 +777,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
           ],
         ),
+        // ⚙️ 設定ボタン
         IconButton(
           icon: const Icon(Icons.settings, color: JsColors.silver),
           tooltip: '設定',
@@ -776,49 +787,330 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ).then((_) => _loadCacheAndStart()),
         ),
       ],
+      // 2段目: 会社名 + 氏名
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(34),
+        child: Container(
+          width: double.infinity,
+          color: JsColors.gunmetal,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          child: Row(
+            children: [
+              const Icon(Icons.business, color: JsColors.gold, size: 14),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _userName.isEmpty
+                      ? _companyName
+                      : '$_companyName　$_userName',
+                  style: const TextStyle(
+                      color: JsColors.offWhite,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  // ─── BottomAppBar ───
+  // ─── BottomBar ───
   Widget _buildBottomBar() {
+    final divider = Container(width: 1, height: 36, color: JsColors.divider);
+    if (widget.isForeman) {
+      return BottomAppBar(
+        color: JsColors.gunmetal,
+        height: 60,
+        padding: EdgeInsets.zero,
+        child: Row(children: [
+          _BottomTabItem(
+            icon: Icons.calendar_month,
+            label: '月間履歴',
+            active: _tabIndex == 1,
+            onTap: () => setState(() => _tabIndex = _tabIndex == 1 ? 0 : 1),
+          ),
+          divider,
+          _BottomTabItem(
+            icon: Icons.bar_chart,
+            label: '管理・集計',
+            active: _tabIndex == 2,
+            onTap: () => setState(() => _tabIndex = _tabIndex == 2 ? 0 : 2),
+          ),
+          divider,
+          _BottomTabItem(
+            icon: Icons.build,
+            label: 'TOOL',
+            active: false,
+            onTap: () => showJsSnackbar(context, 'TOOLは近日公開予定です'),
+          ),
+        ]),
+      );
+    }
     return BottomAppBar(
       color: JsColors.gunmetal,
       height: 60,
       padding: EdgeInsets.zero,
-      child: Row(
+      child: Row(children: [
+        _BottomTabItem(
+          icon: Icons.calendar_month,
+          label: '月間履歴',
+          active: _tabIndex == 1,
+          onTap: () => setState(() => _tabIndex = _tabIndex == 1 ? 0 : 1),
+        ),
+        divider,
+        _BottomTabItem(
+          icon: Icons.build,
+          label: 'TOOL',
+          active: false,
+          onTap: () => showJsSnackbar(context, 'TOOLは近日公開予定です'),
+        ),
+      ]),
+    );
+  }
+
+  // ─── ホームタブ本体 ───
+  Widget _buildHomeTabContent() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 月間報告
-          Expanded(
-            child: InkWell(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen()),
+          const SizedBox(height: 8),
+
+          // ① GPS バー（1列、更新ボタン付き）
+          _GpsBar(
+            address: _gpsAddress,
+            loading: _gpsLoading,
+            onRefresh: _fetchGps,
+          ),
+          const SizedBox(height: 8),
+
+          // ② 天気（左）+ 熱中症指数（右）
+          _WeatherHeatRow(
+            weather: _weather,
+            loading: _weatherLoading,
+            seasonWarning: _seasonWarning,
+            onForecastTap: () => _showForecastSheet(context),
+          ),
+
+          // 健康診断警告
+          if (_buildHealthBannerMsg() != null) ...[
+            const SizedBox(height: 6),
+            _HealthCheckBanner(message: _buildHealthBannerMsg()!),
+          ],
+          const SizedBox(height: 8),
+
+          // ③ AIの一言メッセージ
+          _DailyMessageRow(message: _dailyMessage),
+          const SizedBox(height: 8),
+
+          // ④ 移動手段 4択 + ルート情報
+          _TransportRow(
+            selected: _transport,
+            onChanged: (t) => setState(() => _transport = t),
+          ),
+          if (_transport == TransportType.other) ...[
+            const SizedBox(height: 6),
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: JsColors.gunmetal,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
               ),
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Row(
                 children: [
-                  Icon(Icons.calendar_month, color: JsColors.gold, size: 22),
-                  SizedBox(height: 2),
-                  Text('月間報告',
-                      style: TextStyle(color: JsColors.gold, fontSize: 11)),
+                  const Icon(Icons.edit_note, color: JsColors.silver, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _otherCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'その他の移動手段を入力（例：バイク等）',
+                        border: InputBorder.none,
+                        hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                    ),
+                  ),
                 ],
               ),
             ),
+          ],
+          const SizedBox(height: 6),
+          _RouteInfoBar(
+            transport: _transport,
+            comparisons: _routeComparisons,
+            loading: _loadingRoutes,
           ),
-          Container(width: 1, height: 36, color: JsColors.divider),
-          // TOOL
+          const SizedBox(height: 8),
+
+          // ⑤ 作業内容（マイク / カメラ / テキスト）
           Expanded(
-            child: InkWell(
-              onTap: () => showJsSnackbar(context, 'TOOLは近日公開予定です'),
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.build, color: JsColors.silver, size: 22),
-                  SizedBox(height: 2),
-                  Text('TOOL',
-                      style: TextStyle(color: JsColors.silver, fontSize: 11)),
-                ],
-              ),
+            child: _WorkContentSection(
+              controller: _workCtrl,
+              photoPath: _workPhotoPath,
+              isListening: _isListening,
+              onVoice: _startVoice,
+              onCamera: _takeWorkPhoto,
+              onClearPhoto: () => setState(() => _workPhotoPath = null),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ⑥ 残業（タップで時計入力）
+          _OvertimeSection(
+            hours: _overtimeHours,
+            minutes: _overtimeMinutes,
+            expanded: _overtimeExpanded,
+            onToggle: () =>
+                setState(() => _overtimeExpanded = !_overtimeExpanded),
+            onChanged: (h, m) =>
+                setState(() { _overtimeHours = h; _overtimeMinutes = m; }),
+          ),
+          const SizedBox(height: 8),
+
+          // 報告ボタン
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _submit,
+              child: _submitting
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.black))
+                  : const Text('報告を送信する',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  void _showForecastSheet(BuildContext context) {
+    if (_forecast.isEmpty) {
+      showJsSnackbar(context, '週間予報データがありません');
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: JsColors.gunmetal,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => _ForecastSheet(forecast: _forecast),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// HomeScreen / ForemanHomeScreen — 後方互換ラッパー
+// ─────────────────────────────────────────────
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const JsMainShell(isForeman: false);
+}
+
+class ForemanHomeScreen extends StatelessWidget {
+  const ForemanHomeScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const JsMainShell(isForeman: true);
+}
+
+// ─────────────────────────────────────────────
+// BottomTabItem
+// ─────────────────────────────────────────────
+class _BottomTabItem extends StatelessWidget {
+  const _BottomTabItem({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon,
+              color: active ? JsColors.gold : JsColors.silver, size: 22),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(
+                  color: active ? JsColors.gold : JsColors.silver,
+                  fontSize: 11,
+                  fontWeight:
+                      active ? FontWeight.bold : FontWeight.normal)),
+        ],
+      ),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────
+// ① GPS バー
+// ─────────────────────────────────────────────
+class _GpsBar extends StatelessWidget {
+  const _GpsBar({
+    required this.address,
+    required this.loading,
+    required this.onRefresh,
+  });
+  final String address;
+  final bool loading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Row(
+        children: [
+          const Text('📍', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: loading
+                ? const Text('GPS取得中...',
+                    style: TextStyle(color: JsColors.silver, fontSize: 12))
+                : Text(
+                    address.isEmpty ? '現場住所 未取得' : address,
+                    style: const TextStyle(
+                        color: JsColors.offWhite, fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+          ),
+          GestureDetector(
+            onTap: onRefresh,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              child: const Icon(Icons.refresh,
+                  color: JsColors.silver, size: 18),
             ),
           ),
         ],
@@ -828,213 +1120,191 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 }
 
 // ─────────────────────────────────────────────
-// ① 会社名 / 氏名
+// ② 天気（左）+ 熱中症指数（右）2列
 // ─────────────────────────────────────────────
-class _CompanyNameRow extends StatelessWidget {
-  const _CompanyNameRow({required this.company, required this.name});
-  final String company;
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: _InfoChip(icon: Icons.business, label: '会社', value: company)),
-        const SizedBox(width: 8),
-        Expanded(child: _InfoChip(icon: Icons.person, label: '氏名', value: name.isEmpty ? '読込中...' : name)),
-      ],
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.label, required this.value});
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    decoration: BoxDecoration(
-      color: JsColors.gunmetal,
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: JsColors.divider),
-    ),
-    child: Row(
-      children: [
-        Icon(icon, color: JsColors.silver, size: 14),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label,
-                  style: const TextStyle(color: JsColors.silver, fontSize: 10)),
-              Text(value,
-                  style: const TextStyle(
-                      color: JsColors.offWhite,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────
-// ② 天気 / GPS
-// ─────────────────────────────────────────────
-class _WeatherGpsRow extends StatelessWidget {
-  const _WeatherGpsRow({
+class _WeatherHeatRow extends StatelessWidget {
+  const _WeatherHeatRow({
     required this.weather,
-    required this.forecast,
-    required this.weatherLoading,
-    required this.gpsAddress,
-    required this.gpsLoading,
-    required this.onRefreshGps,
+    required this.loading,
+    required this.seasonWarning,
+    required this.onForecastTap,
   });
   final _WeatherData? weather;
-  final List<_ForecastDay> forecast;
-  final bool weatherLoading;
-  final String gpsAddress;
-  final bool gpsLoading;
-  final VoidCallback onRefreshGps;
-
-  void _showForecast(BuildContext context) {
-    if (forecast.isEmpty) {
-      showJsSnackbar(context, '週間予報データがありません');
-      return;
-    }
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: JsColors.gunmetal,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => _ForecastSheet(forecast: forecast),
-    );
-  }
+  final bool loading;
+  final String? seasonWarning;
+  final VoidCallback onForecastTap;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 54,
+      height: 90,
       child: Row(
         children: [
-          // 天気ボックス（タップで週間予報）
-          GestureDetector(
-            onTap: () => _showForecast(context),
-            child: Container(
-              width: 130,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: JsColors.gunmetal,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: JsColors.divider),
+          // 左: 天気（タップで週間予報）
+          Expanded(
+            flex: 54,
+            child: GestureDetector(
+              onTap: onForecastTap,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: JsColors.gunmetal,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: JsColors.divider),
+                ),
+                child: loading
+                    ? const Center(
+                        child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: JsColors.gold)))
+                    : weather == null
+                        ? const Center(
+                            child: Text('--',
+                                style: TextStyle(
+                                    color: JsColors.silver, fontSize: 12)))
+                        : _WeatherContent(weather: weather!),
               ),
-              child: weatherLoading
-                  ? const Center(
-                      child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsColors.gold)))
-                  : weather == null
-                      ? const Center(
-                          child: Text('--',
-                              style: TextStyle(
-                                  color: JsColors.silver, fontSize: 12)))
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            // 天気アイコン＋名称
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(weather!.icon,
-                                    style: const TextStyle(fontSize: 16)),
-                                Text(weather!.desc,
-                                    style: const TextStyle(
-                                        color: JsColors.silver, fontSize: 9),
-                                    maxLines: 1),
-                              ],
-                            ),
-                            // 気温
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text('🌡️',
-                                    style: TextStyle(fontSize: 11)),
-                                Text('${weather!.tempC.round()}°',
-                                    style: const TextStyle(
-                                        color: JsColors.offWhite,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            // 降水確率
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text('☂️',
-                                    style: TextStyle(fontSize: 11)),
-                                Text('${weather!.precipPct}%',
-                                    style: TextStyle(
-                                        color: weather!.precipPct >= 50
-                                            ? const Color(0xFF64B5F6)
-                                            : JsColors.silver,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ],
-                        ),
             ),
           ),
           const SizedBox(width: 8),
-          // GPS
+          // 右: 熱中症指数 + 危険度 + 季節注意
           Expanded(
+            flex: 46,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: JsColors.gunmetal,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: JsColors.divider),
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on, color: JsColors.gold, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: gpsLoading
-                        ? const Text('GPS取得中...',
-                            style: TextStyle(
-                                color: JsColors.silver, fontSize: 12))
-                        : Text(
-                            gpsAddress.isEmpty ? '現場住所 未取得' : gpsAddress,
-                            style: const TextStyle(
-                                color: JsColors.offWhite, fontSize: 12),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                  ),
-                  IconButton(
-                    onPressed: onRefreshGps,
-                    icon: const Icon(Icons.refresh,
-                        color: JsColors.silver, size: 18),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
+              child: weather == null
+                  ? const Center(
+                      child: Text('--',
+                          style: TextStyle(
+                              color: JsColors.silver, fontSize: 12)))
+                  : _HeatIndexContent(
+                      weather: weather!, seasonWarning: seasonWarning),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeatherContent extends StatelessWidget {
+  const _WeatherContent({required this.weather});
+  final _WeatherData weather;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(weather.icon, style: const TextStyle(fontSize: 28)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  weather.desc,
+                  style: const TextStyle(
+                      color: JsColors.silver, fontSize: 10),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${weather.tempC.round()}°C',
+                  style: const TextStyle(
+                      color: JsColors.offWhite,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
+                ),
+                Row(children: [
+                  const Text('💧', style: TextStyle(fontSize: 10)),
+                  const SizedBox(width: 2),
+                  Text('${weather.humidity}%',
+                      style: const TextStyle(
+                          color: JsColors.silver, fontSize: 11)),
+                  const SizedBox(width: 6),
+                  const Text('☂', style: TextStyle(fontSize: 10)),
+                  const SizedBox(width: 2),
+                  Text('${weather.precipPct}%',
+                      style: TextStyle(
+                          color: weather.precipPct >= 50
+                              ? const Color(0xFF64B5F6)
+                              : JsColors.silver,
+                          fontSize: 11)),
+                ]),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeatIndexContent extends StatelessWidget {
+  const _HeatIndexContent({
+    required this.weather,
+    required this.seasonWarning,
+  });
+  final _WeatherData weather;
+  final String? seasonWarning;
+
+  @override
+  Widget build(BuildContext context) {
+    final wbgt = _calcWBGT(weather.tempC, weather.humidity);
+    final level = _wbgtLevel(wbgt);
+    final color = _wbgtColor(wbgt);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('⚠️', style: TextStyle(fontSize: 11)),
+            const SizedBox(width: 4),
+            Text(
+              '熱中症指数 ${wbgt.round()}',
+              style: const TextStyle(
+                  color: JsColors.offWhite,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600),
+            ),
+          ]),
+          const SizedBox(height: 5),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: color.withValues(alpha: 0.7)),
+            ),
+            child: Text(level,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
+          ),
+          if (seasonWarning != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              seasonWarning!,
+              style: const TextStyle(
+                  color: Color(0xFFFFCC80), fontSize: 9, height: 1.3),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );
@@ -1057,7 +1327,8 @@ class _ForecastSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.wb_sunny_outlined, color: JsColors.gold, size: 18),
+            const Icon(Icons.wb_sunny_outlined,
+                color: JsColors.gold, size: 18),
             const SizedBox(width: 8),
             const Text('週間天気予報',
                 style: TextStyle(
@@ -1067,7 +1338,8 @@ class _ForecastSheet extends StatelessWidget {
             const Spacer(),
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close, color: JsColors.silver, size: 20),
+              icon: const Icon(Icons.close,
+                  color: JsColors.silver, size: 20),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
             ),
@@ -1090,62 +1362,53 @@ class _ForecastRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          // 曜日
-          SizedBox(
-            width: 28,
-            child: Text(day.weekday,
+      child: Row(children: [
+        SizedBox(
+          width: 28,
+          child: Text(day.weekday,
+              style: const TextStyle(
+                  color: JsColors.silver,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600)),
+        ),
+        Text(day.icon, style: const TextStyle(fontSize: 20)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Row(children: [
+            Text('${day.maxC.round()}°',
                 style: const TextStyle(
-                    color: JsColors.silver,
+                    color: Color(0xFFEF9A9A),
                     fontSize: 14,
-                    fontWeight: FontWeight.w600)),
-          ),
-          // 天気アイコン
-          Text(day.icon, style: const TextStyle(fontSize: 20)),
-          const SizedBox(width: 10),
-          // 最高/最低気温
-          Expanded(
-            child: Row(
-              children: [
-                Text('${day.maxC.round()}°',
-                    style: const TextStyle(
-                        color: Color(0xFFEF9A9A),
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold)),
-                const Text(' / ',
-                    style:
-                        TextStyle(color: JsColors.silver, fontSize: 13)),
-                Text('${day.minC.round()}°',
-                    style: const TextStyle(
-                        color: Color(0xFF90CAF9),
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          // 降水確率
-          Row(children: [
-            const Text('☂️', style: TextStyle(fontSize: 13)),
-            const SizedBox(width: 3),
-            Text('${day.precipPct}%',
-                style: TextStyle(
-                    color: day.precipPct >= 50
-                        ? const Color(0xFF64B5F6)
-                        : JsColors.silver,
-                    fontSize: 13,
-                    fontWeight: day.precipPct >= 50
-                        ? FontWeight.bold
-                        : FontWeight.normal)),
+                    fontWeight: FontWeight.bold)),
+            const Text(' / ',
+                style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            Text('${day.minC.round()}°',
+                style: const TextStyle(
+                    color: Color(0xFF90CAF9),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold)),
           ]),
-        ],
-      ),
+        ),
+        Row(children: [
+          const Text('☂️', style: TextStyle(fontSize: 13)),
+          const SizedBox(width: 3),
+          Text('${day.precipPct}%',
+              style: TextStyle(
+                  color: day.precipPct >= 50
+                      ? const Color(0xFF64B5F6)
+                      : JsColors.silver,
+                  fontSize: 13,
+                  fontWeight: day.precipPct >= 50
+                      ? FontWeight.bold
+                      : FontWeight.normal)),
+        ]),
+      ]),
     );
   }
 }
 
 // ─────────────────────────────────────────────
-// スケルトンローディング（初回キャッシュなし時）
+// スケルトンローディング
 // ─────────────────────────────────────────────
 class _HomeSkeletonBody extends StatefulWidget {
   const _HomeSkeletonBody();
@@ -1164,8 +1427,8 @@ class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1100))
       ..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.25, end: 0.55).animate(
-        CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _anim = Tween<double>(begin: 0.25, end: 0.55)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -1189,66 +1452,28 @@ class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // 会社名 / 氏名 行
-        Row(children: [
-          _box(h: 14, w: 100),
-          const SizedBox(width: 12),
-          _box(h: 14, w: 80),
-        ]),
-        const SizedBox(height: 10),
-        // 天気行
-        Container(
-          height: 72,
-          decoration: BoxDecoration(
-            color: JsColors.gunmetal,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: Row(children: [
-            _box(h: 40, w: 40, radius: 20),
-            const SizedBox(width: 12),
-            Column(crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center, children: [
-              _box(h: 12, w: 60),
-              const SizedBox(height: 6),
-              _box(h: 10, w: 100),
-            ]),
-          ]),
-        ),
+        _box(h: 44, w: double.infinity, radius: 10),
         const SizedBox(height: 8),
-        // 一言 行
-        _box(h: 12, w: double.infinity),
-        const SizedBox(height: 4),
-        _box(h: 12, w: 180),
-        const SizedBox(height: 12),
-        // 移動手段 行
+        Row(children: [
+          Expanded(child: _box(h: 90, radius: 10)),
+          const SizedBox(width: 8),
+          Expanded(child: _box(h: 90, radius: 10)),
+        ]),
+        const SizedBox(height: 8),
+        _box(h: 34, w: double.infinity, radius: 8),
+        const SizedBox(height: 8),
         Row(children: [
           for (var i = 0; i < 4; i++) ...[
-            Expanded(child: _box(h: 38, radius: 8)),
-            if (i < 3) const SizedBox(width: 8),
+            Expanded(child: _box(h: 56, radius: 8)),
+            if (i < 3) const SizedBox(width: 6),
           ],
         ]),
-        const SizedBox(height: 12),
-        // 作業内容エリア
+        const SizedBox(height: 8),
         Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              color: JsColors.gunmetal,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _box(h: 12, w: 80),
-              const SizedBox(height: 10),
-              _box(h: 12, w: double.infinity),
-              const SizedBox(height: 6),
-              _box(h: 12, w: 220),
-            ]),
-          ),
+          child: _box(h: double.infinity, w: double.infinity, radius: 10),
         ),
-        const SizedBox(height: 10),
-        // 報告ボタン
-        _box(h: 48, w: double.infinity, radius: 12),
+        const SizedBox(height: 8),
+        _box(h: 52, w: double.infinity, radius: 10),
         const SizedBox(height: 8),
       ]),
     );
@@ -1256,7 +1481,7 @@ class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
 }
 
 // ─────────────────────────────────────────────
-// ③ 健康診断警告バナー
+// 健康診断警告バナー
 // ─────────────────────────────────────────────
 class _HealthCheckBanner extends StatelessWidget {
   const _HealthCheckBanner({required this.message});
@@ -1265,7 +1490,8 @@ class _HealthCheckBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDanger = message.startsWith('🔴');
-    final base = isDanger ? const Color(0xFFB71C1C) : const Color(0xFFE65100);
+    final base =
+        isDanger ? const Color(0xFFB71C1C) : const Color(0xFFE65100);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1276,7 +1502,9 @@ class _HealthCheckBanner extends StatelessWidget {
       child: Text(
         message,
         style: TextStyle(
-            color: isDanger ? const Color(0xFFEF9A9A) : const Color(0xFFFFCC80),
+            color: isDanger
+                ? const Color(0xFFEF9A9A)
+                : const Color(0xFFFFCC80),
             fontSize: 12,
             fontWeight: FontWeight.w500),
         maxLines: 1,
@@ -1287,32 +1515,7 @@ class _HealthCheckBanner extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// ③b 季節注意喚起バナー
-// ─────────────────────────────────────────────
-class _SeasonBanner extends StatelessWidget {
-  const _SeasonBanner({required this.message});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: const Color(0xFFE65100).withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: const Color(0xFFE65100).withValues(alpha: 0.5)),
-    ),
-    child: Text(
-      message,
-      style: const TextStyle(
-          color: Color(0xFFFFCC80), fontSize: 12, fontWeight: FontWeight.w500),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────
-// ④ 今日の一言
+// ③ AIの一言メッセージ
 // ─────────────────────────────────────────────
 class _DailyMessageRow extends StatelessWidget {
   const _DailyMessageRow({required this.message});
@@ -1320,32 +1523,31 @@ class _DailyMessageRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
     decoration: BoxDecoration(
       color: JsColors.gold.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(8),
       border: Border.all(color: JsColors.gold.withValues(alpha: 0.25)),
     ),
-    child: Row(
-      children: [
-        const Icon(Icons.auto_awesome, color: JsColors.gold, size: 14),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(message,
-              style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ),
-      ],
-    ),
+    child: Row(children: [
+      const Icon(Icons.auto_awesome, color: JsColors.gold, size: 14),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text(message,
+            style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis),
+      ),
+    ]),
   );
 }
 
 // ─────────────────────────────────────────────
-// ⑤ 移動手段4択
+// ④ 移動手段 4択横並び
 // ─────────────────────────────────────────────
 class _TransportRow extends StatelessWidget {
-  const _TransportRow({required this.selected, required this.onChanged});
+  const _TransportRow(
+      {required this.selected, required this.onChanged});
   final TransportType selected;
   final ValueChanged<TransportType> onChanged;
 
@@ -1367,11 +1569,13 @@ class _TransportRow extends StatelessWidget {
             child: GestureDetector(
               onTap: () => onChanged(t),
               child: Container(
-                margin: EdgeInsets.only(right: t != _options.last ? 6 : 0),
+                margin: EdgeInsets.only(
+                    right: t != _options.last ? 6 : 0),
                 decoration: BoxDecoration(
                   color: sel ? JsColors.gold : JsColors.gunmetal,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+                  border: Border.all(
+                      color: sel ? JsColors.gold : JsColors.divider),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1384,8 +1588,9 @@ class _TransportRow extends StatelessWidget {
                         style: TextStyle(
                             color: sel ? Colors.black : JsColors.offWhite,
                             fontSize: 11,
-                            fontWeight:
-                                sel ? FontWeight.bold : FontWeight.normal)),
+                            fontWeight: sel
+                                ? FontWeight.bold
+                                : FontWeight.normal)),
                   ],
                 ),
               ),
@@ -1398,24 +1603,20 @@ class _TransportRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// ⑥-L 作業内容カード
+// ⑤ 作業内容セクション（マイク / カメラ / テキスト）
 // ─────────────────────────────────────────────
-class _WorkContentCard extends StatelessWidget {
-  const _WorkContentCard({
+class _WorkContentSection extends StatelessWidget {
+  const _WorkContentSection({
     required this.controller,
     required this.photoPath,
-    required this.expanded,
     required this.isListening,
-    required this.onToggle,
     required this.onVoice,
     required this.onCamera,
     required this.onClearPhoto,
   });
   final TextEditingController controller;
   final String? photoPath;
-  final bool expanded;
   final bool isListening;
-  final VoidCallback onToggle;
   final VoidCallback onVoice;
   final VoidCallback onCamera;
   final VoidCallback onClearPhoto;
@@ -1426,129 +1627,107 @@ class _WorkContentCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: JsColors.gunmetal,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: expanded ? JsColors.gold.withValues(alpha: 0.5) : JsColors.divider),
+        border: Border.all(color: JsColors.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ヘッダー（タップで展開）
-          GestureDetector(
-            onTap: onToggle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.construction, color: JsColors.gold, size: 16),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: Text('作業内容',
-                        style: TextStyle(
-                            color: JsColors.offWhite,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  Icon(
-                    expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: JsColors.silver, size: 18),
-                ],
+          // ヘッダー
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Row(children: [
+              Icon(Icons.construction,
+                  color: JsColors.gold, size: 15),
+              const SizedBox(width: 6),
+              const Text('作業内容',
+                  style: TextStyle(
+                      color: JsColors.offWhite,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold)),
+            ]),
+          ),
+          const Divider(height: 1, color: JsColors.divider),
+
+          // マイク / カメラ ボタン（横並び・目立つ）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            child: Row(children: [
+              Expanded(
+                child: _MediaButton(
+                  icon: isListening ? Icons.mic : Icons.mic_none,
+                  label: isListening ? '録音中...' : '🎤 マイク',
+                  active: isListening,
+                  onTap: onVoice,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _MediaButton(
+                  icon: photoPath != null
+                      ? Icons.check_circle
+                      : Icons.camera_alt,
+                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
+                  active: photoPath != null,
+                  onTap: onCamera,
+                ),
+              ),
+            ]),
+          ),
+
+          // テキスト入力欄
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+              child: TextField(
+                controller: controller,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: const InputDecoration(
+                  hintText: '例：1階電気配線工事 コンセント10箇所設置',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                style: const TextStyle(
+                    color: JsColors.offWhite, fontSize: 13),
               ),
             ),
           ),
-          // サマリー表示（折り畳み時）
-          if (!expanded) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-              child: Text(
-                controller.text.isEmpty ? '未入力（タップして展開）' : controller.text,
-                style: TextStyle(
-                    color: controller.text.isEmpty
-                        ? JsColors.silver
-                        : JsColors.offWhite,
-                    fontSize: 12),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-          // 展開コンテンツ
-          if (expanded) ...[
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                child: Column(
-                  children: [
-                    const Divider(height: 1, color: JsColors.divider),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: controller,
-                        maxLines: null,
-                        expands: true,
-                        textAlignVertical: TextAlignVertical.top,
-                        decoration: const InputDecoration(
-                          hintText: '例：1階電気配線工事 コンセント10箇所設置',
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(
-                            color: JsColors.offWhite, fontSize: 13),
-                      ),
-                    ),
-                    // 写真プレビュー
-                    if (photoPath != null) ...[
-                      const SizedBox(height: 6),
-                      Stack(
-                        alignment: Alignment.topRight,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.file(File(photoPath!),
-                                height: 70,
-                                width: double.infinity,
-                                fit: BoxFit.cover),
-                          ),
-                          GestureDetector(
-                            onTap: onClearPhoto,
-                            child: Container(
-                              margin: const EdgeInsets.all(4),
-                              padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                  color: Colors.black54,
-                                  shape: BoxShape.circle),
-                              child: const Icon(Icons.close,
-                                  color: Colors.white, size: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    // ボタン行
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _SmallBtn(
-                          icon: isListening ? Icons.mic : Icons.mic_none,
-                          active: isListening,
-                          onTap: onVoice,
-                        ),
-                        const SizedBox(width: 8),
-                        _SmallBtn(
-                          icon: photoPath != null
-                              ? Icons.check_circle
-                              : Icons.camera_alt,
-                          active: photoPath != null,
-                          onTap: onCamera,
-                        ),
-                      ],
-                    ),
-                  ],
+
+          // 写真プレビュー
+          if (photoPath != null) ...[
+            Stack(
+              alignment: Alignment.topRight,
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(12),
+                    bottomRight: Radius.circular(12),
+                  ),
+                  child: Image.file(
+                    File(photoPath!),
+                    height: 72,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
                 ),
-              ),
+                GestureDetector(
+                  onTap: onClearPhoto,
+                  child: Container(
+                    margin: const EdgeInsets.all(5),
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        color: Colors.black54, shape: BoxShape.circle),
+                    child: const Icon(Icons.close,
+                        color: Colors.white, size: 13),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ] else
+            const SizedBox(height: 8),
         ],
       ),
     );
@@ -1556,10 +1735,57 @@ class _WorkContentCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// ⑥-R 残業カード
+// メディアボタン（マイク / カメラ）
 // ─────────────────────────────────────────────
-class _OvertimeCard extends StatelessWidget {
-  const _OvertimeCard({
+class _MediaButton extends StatelessWidget {
+  const _MediaButton({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: active
+            ? JsColors.gold.withValues(alpha: 0.18)
+            : JsColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+            color: active ? JsColors.gold : JsColors.divider),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon,
+              size: 16,
+              color: active ? JsColors.gold : JsColors.silver),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  color: active ? JsColors.gold : JsColors.silver,
+                  fontSize: 12,
+                  fontWeight:
+                      active ? FontWeight.bold : FontWeight.normal)),
+        ],
+      ),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────
+// ⑥ 残業セクション（タップで時計入力）
+// ─────────────────────────────────────────────
+class _OvertimeSection extends StatelessWidget {
+  const _OvertimeSection({
     required this.hours,
     required this.minutes,
     required this.expanded,
@@ -1581,62 +1807,58 @@ class _OvertimeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasOvertime = hours > 0 || minutes > 0;
     return Container(
       decoration: BoxDecoration(
         color: JsColors.gunmetal,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: (hours > 0 || minutes > 0)
+          color: hasOvertime
               ? JsColors.warning.withValues(alpha: 0.6)
-              : expanded
-                  ? JsColors.gold.withValues(alpha: 0.5)
-                  : JsColors.divider,
+              : JsColors.divider,
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // ヘッダー
           GestureDetector(
             onTap: onToggle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.access_time, color: JsColors.gold, size: 16),
-                  const SizedBox(width: 4),
-                  const Expanded(
-                    child: Text('残業',
-                        style: TextStyle(
-                            color: JsColors.offWhite,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  Icon(
-                    expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: JsColors.silver, size: 18),
-                ],
-              ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              child: Row(children: [
+                const Icon(Icons.access_time,
+                    color: JsColors.gold, size: 16),
+                const SizedBox(width: 6),
+                const Text('残業',
+                    style: TextStyle(
+                        color: JsColors.offWhite,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Text(_label,
+                    style: TextStyle(
+                        color:
+                            hasOvertime ? JsColors.warning : JsColors.silver,
+                        fontSize: 13,
+                        fontWeight: hasOvertime
+                            ? FontWeight.bold
+                            : FontWeight.normal)),
+                const Spacer(),
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  color: JsColors.silver,
+                  size: 18,
+                ),
+              ]),
             ),
           ),
-          // 折り畳み表示
-          if (!expanded) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Text(
-                _label,
-                style: TextStyle(
-                    color: (hours > 0 || minutes > 0)
-                        ? JsColors.warning
-                        : JsColors.silver,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-          // 展開: ドラムロールピッカー
           if (expanded) ...[
             const Divider(height: 1, color: JsColors.divider),
-            Expanded(
+            SizedBox(
+              height: 120,
               child: _OvertimePicker(
                 hours: hours,
                 minutes: minutes,
@@ -1675,7 +1897,8 @@ class _OvertimePickerState extends State<_OvertimePicker> {
   void initState() {
     super.initState();
     _hCtrl = FixedExtentScrollController(initialItem: widget.hours);
-    _mCtrl = FixedExtentScrollController(initialItem: widget.minutes ~/ 5);
+    _mCtrl =
+        FixedExtentScrollController(initialItem: widget.minutes ~/ 5);
   }
 
   @override
@@ -1687,106 +1910,64 @@ class _OvertimePickerState extends State<_OvertimePicker> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // 時間ホイール (0〜12)
-        Expanded(
-          child: Column(
-            children: [
-              const SizedBox(height: 4),
-              const Text('時間',
-                  style: TextStyle(color: JsColors.silver, fontSize: 10)),
-              Expanded(
-                child: CupertinoPicker(
-                  scrollController: _hCtrl,
-                  itemExtent: 36,
-                  backgroundColor: Colors.transparent,
-                  selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
-                    background: JsColors.gold.withValues(alpha: 0.12),
-                  ),
-                  onSelectedItemChanged: (i) =>
-                      widget.onChanged(i, widget.minutes),
-                  children: List.generate(
-                    13,
-                    (i) => Center(
-                      child: Text('$i',
-                          style: const TextStyle(
-                              color: JsColors.offWhite, fontSize: 20)),
-                    ),
-                  ),
-                ),
+    return Row(children: [
+      Expanded(
+        child: Column(children: [
+          const SizedBox(height: 4),
+          const Text('時間',
+              style: TextStyle(color: JsColors.silver, fontSize: 10)),
+          Expanded(
+            child: CupertinoPicker(
+              scrollController: _hCtrl,
+              itemExtent: 36,
+              backgroundColor: Colors.transparent,
+              selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                  background: JsColors.gold.withValues(alpha: 0.12)),
+              onSelectedItemChanged: (i) =>
+                  widget.onChanged(i, widget.minutes),
+              children: List.generate(
+                13,
+                (i) => Center(
+                    child: Text('$i',
+                        style: const TextStyle(
+                            color: JsColors.offWhite, fontSize: 20))),
               ),
-            ],
+            ),
           ),
-        ),
-        // 区切り
-        const Text(':',
-            style: TextStyle(
-                color: JsColors.silver,
-                fontSize: 20,
-                fontWeight: FontWeight.bold)),
-        // 分ホイール (0, 5, 10, ...55)
-        Expanded(
-          child: Column(
-            children: [
-              const SizedBox(height: 4),
-              const Text('分',
-                  style: TextStyle(color: JsColors.silver, fontSize: 10)),
-              Expanded(
-                child: CupertinoPicker(
-                  scrollController: _mCtrl,
-                  itemExtent: 36,
-                  backgroundColor: Colors.transparent,
-                  selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
-                    background: JsColors.gold.withValues(alpha: 0.12),
-                  ),
-                  onSelectedItemChanged: (i) =>
-                      widget.onChanged(widget.hours, i * 5),
-                  children: List.generate(
-                    12,
-                    (i) => Center(
-                      child: Text((i * 5).toString().padLeft(2, '0'),
-                          style: const TextStyle(
-                              color: JsColors.offWhite, fontSize: 20)),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// 小ボタン（音声・カメラ）
-// ─────────────────────────────────────────────
-class _SmallBtn extends StatelessWidget {
-  const _SmallBtn({required this.icon, required this.active, required this.onTap});
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: active
-            ? JsColors.gold.withValues(alpha: 0.2)
-            : JsColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: active ? JsColors.gold : JsColors.divider),
+        ]),
       ),
-      child: Icon(icon,
-          size: 18, color: active ? JsColors.gold : JsColors.silver),
-    ),
-  );
+      const Text(':',
+          style: TextStyle(
+              color: JsColors.silver,
+              fontSize: 20,
+              fontWeight: FontWeight.bold)),
+      Expanded(
+        child: Column(children: [
+          const SizedBox(height: 4),
+          const Text('分',
+              style: TextStyle(color: JsColors.silver, fontSize: 10)),
+          Expanded(
+            child: CupertinoPicker(
+              scrollController: _mCtrl,
+              itemExtent: 36,
+              backgroundColor: Colors.transparent,
+              selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                  background: JsColors.gold.withValues(alpha: 0.12)),
+              onSelectedItemChanged: (i) =>
+                  widget.onChanged(widget.hours, i * 5),
+              children: List.generate(
+                12,
+                (i) => Center(
+                    child: Text((i * 5).toString().padLeft(2, '0'),
+                        style: const TextStyle(
+                            color: JsColors.offWhite, fontSize: 20))),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    ]);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1794,7 +1975,9 @@ class _SmallBtn extends StatelessWidget {
 // ─────────────────────────────────────────────
 class _VoiceInputDialog extends StatefulWidget {
   const _VoiceInputDialog(
-      {required this.manager, required this.onConfirm, required this.onCancel});
+      {required this.manager,
+      required this.onConfirm,
+      required this.onCancel});
   final SpeechManager manager;
   final void Function(String) onConfirm;
   final VoidCallback onCancel;
@@ -1819,10 +2002,7 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
   }
 
   @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
+  void dispose() { _pulse.dispose(); super.dispose(); }
 
   Future<void> _start() async {
     setState(() { _listening = true; _text = ''; });
@@ -1849,11 +2029,15 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _listening
-                  ? JsColors.gold.withValues(alpha: 0.15 + _pulse.value * 0.15)
+                  ? JsColors.gold.withValues(
+                      alpha: 0.15 + _pulse.value * 0.15)
                   : JsColors.surface,
             ),
-            child: Icon(_listening ? Icons.mic : Icons.mic_off,
-                color: _listening ? JsColors.gold : JsColors.silver, size: 32),
+            child: Icon(
+                _listening ? Icons.mic : Icons.mic_off,
+                color:
+                    _listening ? JsColors.gold : JsColors.silver,
+                size: 32),
           ),
         ),
         const SizedBox(height: 6),
@@ -1870,9 +2054,13 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
               borderRadius: BorderRadius.circular(8)),
           constraints: const BoxConstraints(minHeight: 56),
           child: Text(
-            _text.isEmpty ? '例：1階電気配線工事 コンセント10箇所設置' : _text,
+            _text.isEmpty
+                ? '例：1階電気配線工事 コンセント10箇所設置'
+                : _text,
             style: TextStyle(
-                color: _text.isEmpty ? JsColors.silver : JsColors.offWhite,
+                color: _text.isEmpty
+                    ? JsColors.silver
+                    : JsColors.offWhite,
                 fontSize: _text.isEmpty ? 12 : 14,
                 height: 1.5),
           ),
@@ -1890,8 +2078,8 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
               await widget.manager.stop();
               setState(() => _listening = false);
             },
-            child:
-                const Text('停止', style: TextStyle(color: JsColors.gold))),
+            child: const Text('停止',
+                style: TextStyle(color: JsColors.gold))),
       if (!_listening && _text.isNotEmpty)
         ElevatedButton(
             onPressed: () => widget.onConfirm(_text),
@@ -1913,6 +2101,21 @@ class _RouteInfoBar extends StatelessWidget {
   final Map<String, dynamic> comparisons;
   final bool loading;
 
+  Widget _placeholder() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: JsColors.divider),
+        ),
+        child: const Row(children: [
+          Icon(Icons.route, color: JsColors.silver, size: 14),
+          SizedBox(width: 6),
+          Text('距離: -- km　金額: ¥--',
+              style: TextStyle(color: JsColors.silver, fontSize: 12)),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -1925,43 +2128,48 @@ class _RouteInfoBar extends StatelessWidget {
           border: Border.all(color: JsColors.divider),
         ),
         child: const Row(children: [
-          SizedBox(width: 14, height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: JsColors.gold)),
+          SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: JsColors.gold)),
           SizedBox(width: 8),
-          Text('ルート計算中...', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          Text('ルート計算中...',
+              style: TextStyle(color: JsColors.silver, fontSize: 12)),
         ]),
       );
     }
 
-    if (comparisons.isEmpty) return const SizedBox.shrink();
-
     String? timeStr, costStr, distStr;
 
-    if (transport == TransportType.car || transport == TransportType.other) {
-      final c = comparisons['car'] as CarRoute?;
-      if (c != null) {
-        timeStr = '${c.time}分';
-        distStr = c.distanceText;
-        if (c.gasCost > 0) costStr = '⛽¥${c.gasCost}';
-      }
-    } else if (transport == TransportType.train || transport == TransportType.bus) {
-      final t = comparisons['transit'] as TransitRoute?;
-      if (t != null) {
-        timeStr = '${t.time}分';
-        costStr = '💴¥${t.fareIc}';
-        if (t.depStation.isNotEmpty && t.arrStation.isNotEmpty) {
-          distStr = '${t.depStation}→${t.arrStation}';
+    if (comparisons.isNotEmpty) {
+      if (transport == TransportType.car || transport == TransportType.other) {
+        final c = comparisons['car'] as CarRoute?;
+        if (c != null) {
+          timeStr = '${c.time}分';
+          distStr = c.distanceText;
+          if (c.gasCost > 0) costStr = '⛽¥${c.gasCost}';
         }
+      } else if (transport == TransportType.train ||
+          transport == TransportType.bus) {
+        final t = comparisons['transit'] as TransitRoute?;
+        if (t != null) {
+          timeStr = '${t.time}分';
+          costStr = '💴¥${t.fareIc}';
+          if (t.depStation.isNotEmpty && t.arrStation.isNotEmpty) {
+            distStr = '${t.depStation}→${t.arrStation}';
+          }
+        }
+      } else if (transport == TransportType.bike) {
+        final b = comparisons['bicycling'] as SimpleRoute?;
+        if (b != null) { timeStr = b.duration; distStr = b.distance; }
+      } else {
+        final w = comparisons['walking'] as SimpleRoute?;
+        if (w != null) { timeStr = w.duration; distStr = w.distance; }
       }
-    } else if (transport == TransportType.bike) {
-      final b = comparisons['bicycling'] as SimpleRoute?;
-      if (b != null) { timeStr = b.duration; distStr = b.distance; }
-    } else {
-      final w = comparisons['walking'] as SimpleRoute?;
-      if (w != null) { timeStr = w.duration; distStr = w.distance; }
     }
 
-    if (timeStr == null) return const SizedBox.shrink();
+    if (timeStr == null) return _placeholder();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -1976,23 +2184,81 @@ class _RouteInfoBar extends StatelessWidget {
         if (distStr != null) ...[
           Flexible(
             child: Text(distStr,
-                style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
-                overflow: TextOverflow.ellipsis, maxLines: 1),
+                style: const TextStyle(
+                    color: JsColors.offWhite, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
         ],
         const Icon(Icons.access_time, color: JsColors.silver, size: 13),
         const SizedBox(width: 3),
         Text(timeStr,
             style: const TextStyle(
-                color: JsColors.offWhite, fontSize: 12, fontWeight: FontWeight.bold)),
+                color: JsColors.offWhite,
+                fontSize: 12,
+                fontWeight: FontWeight.bold)),
         if (costStr != null) ...[
           const SizedBox(width: 10),
           Text(costStr,
               style: const TextStyle(
-                  color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                  color: JsColors.gold,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
         ],
       ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// 職長管理・集計タブ本体（プレースホルダー）
+// ─────────────────────────────────────────────
+class _ForemanManagementBody extends StatelessWidget {
+  const _ForemanManagementBody();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.bar_chart, color: JsColors.silver, size: 64),
+          SizedBox(height: 16),
+          Text('管理・集計画面は準備中',
+              style: TextStyle(
+                  color: JsColors.silver,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500)),
+          SizedBox(height: 8),
+          Text('部下の日報確認・承認・是正依頼',
+              style: TextStyle(color: JsColors.divider, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// ForemanManagementScreen — 後方互換用フルスクリーン
+// ─────────────────────────────────────────────
+class ForemanManagementScreen extends StatelessWidget {
+  const ForemanManagementScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: JsColors.black,
+      appBar: AppBar(
+        backgroundColor: JsColors.black,
+        iconTheme: const IconThemeData(color: JsColors.gold),
+        title: const Text('管理・集計',
+            style: TextStyle(
+                color: JsColors.gold,
+                fontSize: 18,
+                fontWeight: FontWeight.bold)),
+      ),
+      body: const _ForemanManagementBody(),
     );
   }
 }

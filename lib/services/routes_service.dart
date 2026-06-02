@@ -119,7 +119,7 @@ class RoutesService {
           'Authorization': 'Bearer $authToken',
         },
         body: jsonEncode({'origin': origin, 'destination': destination}),
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 60));
       debugPrint('compareRoutesV2 status=${response.statusCode}');
 
       if (response.statusCode != 200) return {};

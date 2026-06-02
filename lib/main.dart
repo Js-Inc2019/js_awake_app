@@ -688,6 +688,7 @@ class _GateScreenState extends State<GateScreen> {
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
     if (role == 'boss' || role == 'admin') { _pushBoss(context); }
+    else if (role == 'foreman') { await _pushForeman(context); }
     else { await _pushWorker(context); }
   }
   @override
@@ -716,6 +717,29 @@ class _GateScreenState extends State<GateScreen> {
     Navigator.pushReplacement(context,
         MaterialPageRoute(builder: (_) => const HomeScreen()));
   }
+  Future<void> _pushForeman(BuildContext context) async {
+    final settings = await WorkModeService.instance.fetchFromServer();
+    if (!context.mounted) return;
+    if (settings.mode == WorkModeType.actual) {
+      final checkedIn = await WorkModeService.instance.isCheckedIn();
+      if (!context.mounted) return;
+      if (!checkedIn) {
+        Navigator.pushReplacement(context, MaterialPageRoute(
+          builder: (_) => WorkModeScreen(
+            screenTitle: '職長用 — 出勤',
+            isBossMode: false,
+            onCheckedIn: () => Navigator.pushReplacement(context,
+              MaterialPageRoute(builder: (_) => const ForemanHomeScreen())),
+          ),
+        ));
+        return;
+      }
+    }
+    if (!context.mounted) return;
+    Navigator.pushReplacement(context,
+        MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
+  }
+
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
     bool ok = false;
@@ -884,12 +908,17 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     } else {
       originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市中央区三宮町1丁目';
     }
-    setState(() => _loadingRoutes = true);
-    final routes = await _routesService.compareRoutesV2(
-      origin: originAddr,
-      destination: _gpsAddress,
-      authToken: token,
-    );
+    if (mounted) setState(() => _loadingRoutes = true);
+    // リトライ: APIタイムアウト（Herokuコールドスタート）対策
+    Map<String, dynamic> routes = {};
+    for (int attempt = 0; attempt < 3 && routes.isEmpty; attempt++) {
+      if (attempt > 0) await Future.delayed(Duration(seconds: attempt * 2));
+      routes = await _routesService.compareRoutesV2(
+        origin: originAddr,
+        destination: _gpsAddress,
+        authToken: token,
+      );
+    }
     if (mounted) {
       setState(() {
         _routeComparisons = routes;
@@ -1054,7 +1083,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             await showDialog(
               context: context,
               barrierDismissible: false,
-              builder: (ctx) => _OvertimeDialog(
+              builder: (ctx) => OvertimeDialog(
                 workerName: name,
                 gpsAddress: _gpsAddress,
                 onSubmit: (start, end, overtime) async {
@@ -1972,8 +2001,9 @@ class _CameraBtn extends StatelessWidget {
 // 残業入力ダイアログ
 // ============================================================
 
-class _OvertimeDialog extends StatefulWidget {
-  const _OvertimeDialog({
+class OvertimeDialog extends StatefulWidget {
+  const OvertimeDialog({
+    super.key,
     required this.workerName,
     required this.gpsAddress,
     required this.onSubmit,
@@ -1983,10 +2013,10 @@ class _OvertimeDialog extends StatefulWidget {
   final Future<void> Function(String start, String end, String content) onSubmit;
 
   @override
-  State<_OvertimeDialog> createState() => _OvertimeDialogState();
+  State<OvertimeDialog> createState() => _OvertimeDialogState();
 }
 
-class _OvertimeDialogState extends State<_OvertimeDialog> {
+class _OvertimeDialogState extends State<OvertimeDialog> {
   TimeOfDay _start = TimeOfDay.now();
   TimeOfDay? _end;
   final _ctrl = TextEditingController();
