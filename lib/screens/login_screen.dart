@@ -300,7 +300,9 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('company_id',  data['company_id'] as String? ?? '');
     await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');
     await prefs.setString('user_id',     data['user_id']    as String? ?? '');
-    // device_idを取得して保存（なければ生成して保存）
+    await prefs.setString('consent_agreed_at',
+        data['consent_agreed_at'] ?? DateTime.now().toIso8601String());
+    await prefs.setString('consent_version', '1.0');
     String deviceId = prefs.getString('device_id') ?? '';
     if (deviceId.isEmpty) {
       deviceId = await _getDeviceId();

@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart' show JsColors, API_URL, showJsSnackbar;
 import '../services/profile_service.dart';
+import 'consent_view_screen.dart';
 
 // ─── 経験年数 → バッジ色 ───────────────────────────────────
 Color experienceColor(int? years) {
@@ -90,11 +91,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
   _ProfileData? _profile;
   bool _loading = true;
   String _token = '';
+  String _consentDate = '';
+  String _consentVersion = '';
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadConsentInfo();
+  }
+
+  Future<void> _loadConsentInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('consent_agreed_at') ?? '';
+    if (raw.isNotEmpty) {
+      final dt = DateTime.parse(raw).toLocal();
+      if (mounted) {
+        setState(() {
+          _consentDate =
+              '${dt.year}年${dt.month}月${dt.day}日 '
+              '${dt.hour.toString().padLeft(2, '0')}:'
+              '${dt.minute.toString().padLeft(2, '0')}';
+          _consentVersion = prefs.getString('consent_version') ?? '1.0';
+        });
+      }
+    }
   }
 
   Future<_ProfileData> _localProfile(SharedPreferences prefs) {
@@ -196,6 +217,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        _buildConsentCard(),
+                        const SizedBox(height: 16),
                         _buildHeader(p),
                         const SizedBox(height: 24),
                         _buildInfoCard(p),
@@ -345,6 +368,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
           initial: p,
           onSaved: _loadProfile,
         ),
+      ),
+    );
+  }
+
+  Widget _buildConsentCard() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(0, 0, 0, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF252525),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_user, color: JsColors.gold, size: 16),
+              const SizedBox(width: 6),
+              const Text(
+                '利用規約・同意状況',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.lock, color: Colors.white38, size: 14),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _consentDate.isEmpty ? '同意日時：未取得' : '同意日時：$_consentDate',
+            style: const TextStyle(color: JsColors.gold, fontSize: 12),
+          ),
+          Text(
+            _consentVersion.isEmpty ? '' : 'バージョン：$_consentVersion',
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ConsentViewScreen()),
+            ),
+            child: const Row(
+              children: [
+                Text(
+                  '同意内容を確認する',
+                  style: TextStyle(
+                    color: JsColors.silver,
+                    fontSize: 12,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: JsColors.silver, size: 16),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
