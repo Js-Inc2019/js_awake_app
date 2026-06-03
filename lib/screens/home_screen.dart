@@ -552,8 +552,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
-    final homeAddr = await ProfileService().getHomeAddress();
-    if (homeAddr == null || homeAddr.isEmpty) return;
+    final homeAddr =
+        await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
     if (mounted) setState(() => _loadingRoutes = true);
