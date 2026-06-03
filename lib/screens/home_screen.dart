@@ -1117,16 +1117,32 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
 
-          // ⑤ 作業内容（マイク / カメラ / テキスト）
+          // ⑤ 作業内容テキスト
           Expanded(
             child: _WorkContentSection(
               controller: _workCtrl,
               photoPath: _workPhotoPath,
-              isListening: _isListening,
-              onVoice: _startVoice,
-              onCamera: _takeWorkPhoto,
               onClearPhoto: () => setState(() => _workPhotoPath = null),
             ),
+          ),
+          // マイク / カメラ（常時表示・Expandedの外）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 6, 0, 0),
+            child: Row(children: [
+              Expanded(child: _MediaButton(
+                icon: _isListening ? Icons.mic : Icons.mic_none,
+                label: _isListening ? '録音中...' : '🎤 マイク',
+                active: _isListening,
+                onTap: _startVoice,
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _MediaButton(
+                icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                label: _workPhotoPath != null ? '📷 撮影済み' : '📷 カメラ',
+                active: _workPhotoPath != null,
+                onTap: _takeWorkPhoto,
+              )),
+            ]),
           ),
           const SizedBox(height: 8),
 
@@ -1782,16 +1798,10 @@ class _WorkContentSection extends StatelessWidget {
   const _WorkContentSection({
     required this.controller,
     required this.photoPath,
-    required this.isListening,
-    required this.onVoice,
-    required this.onCamera,
     required this.onClearPhoto,
   });
   final TextEditingController controller;
   final String? photoPath;
-  final bool isListening;
-  final VoidCallback onVoice;
-  final VoidCallback onCamera;
   final VoidCallback onClearPhoto;
 
   @override
@@ -1841,30 +1851,6 @@ class _WorkContentSection extends StatelessWidget {
                     color: JsColors.offWhite, fontSize: 13),
               ),
             ),
-          ),
-
-          // マイク / カメラ ボタン（横並び）
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-            child: Row(children: [
-              Expanded(
-                child: _MediaButton(
-                  icon: isListening ? Icons.mic : Icons.mic_none,
-                  label: isListening ? '録音中...' : '🎤 マイク',
-                  active: isListening,
-                  onTap: onVoice,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MediaButton(
-                  icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
-                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
-                  active: photoPath != null,
-                  onTap: onCamera,
-                ),
-              ),
-            ]),
           ),
 
           // 写真プレビュー

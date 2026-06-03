@@ -233,7 +233,10 @@ class _ConsentScreenState extends State<ConsentScreen> {
                     flex: 2,
                     child: ElevatedButton(
                       onPressed: isLast
-                          ? (_agreed ? widget.onAgreed : null)
+                          ? (_agreed ? () {
+                              widget.onAgreed();
+                              Navigator.of(context).pop();
+                            } : null)
                           : _nextPage,
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
