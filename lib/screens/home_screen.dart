@@ -405,11 +405,29 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initSeasonAndDaily();
     _loadCacheAndStart();
+    _restoreTabIndex();
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _speechMgr.initialize();
         ReportStore.instance.retryPending();
       }
+    });
+  }
+
+  // 最後のタブを復元（モード別キー）
+  Future<void> _restoreTabIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key   = widget.isForeman ? 'last_tab_index_foreman' : 'last_tab_index_worker';
+    final saved = prefs.getInt(key) ?? 0;
+    if (mounted) setState(() => _tabIndex = saved);
+  }
+
+  // タブ切り替え＋保存
+  void _setTab(int index) {
+    setState(() => _tabIndex = index);
+    SharedPreferences.getInstance().then((p) {
+      final key = widget.isForeman ? 'last_tab_index_foreman' : 'last_tab_index_worker';
+      p.setInt(key, index);
     });
   }
 
@@ -831,14 +849,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             icon: Icons.calendar_month,
             label: '月間履歴',
             active: _tabIndex == 1,
-            onTap: () => setState(() => _tabIndex = _tabIndex == 1 ? 0 : 1),
+            onTap: () => _setTab(_tabIndex == 1 ? 0 : 1),
           ),
           divider,
           _BottomTabItem(
             icon: Icons.bar_chart,
             label: '管理・集計',
             active: _tabIndex == 2,
-            onTap: () => setState(() => _tabIndex = _tabIndex == 2 ? 0 : 2),
+            onTap: () => _setTab(_tabIndex == 2 ? 0 : 2),
           ),
           divider,
           _BottomTabItem(
@@ -859,7 +877,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           icon: Icons.calendar_month,
           label: '月間履歴',
           active: _tabIndex == 1,
-          onTap: () => setState(() => _tabIndex = _tabIndex == 1 ? 0 : 1),
+          onTap: () => _setTab(_tabIndex == 1 ? 0 : 1),
         ),
         divider,
         _BottomTabItem(
