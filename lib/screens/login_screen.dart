@@ -200,12 +200,22 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _isLoading = true; _errorMessage = null; });
     try {
       final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('$_apiBase/auth/register-device'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
-      ).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(response.body);
+      // Herokuコールドスタート対策：最大3回リトライ（60秒タイムアウト）
+      http.Response? response;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        try {
+          response = await http.post(
+            Uri.parse('$_apiBase/auth/register-device'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
+          ).timeout(const Duration(seconds: 60));
+          break;
+        } catch (_) {
+          if (attempt == 2) rethrow;
+          await Future.delayed(Duration(seconds: (attempt + 1) * 2));
+        }
+      }
+      final data = jsonDecode(response!.body);
       if (response.statusCode == 200 || response.statusCode == 201) {
         // PIN設定ステップへ（仮PIN 000000のまま進まないよう）
         _pinCtrl.clear();
