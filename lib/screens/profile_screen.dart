@@ -88,6 +88,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   _ProfileData? _profile;
   bool _loading = true;
+  String _token = '';
 
   @override
   void initState() {
@@ -113,6 +114,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
     final token  = prefs.getString('auth_token') ?? '';
+    _token = token;
 
     final local = await _localProfile(prefs);
     if (mounted) setState(() { _profile = local; _loading = false; });
@@ -195,12 +197,126 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 24),
                         _buildInfoCard(p),
                         const SizedBox(height: 16),
-                        _buildEditButton(p),
+                        _ToolKeyCard(token: _token),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 32, 0, 16),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _confirmLogout,
+                              icon: const Icon(Icons.logout,
+                                  color: Colors.redAccent),
+                              label: const Text('ログアウト',
+                                  style:
+                                      TextStyle(color: Colors.redAccent)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                    color: Colors.redAccent),
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
     );
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.gunmetal,
+        title: const Text('ログアウト',
+            style: TextStyle(color: JsColors.offWhite)),
+        content: const Text('ログアウトしますか？',
+            style: TextStyle(color: JsColors.silver)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: JsColors.silver)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ログアウト',
+                style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        backgroundColor: JsColors.gunmetal,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              vertical: 40, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.logout,
+                  color: JsColors.gold, size: 56),
+              const SizedBox(height: 20),
+              const Text(
+                'ログアウトしました',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'またのご利用をお待ちしています',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: JsColors.gold,
+                    foregroundColor: JsColors.gunmetal,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('OK',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+          '/login', (route) => false);
+    }
   }
 
   void _openEdit(_ProfileData p) {
@@ -331,19 +447,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildEditButton(_ProfileData p) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: () => _openEdit(p),
-        icon: const Icon(Icons.edit, size: 16),
-        label: const Text('プロフィールを編集する'),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(double.infinity, 48),
-        ),
-      ),
-    );
-  }
 }
 
 // ─── 健康診断警告テキスト ───
@@ -1075,6 +1178,267 @@ class _ExperienceBadgePreview extends StatelessWidget {
       ),
       child: Text(tier,
           style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// J's Tool 連携キー管理カード
+// ─────────────────────────────────────────────
+class _ToolKeyCard extends StatefulWidget {
+  const _ToolKeyCard({required this.token});
+  final String token;
+
+  @override
+  State<_ToolKeyCard> createState() => _ToolKeyCardState();
+}
+
+class _ToolKeyCardState extends State<_ToolKeyCard> {
+  String _storedKey = '';
+  bool _issuing = false;
+  bool _showInput = false;
+  final _inputCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadKey();
+  }
+
+  @override
+  void dispose() {
+    _inputCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _storedKey = prefs.getString('tool_key') ?? '');
+  }
+
+  Future<void> _issueKey() async {
+    setState(() => _issuing = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$API_URL/tool/issue-key'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final key = data['tool_key'] as String? ?? '';
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('tool_key', key);
+        setState(() {
+          _storedKey = key;
+          _issuing = false;
+        });
+        if (mounted) showJsSnackbar(context, '✅ 連携キーを発行しました');
+      } else {
+        if (mounted) {
+          showJsSnackbar(context, 'キー発行に失敗しました（${res.statusCode}）',
+              isError: true);
+          setState(() => _issuing = false);
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        showJsSnackbar(context, 'サーバーに接続できません', isError: true);
+        setState(() => _issuing = false);
+      }
+    }
+  }
+
+  Future<void> _saveManualKey() async {
+    final key = _inputCtrl.text.trim().toUpperCase();
+    if (!RegExp(r'^JS-[A-Z0-9]{4}-[A-Z0-9]{4}$').hasMatch(key)) {
+      showJsSnackbar(context, '形式が正しくありません（例：JS-ABCD-1234）',
+          isError: true);
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tool_key', key);
+    if (mounted) {
+      setState(() {
+        _storedKey = key;
+        _showInput = false;
+        _inputCtrl.clear();
+      });
+      showJsSnackbar(context, '✅ 連携キーを保存しました');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ─── ヘッダー行 ───
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+            child: Row(children: [
+              const Icon(Icons.build_circle, color: JsColors.gold, size: 18),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  "J's Tool 連携キー",
+                  style: TextStyle(
+                      color: JsColors.offWhite,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+              _issuing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: JsColors.gold))
+                  : TextButton(
+                      onPressed: _issueKey,
+                      style: TextButton.styleFrom(
+                          foregroundColor: JsColors.gold,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4)),
+                      child: const Text('発行・更新',
+                          style: TextStyle(fontSize: 12)),
+                    ),
+            ]),
+          ),
+          // ─── キー表示 ───
+          const Divider(height: 1, color: JsColors.divider),
+          if (_storedKey.isNotEmpty)
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(children: [
+                const Icon(Icons.vpn_key, color: JsColors.silver, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _storedKey,
+                    style: const TextStyle(
+                        color: JsColors.gold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: _storedKey));
+                    showJsSnackbar(context, 'クリップボードにコピーしました');
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.copy, color: JsColors.silver, size: 18),
+                  ),
+                ),
+              ]),
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Text(
+                '未発行 — 「発行・更新」をタップしてキーを取得してください',
+                style: TextStyle(color: JsColors.silver, fontSize: 12),
+              ),
+            ),
+          // ─── 手動入力トグル ───
+          const Divider(height: 1, color: JsColors.divider),
+          InkWell(
+            onTap: () => setState(() => _showInput = !_showInput),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 11),
+              child: Row(children: [
+                const Icon(Icons.edit_note,
+                    color: JsColors.silver, size: 16),
+                const SizedBox(width: 8),
+                const Text('手動でキーを入力',
+                    style:
+                        TextStyle(color: JsColors.silver, fontSize: 13)),
+                const Spacer(),
+                Icon(
+                    _showInput
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    color: JsColors.silver,
+                    size: 16),
+              ]),
+            ),
+          ),
+          if (_showInput) ...[
+            const Divider(height: 1, color: JsColors.divider),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'[A-Za-z0-9\-]')),
+                      _ToolKeyFormatter(),
+                    ],
+                    decoration: const InputDecoration(
+                      hintText: 'JS-XXXX-YYYY',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      counterText: '',
+                    ),
+                    style: const TextStyle(color: JsColors.offWhite),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _saveManualKey,
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(56, 40),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12),
+                    backgroundColor: JsColors.gold,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('保存'),
+                ),
+              ]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// JS-XXXX-YYYY 形式に自動フォーマット（両アプリ共通）
+class _ToolKeyFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final clean =
+        newValue.text.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    final limited = clean.length > 10 ? clean.substring(0, 10) : clean;
+    final sb = StringBuffer();
+    for (int i = 0; i < limited.length; i++) {
+      if (i == 2 || i == 6) sb.write('-');
+      sb.write(limited[i]);
+    }
+    final result = sb.toString();
+    return TextEditingValue(
+      text: result,
+      selection: TextSelection.collapsed(offset: result.length),
     );
   }
 }
