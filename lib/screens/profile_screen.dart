@@ -254,7 +254,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmed != true) return;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await prefs.remove('auth_token');
+    await prefs.remove('user_id');
+    await prefs.remove('user_name');
+    await prefs.remove('user_role');
+    await prefs.remove('role');
+    await prefs.remove('company_id');
+    await prefs.remove('work_mode');
+    await prefs.remove('today_date');
+    await prefs.remove('today_work_status');
+    await prefs.remove('today_transport');
+    await prefs.remove('today_work_content');
+    await prefs.remove('today_overtime_hours');
+    await prefs.remove('today_overtime_minutes');
+    await prefs.remove('last_tab_index_worker');
+    await prefs.remove('last_tab_index_foreman');
+    // device_id は削除しない → 生体認証ログイン画面へ
 
     if (!mounted) return;
     await showDialog(
