@@ -358,7 +358,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: const Icon(Icons.person_add_alt_1,
                         color: Color(0xFFD4AF37)),
                     label: const Text(
-                      '新規登録はこちら',
+                      '招待コードをお持ちの方はこちら',
                       style: TextStyle(
                           color: Color(0xFFD4AF37),
                           fontSize: 15,
