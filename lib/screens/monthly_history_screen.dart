@@ -39,12 +39,29 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
       if (!mounted) return;
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
+        final raw = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+        // approved/revision_requested boolean → status 文字列に変換
         setState(() {
-          _reports = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+          _reports = raw.map((r) {
+            final approved   = r['approved'] == true;
+            final revision   = r['revision_requested'] == true;
+            return {
+              ...r,
+              'status': approved ? 'approved' : revision ? 'rejected' : 'pending',
+            };
+          }).toList();
           _loading = false;
         });
+      } else if (res.statusCode == 401) {
+        // トークン切れ・無効 → ログアウトして再ログイン
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('auth_token');
+        if (mounted) {
+          setState(() { _loading = false; _error = '認証の有効期限が切れました。再ログインしてください。'; });
+          Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
+        }
       } else {
-        setState(() { _loading = false; _error = 'データの取得に失敗しました'; });
+        setState(() { _loading = false; _error = 'エラー ${res.statusCode}: ${res.body}'; });
       }
     } catch (_) {
       if (mounted) setState(() { _loading = false; _error = 'ネットワークエラー'; });

@@ -12,6 +12,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart'
     show
@@ -703,6 +704,37 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
+  // ─── J's Tool 起動 ───
+  Future<void> _launchToolApp() async {
+    final prefs     = await SharedPreferences.getInstance();
+    final token     = prefs.getString('auth_token')  ?? '';
+    if (token.isEmpty) {
+      if (mounted) showJsSnackbar(context, 'ログイン情報がありません', isError: true);
+      return;
+    }
+    final userName  = prefs.getString('user_name')   ?? '';
+    final companyId = prefs.getString('company_id')  ?? '';
+    final role      = prefs.getString('user_role')   ?? prefs.getString('role') ?? '';
+    final userId    = prefs.getString('user_id')     ?? '';
+
+    final uri = Uri(
+      scheme: 'jstool',
+      host:   'auth',
+      queryParameters: {
+        'token':      token,
+        'user_name':  userName,
+        'company_id': companyId,
+        'role':       role,
+        'user_id':    userId,
+      },
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (mounted) {
+      showJsSnackbar(context, "J's Toolがインストールされていません", isWarning: true);
+    }
+  }
+
   // ─── 日付ラベル ───
   String get _dateLabel {
     final n = DateTime.now();
@@ -863,7 +895,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             icon: Icons.build,
             label: 'TOOL',
             active: false,
-            onTap: () => showJsSnackbar(context, 'TOOLは近日公開予定です'),
+            onTap: _launchToolApp,
           ),
         ]),
       );
@@ -884,7 +916,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           icon: Icons.build,
           label: 'TOOL',
           active: false,
-          onTap: () => showJsSnackbar(context, 'TOOLは近日公開予定です'),
+          onTap: _launchToolApp,
         ),
       ]),
     );
