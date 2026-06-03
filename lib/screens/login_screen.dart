@@ -2,6 +2,7 @@
 // lib/screens/login_screen.dart - デバイス認証＋生体認証
 // ============================================================
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:local_auth/local_auth.dart';
@@ -27,13 +28,18 @@ class _LoginScreenState extends State<LoginScreen> {
   String _selectedRole = 'worker';
   bool _biometricFailed = false;
 
-  // PIN設定ステップ
+  // PIN設定ステップ（Sign Up後）
   int _step = 0; // 0=登録フォーム, 1=PIN設定
   Map<String, dynamic>? _pendingData;
   final _pinCtrl     = TextEditingController();
   final _pinConfCtrl = TextEditingController();
   bool _obscurePin  = true;
   bool _obscureConf = true;
+
+  // PINログインフォールバック（生体認証NotAvailable時）
+  bool _showPinLogin = false;
+  final _loginPinCtrl = TextEditingController();
+  bool _obscureLoginPin = true;
 
   @override
   void initState() {
@@ -47,6 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _nameCtrl.dispose();
     _pinCtrl.dispose();
     _pinConfCtrl.dispose();
+    _loginPinCtrl.dispose();
     super.dispose();
   }
 
@@ -81,6 +88,11 @@ class _LoginScreenState extends State<LoginScreen> {
       return result;
     } catch (e) {
       debugPrint('生体認証エラー: $e');
+      if (e is PlatformException && e.code == 'NotAvailable') {
+        // セキュリティロック未設定 → PINログインへ切り替え
+        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+        return false;
+      }
       return true;
     }
   }
@@ -138,10 +150,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _biometricThenLogin() async {
-    setState(() { _isLoading = true; _biometricFailed = false; _errorMessage = null; });
+    setState(() { _isLoading = true; _biometricFailed = false; _showPinLogin = false; _errorMessage = null; });
     final ok = await _doBiometric();
     if (!ok) {
-      setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
+      // NotAvailable の場合は _doBiometric() 内で _showPinLogin = true が設定済み
+      if (!_showPinLogin) {
+        setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
+      }
       return;
     }
     await _autoLogin();
@@ -250,6 +265,36 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _doLoginWithPin() async {
+    final pin = _loginPinCtrl.text.trim();
+    if (pin.length < 4) {
+      setState(() => _errorMessage = 'PINを入力してください（4〜6桁）');
+      return;
+    }
+    setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      final deviceId = await _getDeviceId();
+      final response = await http.post(
+        Uri.parse('$_apiBase/auth/verify-pin'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'pin': pin,
+          'device_id': deviceId,
+          'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
+          'device_type': 'smartphone',
+        }),
+      ).timeout(const Duration(seconds: 10));
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        await _saveAndNavigate(data);
+      } else {
+        setState(() { _isLoading = false; _errorMessage = data['error'] ?? 'PINが違います'; });
+      }
+    } catch (e) {
+      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
+    }
+  }
+
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token', data['token'] as String? ?? '');
@@ -271,6 +316,9 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (_step == 1) {
       return _buildPinSetupScreen();
+    }
+    if (_showPinLogin) {
+      return _buildPinLoginScreen();
     }
     if (_biometricFailed) {
       return Scaffold(
@@ -426,6 +474,72 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinLoginScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, color: Color(0xFFD4AF37), size: 64),
+              const SizedBox(height: 24),
+              const Text('PINでログイン',
+                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text('登録済みのPINを入力してください',
+                  style: TextStyle(color: Colors.white54, fontSize: 13)),
+              const SizedBox(height: 40),
+              TextField(
+                controller: _loginPinCtrl,
+                obscureText: _obscureLoginPin,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 8),
+                textAlign: TextAlign.center,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: '● ● ● ●',
+                  hintStyle: const TextStyle(color: Colors.white24, letterSpacing: 8),
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 2)),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureLoginPin ? Icons.visibility_off : Icons.visibility, color: Colors.white38),
+                    onPressed: () => setState(() => _obscureLoginPin = !_obscureLoginPin),
+                  ),
+                ),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 13), textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _doLoginWithPin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                      : const Text('ログイン', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                ),
+              ),
             ],
           ),
         ),
