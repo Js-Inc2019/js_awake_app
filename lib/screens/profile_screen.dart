@@ -71,8 +71,7 @@ class _ProfileData {
 
   // 経験年数でworkerのバッジ色が変わる
   Color get badgeColor {
-    if (role == 'boss')   return const Color(0xFF4FC3F7);
-    if (role.startsWith('admin')) return const Color(0xFFEF9A9A);
+    if (role == 'boss') return const Color(0xFF4FC3F7);
     return experienceColor(experienceYears);
   }
 }
@@ -422,6 +421,15 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
   late final _expCtrl     = TextEditingController(
       text: widget.initial.experienceYears?.toString() ?? '');
 
+  // 郵便番号
+  final _zipCtrl = TextEditingController();
+  String? _zipError;
+  bool _zipLoading = false;
+
+  // 緊急連絡先
+  final _emergencyNameCtrl  = TextEditingController();
+  final _emergencyPhoneCtrl = TextEditingController();
+
   // 血液型: ABO部 + RH部に分割
   String _bloodAbo = '';
   String _bloodRh  = '';
@@ -437,6 +445,14 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
     super.initState();
     _parseBloodType(widget.initial.bloodType);
     _healthCheckDate = widget.initial.healthCheckDate;
+    _loadEmergencyContact();
+  }
+
+  Future<void> _loadEmergencyContact() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    _emergencyNameCtrl.text  = prefs.getString('emergency_contact_name')  ?? '';
+    _emergencyPhoneCtrl.text = prefs.getString('emergency_contact_phone') ?? '';
   }
 
   void _parseBloodType(String bt) {
@@ -460,6 +476,9 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
     _addressCtrl.dispose();
     _phoneCtrl.dispose();
     _expCtrl.dispose();
+    _zipCtrl.dispose();
+    _emergencyNameCtrl.dispose();
+    _emergencyPhoneCtrl.dispose();
     super.dispose();
   }
 
@@ -490,6 +509,29 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
     final f = await _imagePicker.pickImage(
         source: source, imageQuality: 70, maxWidth: 400);
     if (f != null && mounted) setState(() => _localImagePath = f.path);
+  }
+
+  Future<void> _fetchAddressFromZip() async {
+    final zip = _zipCtrl.text.replaceAll('-', '').trim();
+    if (zip.length != 7) return;
+    setState(() { _zipLoading = true; _zipError = null; });
+    try {
+      final res = await http.get(
+        Uri.parse('https://zipcloud.ibsnet.co.jp/api/search?zipcode=$zip'),
+      ).timeout(const Duration(seconds: 8));
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final results = data['results'] as List<dynamic>?;
+      if (results != null && results.isNotEmpty) {
+        final r = results.first as Map<String, dynamic>;
+        final addr =
+            '${r['address1'] ?? ''}${r['address2'] ?? ''}${r['address3'] ?? ''}';
+        setState(() { _addressCtrl.text = addr; _zipLoading = false; });
+      } else {
+        setState(() { _zipError = '住所が見つかりませんでした'; _zipLoading = false; });
+      }
+    } catch (_) {
+      setState(() { _zipError = '住所が見つかりませんでした'; _zipLoading = false; });
+    }
   }
 
   Future<void> _fetchGpsAddress() async {
@@ -607,6 +649,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
             '${_healthCheckDate!.day.toString().padLeft(2,'0')}');
       }
       await ProfileService().setHomeAddress(_addressCtrl.text.trim());
+      await prefs.setString('emergency_contact_name',  _emergencyNameCtrl.text.trim());
+      await prefs.setString('emergency_contact_phone', _emergencyPhoneCtrl.text.trim());
 
       if (!mounted) return;
       if (res.statusCode == 200 || res.statusCode == 204) {
@@ -630,6 +674,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
             '${_healthCheckDate!.day.toString().padLeft(2,'0')}');
       }
       await ProfileService().setHomeAddress(_addressCtrl.text.trim());
+      await prefs.setString('emergency_contact_name',  _emergencyNameCtrl.text.trim());
+      await prefs.setString('emergency_contact_phone', _emergencyPhoneCtrl.text.trim());
       if (!mounted) return;
       showJsSnackbar(context, '⚠️ オフライン: ローカルのみ保存しました',
           isWarning: true);
@@ -742,6 +788,52 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               ),
               const SizedBox(height: 20),
 
+              // ─── 郵便番号 ───
+              _fieldLabel('郵便番号（住所自動反映）'),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _zipCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[\d\-]')),
+                    ],
+                    maxLength: 8,
+                    decoration: InputDecoration(
+                      prefixIcon: _zipLoading
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: JsColors.gold)))
+                          : const Icon(Icons.local_post_office, color: JsColors.silver),
+                      hintText: '例：6500000 または 650-0000',
+                      counterText: '',
+                    ),
+                    style: const TextStyle(color: JsColors.offWhite),
+                    onChanged: (v) {
+                      final digits = v.replaceAll('-', '');
+                      if (digits.length == 7) _fetchAddressFromZip();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _zipLoading ? null : _fetchAddressFromZip,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(64, 52),
+                  ),
+                  child: const Text('検索'),
+                ),
+              ]),
+              if (_zipError != null) ...[
+                const SizedBox(height: 4),
+                Text(_zipError!,
+                    style: const TextStyle(color: JsColors.error, fontSize: 12)),
+              ],
+              const SizedBox(height: 20),
+
               // ─── 自宅住所 ───
               _fieldLabel('自宅住所'),
               TextField(
@@ -820,6 +912,32 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 if (_expCtrl.text.isNotEmpty)
                   _ExperienceBadgePreview(years: int.tryParse(_expCtrl.text)),
               ]),
+              const SizedBox(height: 20),
+
+              // ─── 緊急連絡先 ───
+              _fieldLabel('緊急連絡先 氏名'),
+              TextField(
+                controller: _emergencyNameCtrl,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.person_pin, color: JsColors.silver),
+                  hintText: '例：田中 花子（続柄：妻）',
+                ),
+                style: const TextStyle(color: JsColors.offWhite),
+              ),
+              const SizedBox(height: 16),
+              _fieldLabel('緊急連絡先 電話番号'),
+              TextField(
+                controller: _emergencyPhoneCtrl,
+                keyboardType: TextInputType.phone,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[\d\-\+\(\)]')),
+                ],
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.phone_in_talk, color: JsColors.silver),
+                  hintText: '例：090-9876-5432',
+                ),
+                style: const TextStyle(color: JsColors.offWhite),
+              ),
               const SizedBox(height: 20),
 
               // ─── 健康診断日 ───
