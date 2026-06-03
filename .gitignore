@@ -48,3 +48,4 @@ secrets.txt
 
 # Web build for Vercel static deploy
 !build/web/
+!build/web/**
