@@ -1078,26 +1078,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            const SizedBox(height: 6),
-            Row(children: [
-              Expanded(
-                child: _MediaButton(
-                  icon: _isListening ? Icons.mic : Icons.mic_none,
-                  label: _isListening ? '録音中...' : '🎤 マイク',
-                  active: _isListening,
-                  onTap: _startVoice,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MediaButton(
-                  icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                  label: _workPhotoPath != null ? '📷 撮影済み' : '📷 カメラ',
-                  active: _workPhotoPath != null,
-                  onTap: _takeWorkPhoto,
-                ),
-              ),
-            ]),
           ],
           if (_transport == TransportType.other) ...[
             const SizedBox(height: 6),
@@ -1841,36 +1821,10 @@ class _WorkContentSection extends StatelessWidget {
           ),
           const Divider(height: 1, color: JsColors.divider),
 
-          // マイク / カメラ ボタン（横並び・目立つ）
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-            child: Row(children: [
-              Expanded(
-                child: _MediaButton(
-                  icon: isListening ? Icons.mic : Icons.mic_none,
-                  label: isListening ? '録音中...' : '🎤 マイク',
-                  active: isListening,
-                  onTap: onVoice,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MediaButton(
-                  icon: photoPath != null
-                      ? Icons.check_circle
-                      : Icons.camera_alt,
-                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
-                  active: photoPath != null,
-                  onTap: onCamera,
-                ),
-              ),
-            ]),
-          ),
-
           // テキスト入力欄
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: TextField(
                 controller: controller,
                 maxLines: null,
@@ -1887,6 +1841,30 @@ class _WorkContentSection extends StatelessWidget {
                     color: JsColors.offWhite, fontSize: 13),
               ),
             ),
+          ),
+
+          // マイク / カメラ ボタン（横並び）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+            child: Row(children: [
+              Expanded(
+                child: _MediaButton(
+                  icon: isListening ? Icons.mic : Icons.mic_none,
+                  label: isListening ? '録音中...' : '🎤 マイク',
+                  active: isListening,
+                  onTap: onVoice,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _MediaButton(
+                  icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
+                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
+                  active: photoPath != null,
+                  onTap: onCamera,
+                ),
+              ),
+            ]),
           ),
 
           // 写真プレビュー
