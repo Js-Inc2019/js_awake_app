@@ -20,12 +20,20 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading    = true;
-  bool _isRegistered = false; // 登録済みフラグ（prefs: is_registered）
+  bool _isRegistered = false;
   String? _errorMessage;
   final _companyCodeCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   String _selectedRole = 'worker';
   bool _biometricFailed = false;
+
+  // PIN設定ステップ
+  int _step = 0; // 0=登録フォーム, 1=PIN設定
+  Map<String, dynamic>? _pendingData;
+  final _pinCtrl     = TextEditingController();
+  final _pinConfCtrl = TextEditingController();
+  bool _obscurePin  = true;
+  bool _obscureConf = true;
 
   @override
   void initState() {
@@ -37,6 +45,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _companyCodeCtrl.dispose();
     _nameCtrl.dispose();
+    _pinCtrl.dispose();
+    _pinConfCtrl.dispose();
     super.dispose();
   }
 
@@ -61,8 +71,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<bool> _doBiometric() async {
     try {
       final auth = LocalAuthentication();
-      final canCheck = await auth.canCheckBiometrics;
-      if (!canCheck) return true;
+      final canCheck  = await auth.canCheckBiometrics;
+      final supported = await auth.isDeviceSupported();
+      if (!canCheck && !supported) return true; // 認証手段が全くない場合のみスキップ
       final result = await auth.authenticate(
         localizedReason: '本人確認を行ってください',
         options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
@@ -70,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return result;
     } catch (e) {
       debugPrint('生体認証エラー: $e');
-      return true; // エラー時はスキップして続行
+      return true;
     }
   }
 
@@ -169,6 +180,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _register() async {
+    debugPrint('_register() 開始');
     final companyCode = _companyCodeCtrl.text.trim().toUpperCase();
     final name = _nameCtrl.text.trim();
     if (companyCode.isEmpty || name.isEmpty) {
@@ -188,11 +200,50 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
       ).timeout(const Duration(seconds: 10));
+      debugPrint('register status: ${response.statusCode}');
+      debugPrint('register body: ${response.body}');
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 || response.statusCode == 201) {
-        await _saveAndNavigate(data);
+        debugPrint('→ PIN設定ステップへ');
+        // PIN設定ステップへ（仮PIN 000000のまま進まないよう）
+        _pinCtrl.clear();
+        _pinConfCtrl.clear();
+        setState(() { _isLoading = false; _pendingData = data; _step = 1; _errorMessage = null; });
       } else {
         setState(() { _isLoading = false; _errorMessage = data['error'] ?? '登録に失敗しました'; });
+      }
+    } catch (e) {
+      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
+    }
+  }
+
+  Future<void> _setupPin() async {
+    final pin  = _pinCtrl.text;
+    final conf = _pinConfCtrl.text;
+    if (pin.length < 4 || pin.length > 6) {
+      setState(() => _errorMessage = 'PINは4〜6桁で入力してください');
+      return;
+    }
+    if (pin != conf) {
+      setState(() => _errorMessage = 'PINが一致しません');
+      return;
+    }
+    setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      final token = _pendingData!['token'] as String;
+      final response = await http.post(
+        Uri.parse('$_apiBase/auth/setup-pin'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'new_pin': pin}),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        await _saveAndNavigate(_pendingData!);
+      } else {
+        final data = jsonDecode(response.body);
+        setState(() { _isLoading = false; _errorMessage = data['error'] ?? 'PIN設定に失敗しました'; });
       }
     } catch (e) {
       setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
@@ -217,6 +268,9 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: Color(0xFF1A1A1A),
         body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
       );
+    }
+    if (_step == 1) {
+      return _buildPinSetupScreen();
     }
     if (_biometricFailed) {
       return Scaffold(
@@ -372,6 +426,91 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinSetupScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFD4AF37), fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text('勤務管理システム', style: TextStyle(color: Colors.white70, fontSize: 16)),
+              const SizedBox(height: 40),
+              const Text('PINを設定', style: TextStyle(color: Color(0xFFD4AF37), fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
+                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+              const SizedBox(height: 28),
+              TextField(
+                controller: _pinCtrl,
+                obscureText: _obscurePin,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'PIN（4〜6桁）',
+                  labelStyle: const TextStyle(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.lock, color: Colors.white54),
+                  counterText: '',
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
+                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFD4AF37)), borderRadius: BorderRadius.circular(8)),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility, color: Colors.white54),
+                    onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _pinConfCtrl,
+                obscureText: _obscureConf,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'PIN確認',
+                  labelStyle: const TextStyle(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.lock_outline, color: Colors.white54),
+                  counterText: '',
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
+                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFD4AF37)), borderRadius: BorderRadius.circular(8)),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureConf ? Icons.visibility_off : Icons.visibility, color: Colors.white54),
+                    onPressed: () => setState(() => _obscureConf = !_obscureConf),
+                  ),
+                ),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
+              ],
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _setupPin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                      : const Text('PINを設定してはじめる', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
             ],
           ),
         ),
