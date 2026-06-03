@@ -90,7 +90,7 @@ class JsAwakeApp extends StatelessWidget {
     return MaterialApp(
       title: "J's FIELD",
       debugShowCheckedModeBanner: false,
-      theme: AppTheme().darkTheme,
+      theme: AppTheme.dark,
       home: const LoginScreen(),
       routes: {
         '/login': (_) => const LoginScreen(),
@@ -713,8 +713,32 @@ class _GateScreenState extends State<GateScreen> {
       }
     }
     if (!context.mounted) return;
-    Navigator.pushReplacement(context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()));
+
+    // 当日の作業状態を確認して復元
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final todayDate =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final savedDate  = prefs.getString('today_date') ?? '';
+    final workStatus = prefs.getString('today_work_status') ?? 'idle';
+    final shouldRestore = savedDate == todayDate &&
+        workStatus != 'idle' &&
+        workStatus != 'done';
+
+    if (workStatus == 'done') {
+      await prefs.remove('today_work_status');
+      await prefs.remove('today_date');
+    }
+
+    if (!context.mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HomeScreen(
+          restoreWorkStatus: shouldRestore ? workStatus : null,
+        ),
+      ),
+    );
   }
   Future<void> _pushForeman(BuildContext context) async {
     final settings = await WorkModeService.instance.fetchFromServer();

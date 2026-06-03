@@ -61,7 +61,12 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
         }
       } else {
-        setState(() { _loading = false; _error = 'エラー ${res.statusCode}: ${res.body}'; });
+        setState(() {
+          _loading = false;
+          _error = 'エラー: ${res.statusCode}\n${res.body}';
+        });
+        debugPrint('月間履歴 status: ${res.statusCode}');
+        debugPrint('月間履歴 body: ${res.body}');
       }
     } catch (_) {
       if (mounted) setState(() { _loading = false; _error = 'ネットワークエラー'; });
@@ -166,7 +171,13 @@ class MonthlyHistoryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JsColors.black,
-      appBar: AppBar(title: const Text('月間履歴')),
+      appBar: AppBar(
+        title: const Text('月間履歴'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
       body: const MonthlyHistoryBody(),
     );
   }

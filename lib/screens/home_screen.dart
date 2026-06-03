@@ -346,8 +346,9 @@ Future<T> _withRetry<T>(
 // JsMainShell — 全画面共通シェル
 // ─────────────────────────────────────────────
 class JsMainShell extends StatefulWidget {
-  const JsMainShell({super.key, this.isForeman = false});
+  const JsMainShell({super.key, this.isForeman = false, this.restoreWorkStatus});
   final bool isForeman;
+  final String? restoreWorkStatus;
 
   @override
   State<JsMainShell> createState() => _JsMainShellState();
@@ -385,8 +386,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _loadingRoutes = false;
 
   // ─── 作業内容 ───
-  final _workCtrl = TextEditingController();
-  final _otherCtrl = TextEditingController();
+  final _workCtrl    = TextEditingController();
+  final _otherCtrl   = TextEditingController();
+  final _parkingCtrl = TextEditingController();
   String? _workPhotoPath;
   bool _isListening = false;
   final _speechMgr = SpeechManager();
@@ -407,10 +409,72 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _initSeasonAndDaily();
     _loadCacheAndStart();
     _restoreTabIndex();
+    _workCtrl.addListener(_onWorkContentChanged);
+    if (widget.restoreWorkStatus != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _restoreDraft(widget.restoreWorkStatus!));
+    }
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _speechMgr.initialize();
         ReportStore.instance.retryPending();
+      }
+    });
+  }
+
+  void _onWorkContentChanged() {
+    if (_workCtrl.text.isNotEmpty) {
+      _saveWorkStatus('working');
+      _saveDraft();
+    }
+  }
+
+  Future<void> _saveWorkStatus(String status) async {
+    final now = DateTime.now();
+    final todayDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('today_date', todayDate);
+    await prefs.setString('today_work_status', status);
+  }
+
+  Future<void> _saveDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('today_transport', _transport.name);
+    await prefs.setString('today_work_content', _workCtrl.text);
+    await prefs.setString('today_parking_fee', _parkingCtrl.text);
+    await prefs.setInt('today_overtime_hours', _overtimeHours);
+    await prefs.setInt('today_overtime_minutes', _overtimeMinutes);
+  }
+
+  Future<void> _clearDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('today_transport');
+    await prefs.remove('today_work_content');
+    await prefs.remove('today_parking_fee');
+    await prefs.remove('today_overtime_hours');
+    await prefs.remove('today_overtime_minutes');
+  }
+
+  Future<void> _restoreDraft(String workStatus) async {
+    final prefs = await SharedPreferences.getInstance();
+    final transportName = prefs.getString('today_transport') ?? '';
+    final workContent   = prefs.getString('today_work_content') ?? '';
+    final parkingFee    = prefs.getString('today_parking_fee') ?? '';
+    final overtimeH     = prefs.getInt('today_overtime_hours') ?? 0;
+    final overtimeM     = prefs.getInt('today_overtime_minutes') ?? 0;
+    final transport = TransportType.values.firstWhere(
+      (t) => t.name == transportName,
+      orElse: () => TransportType.car,
+    );
+    if (!mounted) return;
+    setState(() {
+      _transport = transport;
+      _workCtrl.text = workContent;
+      _parkingCtrl.text = parkingFee;
+      _overtimeHours = overtimeH;
+      _overtimeMinutes = overtimeM;
+      if (workStatus == 'overtime' && (overtimeH > 0 || overtimeM > 0)) {
+        _overtimeExpanded = true;
       }
     });
   }
@@ -434,8 +498,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _workCtrl.removeListener(_onWorkContentChanged);
     _workCtrl.dispose();
     _otherCtrl.dispose();
+    _parkingCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -639,13 +705,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       await ReportStore.instance.addReport(WorkerReportItem(
         name: name,
         transport: _transport,
-        workContent: (_transport == TransportType.other && _otherCtrl.text.trim().isNotEmpty
+        workContent: (_transport == TransportType.car && _parkingCtrl.text.trim().isNotEmpty
+            ? '[駐車料金:${_parkingCtrl.text.trim()}円] '
+            : '') +
+            (_transport == TransportType.other && _otherCtrl.text.trim().isNotEmpty
             ? '[その他:${_otherCtrl.text.trim()}] '
             : '') + _workCtrl.text.trim() + overtimeNote,
         workPhotoPath: _workPhotoPath,
         gpsAddress: gpsAddr,
       ));
       await ReportStore.instance.retryPending();
+      _saveWorkStatus('done');
+      _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
@@ -653,6 +724,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _transport = TransportType.car;
         _workCtrl.clear();
         _otherCtrl.clear();
+        _parkingCtrl.clear();
         _workPhotoPath = null;
         _overtimeExpanded = false;
         _overtimeHours = 0;
@@ -665,6 +737,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           onMoveToNextSite: () {
             Navigator.pop(context);
             _otherCtrl.clear();
+            _parkingCtrl.clear();
             setState(() {
               _gpsAddress = '';
               _transport = TransportType.car;
@@ -725,13 +798,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         'user_name':  userName,
         'company_id': companyId,
         'role':       role,
-        'user_id':    userId,
       },
     );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else if (mounted) {
-      showJsSnackbar(context, "J's Toolがインストールされていません", isWarning: true);
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        showJsSnackbar(context, "J's Toolがインストールされていません", isWarning: true);
+      }
     }
   }
 
@@ -961,8 +1035,44 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           // ④ 移動手段 4択 + ルート情報
           _TransportRow(
             selected: _transport,
-            onChanged: (t) => setState(() => _transport = t),
+            onChanged: (t) {
+              setState(() => _transport = t);
+              _saveWorkStatus('moving');
+              _saveDraft();
+            },
           ),
+          if (_transport == TransportType.car) ...[
+            const SizedBox(height: 6),
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: JsColors.gunmetal,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _parkingCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: '駐車料金（円）',
+                        border: InputBorder.none,
+                        hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                      onChanged: (_) => _saveDraft(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (_transport == TransportType.other) ...[
             const SizedBox(height: 6),
             Container(
@@ -1021,8 +1131,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             expanded: _overtimeExpanded,
             onToggle: () =>
                 setState(() => _overtimeExpanded = !_overtimeExpanded),
-            onChanged: (h, m) =>
-                setState(() { _overtimeHours = h; _overtimeMinutes = m; }),
+            onChanged: (h, m) {
+              setState(() { _overtimeHours = h; _overtimeMinutes = m; });
+              if (h > 0 || m > 0) {
+                _saveWorkStatus('overtime');
+                _saveDraft();
+              }
+            },
           ),
           const SizedBox(height: 8),
 
@@ -1068,9 +1183,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 // HomeScreen / ForemanHomeScreen — 後方互換ラッパー
 // ─────────────────────────────────────────────
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.restoreWorkStatus});
+  final String? restoreWorkStatus;
   @override
-  Widget build(BuildContext context) => const JsMainShell(isForeman: false);
+  Widget build(BuildContext context) =>
+      JsMainShell(isForeman: false, restoreWorkStatus: restoreWorkStatus);
 }
 
 class ForemanHomeScreen extends StatelessWidget {
