@@ -284,11 +284,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', data['token'] as String? ?? '');
-    await prefs.setString('user_name', data['name'] as String? ?? '');
-    await prefs.setString('user_role', data['role'] as String? ?? 'worker');
-    await prefs.setString('company_id', data['company_id'] as String? ?? '');
-    await prefs.setString('work_mode', data['work_mode'] as String? ?? 'deemed');
+    await prefs.setString('auth_token',  data['token']      as String? ?? '');
+    await prefs.setString('user_name',   data['name']       as String? ?? '');
+    await prefs.setString('user_role',   data['role']       as String? ?? 'worker');
+    await prefs.setString('company_id',  data['company_id'] as String? ?? '');
+    await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');
+    await prefs.setString('user_id',     data['user_id']    as String? ?? '');
+    // device_idを取得して保存（なければ生成して保存）
+    String deviceId = prefs.getString('device_id') ?? '';
+    if (deviceId.isEmpty) {
+      deviceId = await _getDeviceId();
+      await prefs.setString('device_id', deviceId);
+    }
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
