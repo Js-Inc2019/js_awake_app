@@ -372,17 +372,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 12),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed('/register'),
-                  child: const Text(
-                    '機種変更はこちら（管理者から招待コードを受け取った方）',
-                    style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
             ],
           ),
         ),
