@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, API_URL, showJsSnackbar;
 import '../services/profile_service.dart';
 import 'consent_view_screen.dart';
+import 'privacy_policy_screen.dart';
 
 // ─── 経験年数 → バッジ色 ───────────────────────────────────
 Color experienceColor(int? years) {
@@ -216,6 +217,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        _buildPrivacyTile(),
+                        const SizedBox(height: 12),
                         _buildConsentCard(),
                         const SizedBox(height: 16),
                         _buildHeader(p),
@@ -367,6 +370,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (_) => _ProfileEditScreen(
           initial: p,
           onSaved: _loadProfile,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrivacyTile() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF252525),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.privacy_tip_outlined,
+                color: JsColors.gold, size: 18),
+            SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('法的情報',
+                      style: TextStyle(
+                          color: JsColors.silver,
+                          fontSize: 10,
+                          letterSpacing: 0.5)),
+                  SizedBox(height: 2),
+                  Text('プライバシーポリシー',
+                      style: TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          ],
         ),
       ),
     );
