@@ -279,6 +279,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmed != true) return;
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('logged_out', true);
     await prefs.remove('auth_token');
     await prefs.remove('user_id');
     await prefs.remove('user_name');
@@ -294,7 +295,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('today_overtime_minutes');
     await prefs.remove('last_tab_index_worker');
     await prefs.remove('last_tab_index_foreman');
-    // device_id は削除しない → 生体認証ログイン画面へ
+    // device_id は削除しない → PINログイン画面へ
 
     if (!mounted) return;
     await showDialog(

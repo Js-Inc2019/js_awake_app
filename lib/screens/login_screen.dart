@@ -81,19 +81,18 @@ class _LoginScreenState extends State<LoginScreen> {
       final auth = LocalAuthentication();
       final canCheck  = await auth.canCheckBiometrics;
       final supported = await auth.isDeviceSupported();
-      if (!canCheck && !supported) return true; // 認証手段が全くない場合のみスキップ
+      if (!canCheck || !supported) {
+        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+        return false;
+      }
       final result = await auth.authenticate(
         localizedReason: '本人確認を行ってください',
         options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
       return result;
     } catch (e) {
-      if (e is PlatformException && e.code == 'NotAvailable') {
-        // セキュリティロック未設定 → PINログインへ切り替え
-        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
-        return false;
-      }
-      return true;
+      if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+      return false;
     }
   }
 
@@ -155,6 +154,13 @@ class _LoginScreenState extends State<LoginScreen> {
     final registered = prefs.getBool('is_registered') ?? false;
     if (mounted) setState(() => _isRegistered = registered);
     if (hasDevice) {
+      // ログアウト直後はPINログインへ直行（生体認証スキップ）
+      final loggedOut = prefs.getBool('logged_out') ?? false;
+      if (loggedOut) {
+        await prefs.remove('logged_out');
+        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+        return;
+      }
       await _biometricThenLogin();
     } else {
       // 未登録ユーザー: 自動リダイレクトせずログイン画面を表示し「新規登録」ボタンを案内
