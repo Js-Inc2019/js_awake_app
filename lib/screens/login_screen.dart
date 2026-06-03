@@ -202,11 +202,6 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _errorMessage = '会社コードと氏名を入力してください');
       return;
     }
-    final ok = await _doBiometric();
-    if (!ok) {
-      setState(() => _errorMessage = '認識に失敗しました');
-      return;
-    }
     setState(() { _isLoading = true; _errorMessage = null; });
     try {
       final deviceId = await _getDeviceId();
