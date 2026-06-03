@@ -721,13 +721,40 @@ class _GateScreenState extends State<GateScreen> {
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final savedDate  = prefs.getString('today_date') ?? '';
     final workStatus = prefs.getString('today_work_status') ?? 'idle';
+    final userName = prefs.getString('user_name') ?? '';
     final shouldRestore = savedDate == todayDate &&
         workStatus != 'idle' &&
         workStatus != 'done';
 
     if (workStatus == 'done') {
-      await prefs.remove('today_work_status');
-      await prefs.remove('today_date');
+      if (savedDate == todayDate) {
+        // 当日の報告完了 → 完了画面を復元
+        if (!context.mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (innerCtx) {
+              void goHome() {
+                prefs.remove('today_work_status');
+                prefs.remove('today_date');
+                Navigator.of(innerCtx).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()));
+              }
+              return AfterReportScreen(
+                workerName: userName,
+                onMoveToNextSite: goHome,
+                onNightShift: goHome,
+                onOvertime: () async => goHome(),
+              );
+            },
+          ),
+        );
+        return;
+      } else {
+        // 日付が変わった → クリアして通常起動
+        await prefs.remove('today_work_status');
+        await prefs.remove('today_date');
+      }
     }
 
     if (!context.mounted) return;
