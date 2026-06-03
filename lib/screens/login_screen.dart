@@ -79,6 +79,41 @@ class _LoginScreenState extends State<LoginScreen> {
     http.get(Uri.parse(_healthUrl)).timeout(const Duration(seconds: 60)).ignore();
 
     final prefs = await SharedPreferences.getInstance();
+
+    // auth_token あり → POST /api/v1/auth/verify-token でサーバー検証
+    final cachedToken = prefs.getString('auth_token') ?? '';
+    if (cachedToken.isNotEmpty) {
+      try {
+        final response = await http.post(
+          Uri.parse('$_apiBase/auth/verify-token'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $cachedToken',
+          },
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          // 有効なトークン → /gate へ
+          if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
+          return;
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          // トークン無効・期限切れ → 削除してログイン画面を表示
+          await prefs.remove('auth_token');
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
+        // 5xx などサーバーエラー → オフライン扱いで通過
+        if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
+        return;
+      } catch (e) {
+        // ネットワークエラー → キャッシュで /gate（オフライン対応維持）
+        debugPrint('トークン検証エラー（オフライン）: $e');
+        if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
+        return;
+      }
+    }
+
+    // auth_token なし → デバイス登録チェック → 生体認証
     final hasDevice  = prefs.getString('device_id') != null;
     final registered = prefs.getBool('is_registered') ?? false;
     if (mounted) setState(() => _isRegistered = registered);
