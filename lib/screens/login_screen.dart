@@ -87,7 +87,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return result;
     } catch (e) {
-      debugPrint('生体認証エラー: $e');
       if (e is PlatformException && e.code == 'NotAvailable') {
         // セキュリティロック未設定 → PINログインへ切り替え
         if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
@@ -129,8 +128,6 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
         return;
       } catch (e) {
-        // ネットワークエラー → キャッシュで /gate（オフライン対応維持）
-        debugPrint('トークン検証エラー（オフライン）: $e');
         if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
         return;
       }
@@ -178,8 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       // サーバーが応答して非200を返した場合（トークン期限切れ・デバイス無効など）
       // → キャッシュを信頼せず登録フォームを表示
-    } catch (e) {
-      debugPrint('自動Loginエラー: $e');
+    } catch (_) {
       // ネットワーク到達不可（タイムアウト・例外）
     }
     if (!serverResponded) {
@@ -195,7 +191,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _register() async {
-    debugPrint('_register() 開始');
     final companyCode = _companyCodeCtrl.text.trim().toUpperCase();
     final name = _nameCtrl.text.trim();
     if (companyCode.isEmpty || name.isEmpty) {
@@ -210,11 +205,8 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
       ).timeout(const Duration(seconds: 10));
-      debugPrint('register status: ${response.statusCode}');
-      debugPrint('register body: ${response.body}');
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 || response.statusCode == 201) {
-        debugPrint('→ PIN設定ステップへ');
         // PIN設定ステップへ（仮PIN 000000のまま進まないよう）
         _pinCtrl.clear();
         _pinConfCtrl.clear();

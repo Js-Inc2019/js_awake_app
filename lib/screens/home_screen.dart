@@ -13,6 +13,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../main.dart'
     show
@@ -83,9 +85,9 @@ String? _getSeasonWarning(DateTime now) {
 }
 
 // ─────────────────────────────────────────────
-// OWM API キー
+// OWM API キー（.env から取得）
 // ─────────────────────────────────────────────
-const String _owmApiKey = 'b0c0fa1306217e124c6aef44ed8721cf';
+String get _owmApiKey => dotenv.env['OPENWEATHER_API_KEY'] ?? '';
 
 // ─────────────────────────────────────────────
 // 天気データモデル
@@ -568,7 +570,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         prefs?.setDouble('gps_lat', _lat!);
         prefs?.setDouble('gps_lon', _lon!);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('GPS取得エラー: $e');
+    }
     final addr = await fetchGpsAddress();
     if (addr.isNotEmpty) prefs?.setString('gps_address', addr);
     if (mounted) {
@@ -632,7 +636,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         p.setInt('cache_revision_count', count);
         setState(() => _revisionCount = count);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('是正件数取得エラー: $e');
+    }
   }
 
   Future<void> _calculateRoutes() async {

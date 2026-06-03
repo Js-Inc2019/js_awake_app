@@ -6,6 +6,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -163,7 +164,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('プロフィール取得エラー: $e');
+    }
   }
 
   @override
@@ -508,7 +511,9 @@ class _InfoRow extends StatelessWidget {
                   style: TextStyle(
                       color: valueColor ?? JsColors.offWhite,
                       fontSize: 14,
-                      fontWeight: FontWeight.w500)),
+                      fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2),
             ],
           ),
         ),
@@ -960,7 +965,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.home, color: JsColors.silver),
                   alignLabelWithHint: true,
-                  hintText: '例：兵庫県神戸市中央区三宮町1丁目',
+                  hintText: '例：兵庫県神戸市長田区',
                 ),
                 style: const TextStyle(color: JsColors.offWhite),
               ),

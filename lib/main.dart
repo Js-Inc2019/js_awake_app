@@ -39,6 +39,7 @@ import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
     import 'package:http/http.dart' as http;
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
 
 // ============================================================
@@ -53,6 +54,7 @@ const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/ap
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
   if (!kIsWeb) {
@@ -268,13 +270,10 @@ class ReportStore {
         if (response.statusCode == 200 || response.statusCode == 201) {
           final resBody = jsonDecode(response.body);
           item.apiReportId = resBody['report_id'] as String?;
-          debugPrint('API 送信成功: ${item.name} id=${item.apiReportId}');
         } else {
-          debugPrint('API エラー: ${response.statusCode}');
           failed.add(item);
         }
-      } catch (e) {
-        debugPrint('API 送信失敗: $e');
+      } catch (_) {
         failed.add(item);
       }
     }
@@ -428,8 +427,7 @@ class NotificationManager {
           matchDateTimeComponents: DateTimeComponents.time,
         );
       }
-    } catch (e) {
-      debugPrint('通知スケジュール失敗: $e');
+    } catch (_) {
     }
   }
 
@@ -460,8 +458,7 @@ class NotificationManager {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-    } catch (e) {
-      debugPrint('退勤リマインダースケジュール失敗: $e');
+    } catch (_) {
     }
   }
 
@@ -469,8 +466,7 @@ class NotificationManager {
     if (kIsWeb) return;
     try {
       await _plugin.cancel(_overtimeNotifId);
-    } catch (e) {
-      debugPrint('退勤リマインダーキャンセル失敗: $e');
+    } catch (_) {
     }
   }
 }
@@ -499,7 +495,7 @@ class SpeechManager {
 
   Future<bool> initialize() async {
     _initialized = await _speech.initialize(
-      onError: (e) => debugPrint('音声エラー: ${e.errorMsg}'),
+      onError: (_) {},
     );
     return _initialized;
   }
@@ -801,7 +797,6 @@ class _GateScreenState extends State<GateScreen> {
           localizedReason: '職長・管理者用へアクセスするには認証が必要です',
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
-        debugPrint('🔐 認証結果: ok=$ok');
       } else {
         // 生体認証未対応の場合は拒否
         ok = false;
@@ -809,9 +804,8 @@ class _GateScreenState extends State<GateScreen> {
           showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
         }
       }
-    } catch (e) {
+    } catch (_) {
       ok = false;
-      debugPrint('🔐 catch: $e ok=$ok');
     }
     if (ok && context.mounted) {
       Navigator.push(context, MaterialPageRoute(
@@ -956,7 +950,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     if (_originType == 'office' && _companyAddress.isNotEmpty) {
       originAddr = _companyAddress;
     } else {
-      originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市中央区三宮町1丁目';
+      originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
     }
     if (mounted) setState(() => _loadingRoutes = true);
     // リトライ: APIタイムアウト（Herokuコールドスタート）対策
