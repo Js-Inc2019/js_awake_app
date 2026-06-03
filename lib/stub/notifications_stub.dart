@@ -70,6 +70,7 @@ class DarwinNotificationDetails {
 }
 
 class Importance {
+  // ignore: unused_field
   final int _value;
   const Importance._(this._value);
   static const Importance defaultImportance = Importance._(3);
@@ -78,6 +79,7 @@ class Importance {
 }
 
 class Priority {
+  // ignore: unused_field
   final int _value;
   const Priority._(this._value);
   static const Priority defaultPriority = Priority._(0);
@@ -85,6 +87,7 @@ class Priority {
 }
 
 class AndroidScheduleMode {
+  // ignore: unused_field
   final String _value;
   const AndroidScheduleMode._(this._value);
   static const AndroidScheduleMode exact = AndroidScheduleMode._('exact');
@@ -94,6 +97,7 @@ class AndroidScheduleMode {
 }
 
 class UILocalNotificationDateInterpretation {
+  // ignore: unused_field
   final String _value;
   const UILocalNotificationDateInterpretation._(this._value);
   static const UILocalNotificationDateInterpretation absoluteTime =
@@ -103,6 +107,7 @@ class UILocalNotificationDateInterpretation {
 }
 
 class DateTimeComponents {
+  // ignore: unused_field
   final String _value;
   const DateTimeComponents._(this._value);
   static const DateTimeComponents time = DateTimeComponents._('time');

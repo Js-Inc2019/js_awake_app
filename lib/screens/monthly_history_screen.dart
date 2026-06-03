@@ -373,7 +373,7 @@ class _ReportDetailSheet extends StatelessWidget {
                   value: '¥$parking'),
             if (otHours > 0 || otMinutes > 0)
               _DetailRow(icon: Icons.access_time, label: '残業時間',
-                  value: '${otHours}時間${otMinutes}分'),
+                  value: '$otHours時間$otMinutes分'),
           ],
         ),
       ),

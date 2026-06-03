@@ -13,7 +13,6 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../main.dart'
@@ -804,6 +803,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         'user_name':  userName,
         'company_id': companyId,
         'role':       role,
+        'user_id':    userId,
       },
     );
     try {
@@ -1811,8 +1811,8 @@ class _WorkContentSection extends StatelessWidget {
             child: Row(children: [
               Icon(Icons.construction,
                   color: JsColors.gold, size: 15),
-              const SizedBox(width: 6),
-              const Text('作業内容',
+              SizedBox(width: 6),
+              Text('作業内容',
                   style: TextStyle(
                       color: JsColors.offWhite,
                       fontSize: 13,

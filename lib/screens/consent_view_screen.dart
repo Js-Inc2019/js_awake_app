@@ -92,7 +92,7 @@ class ConsentViewScreen extends StatelessWidget {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: JsColors.gold.withOpacity(0.15),
+                color: JsColors.gold.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Center(

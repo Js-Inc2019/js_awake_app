@@ -384,7 +384,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
               const Text('Login', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text(_errorMessage ?? '', style: const TextStyle(color: const Color(0xFF686040)), textAlign: TextAlign.center),
+              Text(_errorMessage ?? '', style: const TextStyle(color: Color(0xFF686040)), textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: _biometricThenLogin,
@@ -418,15 +418,15 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFA89868), fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text('勤務管理システム', style: TextStyle(color: const Color(0xFFEDE8DC), fontSize: 16)),
+              const Text('勤務管理システム', style: TextStyle(color: Color(0xFFEDE8DC), fontSize: 16)),
               const SizedBox(height: 48),
               TextField(
                 controller: _companyCodeCtrl,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: '会社コード',
-                  labelStyle: const TextStyle(color: const Color(0xFF686040)),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: const Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
+                  labelStyle: const TextStyle(color: Color(0xFF686040)),
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
                 ),
               ),
@@ -436,13 +436,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: '氏名',
-                  labelStyle: const TextStyle(color: const Color(0xFF686040)),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: const Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
+                  labelStyle: const TextStyle(color: Color(0xFF686040)),
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
                 ),
               ),
               const SizedBox(height: 16),
-              const Align(alignment: Alignment.centerLeft, child: Text('役割', style: TextStyle(color: const Color(0xFF686040), fontSize: 12))),
+              const Align(alignment: Alignment.centerLeft, child: Text('役割', style: TextStyle(color: Color(0xFF686040), fontSize: 12))),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -549,7 +549,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('登録済みのPINを入力してください',
-                  style: TextStyle(color: const Color(0xFF686040), fontSize: 13)),
+                  style: TextStyle(color: Color(0xFF686040), fontSize: 13)),
               const SizedBox(height: 40),
               TextField(
                 controller: _loginPinCtrl,
@@ -562,7 +562,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: InputDecoration(
                   counterText: '',
                   hintText: '● ● ● ●',
-                  hintStyle: const TextStyle(color: const Color(0xFF242418), letterSpacing: 8),
+                  hintStyle: const TextStyle(color: Color(0xFF242418), letterSpacing: 8),
                   filled: true,
                   fillColor: const Color(0xFF181810),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -612,7 +612,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFA89868), fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text('勤務管理システム', style: TextStyle(color: const Color(0xFFEDE8DC), fontSize: 16)),
+              const Text('勤務管理システム', style: TextStyle(color: Color(0xFFEDE8DC), fontSize: 16)),
               const SizedBox(height: 40),
               const Text('PINを設定', style: TextStyle(color: Color(0xFFA89868), fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -627,10 +627,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'PIN（4〜6桁）',
-                  labelStyle: const TextStyle(color: const Color(0xFF686040)),
-                  prefixIcon: const Icon(Icons.lock, color: const Color(0xFF686040)),
+                  labelStyle: const TextStyle(color: Color(0xFF686040)),
+                  prefixIcon: const Icon(Icons.lock, color: Color(0xFF686040)),
                   counterText: '',
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: const Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
                     icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF686040)),
@@ -647,10 +647,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'PIN確認',
-                  labelStyle: const TextStyle(color: const Color(0xFF686040)),
-                  prefixIcon: const Icon(Icons.lock_outline, color: const Color(0xFF686040)),
+                  labelStyle: const TextStyle(color: Color(0xFF686040)),
+                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF686040)),
                   counterText: '',
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: const Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
                     icon: Icon(_obscureConf ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF686040)),

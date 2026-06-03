@@ -6,7 +6,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -384,11 +383,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              const Icon(Icons.verified_user, color: JsColors.gold, size: 16),
-              const SizedBox(width: 6),
-              const Text(
+              Icon(Icons.verified_user, color: JsColors.gold, size: 16),
+              SizedBox(width: 6),
+              Text(
                 '利用規約・同意状況',
                 style: TextStyle(
                   color: Colors.white,
@@ -396,8 +395,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const Spacer(),
-              const Icon(Icons.lock, color: Colors.white38, size: 14),
+              Spacer(),
+              Icon(Icons.lock, color: Colors.white38, size: 14),
             ],
           ),
           const SizedBox(height: 8),

@@ -68,16 +68,16 @@ void main() async {
 // ============================================================
 
 class JsColors {
-  static const black    = Color(0xFF0D1B2A); // darkNavy
-  static const gunmetal = Color(0xFF2C2C2C); // HP gunmetal
-  static const gold     = Color(0xFFC9A84C); // HP gold
-  static const silver   = Color(0xFF8A9BA8); // HP steelSilver
-  static const offWhite = Color(0xFFF5F5F0);
-  static const surface  = Color(0xFF3D3D3D); // HP gunmetalLight
-  static const divider  = Color(0xFF4A4A4A);
-  static const success  = Color(0xFF4CAF50); // HP success
-  static const error    = Color(0xFFE53935); // HP error
-  static const warning  = Color(0xFFC9A84C); // HP gold (warning)
+  static const black    = Color(0xFF080806); // Asphalt Dawn 背景メイン
+  static const gunmetal = Color(0xFF181810); // カード背景
+  static const gold     = Color(0xFFA89868); // ゴールド砂埃（アクセント）
+  static const silver   = Color(0xFF484830); // テキスト弱
+  static const offWhite = Color(0xFFEDE8DC); // テキスト強
+  static const surface  = Color(0xFF101008); // 背景サブ
+  static const divider  = Color(0xFF242418); // ボーダー
+  static const success  = Color(0xFF2E7D5E);
+  static const error    = Color(0xFFFF4444);
+  static const warning  = Color(0xFFFFB800);
 }
 
 // ============================================================
@@ -763,29 +763,6 @@ class _GateScreenState extends State<GateScreen> {
       ),
     );
   }
-  Future<void> _pushForeman(BuildContext context) async {
-    final settings = await WorkModeService.instance.fetchFromServer();
-    if (!context.mounted) return;
-    if (settings.mode == WorkModeType.actual) {
-      final checkedIn = await WorkModeService.instance.isCheckedIn();
-      if (!context.mounted) return;
-      if (!checkedIn) {
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => WorkModeScreen(
-            screenTitle: '職長用 — 出勤',
-            isBossMode: false,
-            onCheckedIn: () => Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const ForemanHomeScreen())),
-          ),
-        ));
-        return;
-      }
-    }
-    if (!context.mounted) return;
-    Navigator.pushReplacement(context,
-        MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
-  }
-
   Future<void> _pushBoss(BuildContext context) async {
     final auth = LocalAuthentication();
     bool ok = false;
@@ -2370,7 +2347,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorder: (oldIndex, newIndex) async {
+                onReorderItem: (oldIndex, newIndex) async {
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
                   setState(() => _names = list);
