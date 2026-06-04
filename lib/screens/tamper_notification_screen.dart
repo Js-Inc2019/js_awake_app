@@ -1,4 +1,5 @@
 ﻿// lib/screens/tamper_notification_screen.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -51,8 +52,10 @@ class _TamperNotificationScreenState extends State<TamperNotificationScreen> {
       await http.patch(
         Uri.parse('$_API_URL/reports/tamper/$notificationId/read'),
         headers: {'Authorization': 'Bearer $token'},
-      );
+      ).timeout(const Duration(seconds: 30));
       await _load();
+    } on TimeoutException catch (_) {
+      debugPrint('HTTP timeout');
     } catch (_) {}
   }
 
