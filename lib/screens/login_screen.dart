@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -39,6 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // PINログインフォールバック（生体認証NotAvailable時）
   bool _showPinLogin = false;
+  bool _isUpdateRecovery = false; // アップデート後のPIN再認証フロー
   final _loginPinCtrl = TextEditingController();
   bool _obscureLoginPin = true;
 
@@ -56,6 +58,28 @@ class _LoginScreenState extends State<LoginScreen> {
     _pinConfCtrl.dispose();
     _loginPinCtrl.dispose();
     super.dispose();
+  }
+
+  // is_registeredをSharedPreferences消去後も保持するためのファイル永続化
+  Future<File> _getRegFlagFile() async {
+    final dir = await getApplicationSupportDirectory();
+    return File('${dir.path}/.js_reg');
+  }
+
+  Future<bool> _readPersistentRegistered() async {
+    try {
+      final f = await _getRegFlagFile();
+      return f.existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _writePersistentRegistered() async {
+    try {
+      final f = await _getRegFlagFile();
+      await f.create(recursive: true);
+    } catch (_) {}
   }
 
   Future<String> _getDeviceId() async {
@@ -162,10 +186,22 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       await _biometricThenLogin();
-    } else {
-      // 未登録ユーザー: 自動リダイレクトせずログイン画面を表示し「新規登録」ボタンを案内
+    } else if (registered) {
+      // Case 4a: device_idなし + is_registered=true (SharedPreferences内) → アップデート後PIN再認証
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() { _isUpdateRecovery = true; _showPinLogin = true; _isLoading = false; });
+    } else {
+      // Case 4b: device_idなし + is_registeredなし → ファイルで永続登録フラグを確認
+      final persistentReg = await _readPersistentRegistered();
+      if (!mounted) return;
+      if (persistentReg) {
+        // ファイルに登録済みフラグあり → アップデート後PIN再認証
+        await prefs.setBool('is_registered', true);
+        setState(() { _isUpdateRecovery = true; _showPinLogin = true; _isLoading = false; });
+      } else {
+        // 新規ユーザー: サインアップ画面を表示
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -356,11 +392,14 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('consent_agreed_at',
         data['consent_agreed_at'] ?? DateTime.now().toIso8601String());
     await prefs.setString('consent_version', '1.0');
+    await prefs.setBool('is_registered', true);
     String deviceId = prefs.getString('device_id') ?? '';
     if (deviceId.isEmpty) {
       deviceId = await _getDeviceId();
       await prefs.setString('device_id', deviceId);
     }
+    // is_registeredをファイルにも保存（SharedPreferences消去後も検出できるよう）
+    await _writePersistentRegistered();
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
@@ -554,9 +593,26 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text('PINでログイン',
                   style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text('登録済みのPINを入力してください',
-                  style: TextStyle(color: Color(0xFF686040), fontSize: 13)),
-              const SizedBox(height: 40),
+              if (_isUpdateRecovery) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1810),
+                    border: Border.all(color: const Color(0xFFA89868), width: 1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'アプリのアップデートのため、\nPINコードでの再認証が必要です',
+                    style: TextStyle(color: Color(0xFFA89868), fontSize: 13, height: 1.6),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ] else ...[
+                const Text('登録済みのPINを入力してください',
+                    style: TextStyle(color: Color(0xFF686040), fontSize: 13)),
+                const SizedBox(height: 40),
+              ],
               TextField(
                 controller: _loginPinCtrl,
                 obscureText: _obscureLoginPin,
