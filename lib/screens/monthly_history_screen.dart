@@ -56,6 +56,7 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         // トークン切れ・無効 → ログアウトして再ログイン
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('auth_token');
+        await prefs.setBool('logged_out', true);
         if (mounted) {
           setState(() { _loading = false; _error = '認証の有効期限が切れました。再ログインしてください。'; });
           Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);

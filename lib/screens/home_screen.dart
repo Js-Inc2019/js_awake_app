@@ -1044,6 +1044,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               _saveDraft();
             },
           ),
+          // ルート情報（移動手段の直後・金額の前）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 6, 0, 0),
+            child: _RouteInfoBar(
+              transport: _transport,
+              comparisons: _routeComparisons,
+              loading: _loadingRoutes,
+            ),
+          ),
           if (_transport == TransportType.car) ...[
             const SizedBox(height: 6),
             Container(
@@ -1106,12 +1115,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               ),
             ),
           ],
-          const SizedBox(height: 6),
-          _RouteInfoBar(
-            transport: _transport,
-            comparisons: _routeComparisons,
-            loading: _loadingRoutes,
-          ),
           const SizedBox(height: 8),
 
           // ⑤ 作業内容テキスト

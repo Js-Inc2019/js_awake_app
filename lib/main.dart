@@ -2347,7 +2347,7 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),
-                onReorderItem: (oldIndex, newIndex) async {
+                onReorder: (oldIndex, newIndex) async {
                   final list = List<String>.from(_names);
                   list.insert(newIndex, list.removeAt(oldIndex));
                   setState(() => _names = list);
