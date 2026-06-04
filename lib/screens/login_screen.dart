@@ -199,7 +199,18 @@ class _LoginScreenState extends State<LoginScreen> {
         ).timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
-          // 有効なトークン → /gate へ
+          // サーバーからconsent_agreed_atを取得してSharedPreferencesに保存（サーバー値優先）
+          try {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            final serverConsentAt = data['consent_agreed_at'];
+            if (serverConsentAt != null) {
+              await prefs.setString('consent_agreed_at', serverConsentAt.toString());
+            }
+            final serverConsentVersion = data['consent_version'];
+            if (serverConsentVersion != null) {
+              await prefs.setString('consent_version', serverConsentVersion.toString());
+            }
+          } catch (_) {}
           if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
           return;
         } else if (response.statusCode == 401 || response.statusCode == 403) {
