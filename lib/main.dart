@@ -681,6 +681,23 @@ class _GateScreenState extends State<GateScreen> {
   }
   Future<void> _autoNavigate() async {
     final prefs = await SharedPreferences.getInstance();
+    // auth_tokenがない場合はログイン画面へ
+    final token = prefs.getString('auth_token') ?? '';
+    if (token.isEmpty) {
+      if (!mounted) return;
+      final loggedOut = prefs.getBool('logged_out') ?? false;
+      if (loggedOut) {
+        await prefs.remove('logged_out');
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(
+          context, '/login',
+          arguments: {'showPin': true},
+        );
+      } else {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
+      return;
+    }
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
     if (role == 'boss' || role == 'foreman') { _pushBoss(context); }
