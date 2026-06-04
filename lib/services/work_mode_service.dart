@@ -87,7 +87,7 @@ class WorkModeService {
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) return await load();
       final res = await http.get(
-        Uri.parse('$_apiBase/work-settings/me'),
+        Uri.parse('$_apiBase/work_settings/my'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
