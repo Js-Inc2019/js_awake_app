@@ -13,7 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/constants.dart';
 
 import '../main.dart'
     show
@@ -83,10 +83,7 @@ String? _getSeasonWarning(DateTime now) {
   return null;
 }
 
-// ─────────────────────────────────────────────
-// OWM API キー（.env から取得）
-// ─────────────────────────────────────────────
-String get _owmApiKey => dotenv.env['OPENWEATHER_API_KEY'] ?? '';
+// OWM API キーは lib/config/constants.dart の kWeatherApiKey を使用
 
 // ─────────────────────────────────────────────
 // 天気データモデル
@@ -159,7 +156,7 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWeatherFull({
   double? lat,
   double? lon,
 }) async {
-  if (_owmApiKey != 'YOUR_OPENWEATHERMAP_API_KEY' && lat != null && lon != null) {
+  if (kWeatherApiKey.isNotEmpty && lat != null && lon != null) {
     return _fetchOwm(lat, lon);
   }
   return _fetchWttr();
@@ -169,12 +166,12 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) as
   try {
     final curRes = await http.get(Uri.parse(
       'https://api.openweathermap.org/data/2.5/weather'
-      '?lat=$lat&lon=$lon&appid=$_owmApiKey&units=metric&lang=ja',
+      '?lat=$lat&lon=$lon&appid=$kWeatherApiKey&units=metric&lang=ja',
     )).timeout(const Duration(seconds: 8));
 
     final fcRes = await http.get(Uri.parse(
       'https://api.openweathermap.org/data/2.5/forecast'
-      '?lat=$lat&lon=$lon&appid=$_owmApiKey&units=metric&lang=ja&cnt=40',
+      '?lat=$lat&lon=$lon&appid=$kWeatherApiKey&units=metric&lang=ja&cnt=40',
     )).timeout(const Duration(seconds: 8));
 
     if (curRes.statusCode != 200) return (null, <_ForecastDay>[]);
