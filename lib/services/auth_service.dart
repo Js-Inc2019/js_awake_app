@@ -7,13 +7,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/constants.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
-
-  // ✅ HerokuのURLに変更
-  static const String API_URL =
-      'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
   factory AuthService() {
     return _instance;
@@ -109,7 +106,7 @@ class AuthService {
   Future<Map<String, dynamic>> loginWithPin(String pin) async {
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/auth/verify-pin'),
+        Uri.parse('$kApiBaseUrl/auth/verify-pin'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'pin': pin,
@@ -181,7 +178,7 @@ class AuthService {
       if (token == null) return false;
 
       final response = await http.post(
-        Uri.parse('$API_URL/auth/verify-token'),
+        Uri.parse('$kApiBaseUrl/auth/verify-token'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',

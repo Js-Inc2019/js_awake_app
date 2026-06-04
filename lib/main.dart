@@ -46,7 +46,8 @@ import 'core/theme/app_theme.dart';
 // API設定
 // ============================================================
 
-const String API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+import 'config/constants.dart';
+const String API_URL = kApiBaseUrl;
 
 // ============================================================
 // エントリーポイント
@@ -108,6 +109,7 @@ class JsAwakeApp extends StatelessWidget {
 // ============================================================
 
 enum TransportType {
+  none('未選択',  Icons.help_outline),
   train('電車',   Icons.train),
   car('車',       Icons.directions_car),
   bus('バス',     Icons.directions_bus),
@@ -255,12 +257,16 @@ class ReportStore {
         if (item.parkingPhotoPath != null) {
           try {
             body['parking_photo_base64'] = base64Encode(await File(item.parkingPhotoPath!).readAsBytes());
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('駐車写真エンコード失敗: $e');
+          }
         }
         if (item.workPhotoPath != null) {
           try {
             body['site_photo_base64'] = base64Encode(await File(item.workPhotoPath!).readAsBytes());
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('作業写真エンコード失敗: $e');
+          }
         }
         final response = await http.post(
           Uri.parse('$API_URL/reports'),
@@ -273,7 +279,8 @@ class ReportStore {
         } else {
           failed.add(item);
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint('API送信失敗: $e');
         failed.add(item);
       }
     }
@@ -798,7 +805,8 @@ class _GateScreenState extends State<GateScreen> {
           showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
         }
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('生体認証エラー: $e');
       ok = false;
     }
     if (ok && context.mounted) {
@@ -806,8 +814,11 @@ class _GateScreenState extends State<GateScreen> {
           builder: (_) => const SharedWorkerForm(
             screenTitle: '職長・管理者用 — 日報管理', isBossMode: true)));
     } else if (!ok && context.mounted) {
-      // 認証失敗・キャンセル時はログイン画面に戻す
-      Navigator.pushReplacementNamed(context, '/login');
+      // 認証失敗・キャンセル時はログイン画面に戻す（エラーフラグを渡す）
+      Navigator.pushReplacementNamed(
+        context, '/login',
+        arguments: {'biometricFailed': true},
+      );
     }
   }
 }

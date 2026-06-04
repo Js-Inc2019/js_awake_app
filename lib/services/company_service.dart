@@ -5,11 +5,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import '../config/constants.dart';
 
 class CompanyService {
   static final CompanyService _instance = CompanyService._internal();
-  static const String API_URL =
-      'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
   factory CompanyService() {
     return _instance;
@@ -27,7 +26,7 @@ class CompanyService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/companies'),
+        Uri.parse('$kApiBaseUrl/companies'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -54,7 +53,7 @@ class CompanyService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/companies/relations/list'),
+        Uri.parse('$kApiBaseUrl/companies/relations/list'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -87,7 +86,7 @@ class CompanyService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$API_URL/companies'),
+        Uri.parse('$kApiBaseUrl/companies'),
         headers: headers,
         body: jsonEncode({
           'company_name': companyName,
@@ -126,7 +125,7 @@ class CompanyService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$API_URL/companies/relations/add'),
+        Uri.parse('$kApiBaseUrl/companies/relations/add'),
         headers: headers,
         body: jsonEncode({
           'company_id_a': companyIdA,

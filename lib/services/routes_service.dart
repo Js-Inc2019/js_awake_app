@@ -2,8 +2,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import '../config/constants.dart';
 
-const String _kApiUrl = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _kApiUrl = kApiBaseUrl;
 
 // 電車ルート情報
 class TransitRoute {

@@ -11,9 +11,9 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
+import '../config/constants.dart';
 
-const String _apiBase    = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
-const String _healthUrl  = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/health';
+const String _apiBase = kApiBaseUrl;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -42,12 +42,44 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPinLogin = false;
   bool _isUpdateRecovery = false; // アップデート後のPIN再認証フロー
   final _loginPinCtrl = TextEditingController();
+  bool _biometricErrorShown = false;
   bool _obscureLoginPin = true;
 
   @override
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_biometricErrorShown) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['biometricFailed'] == true) {
+        _biometricErrorShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text(
+                '生体認証に失敗しました。PINコードでログインしてください。',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 24, vertical: 20),
+              duration: const Duration(seconds: 3),
+            ));
+          }
+        });
+      }
+    }
   }
 
   @override
@@ -120,9 +152,21 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _warmUpServer() async {
+    for (int i = 0; i < 3; i++) {
+      try {
+        final res = await http.get(Uri.parse(kHealthUrl))
+            .timeout(const Duration(seconds: 15));
+        if (res.statusCode == 200) return;
+      } catch (_) {}
+      if (i < 2) await Future.delayed(const Duration(seconds: 2));
+    }
+    debugPrint('サーバーウォームアップ失敗（処理続行）');
+  }
+
   Future<void> _init() async {
-    // ① Heroku コールドスタート対策 — 先に /health を叩いてdynoを起こす（60秒許容）
-    http.get(Uri.parse(_healthUrl)).timeout(const Duration(seconds: 60)).ignore();
+    // ① Heroku コールドスタート対策 — /health が200を返すまで最大3回リトライ
+    await _warmUpServer();
 
     final prefs = await SharedPreferences.getInstance();
 
@@ -181,8 +225,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // ログアウト直後はPINログインへ直行（生体認証スキップ）
       final loggedOut = prefs.getBool('logged_out') ?? false;
       if (loggedOut) {
-        await prefs.remove('logged_out');
+        // setState で先に画面を切り替え、フレーム描画後にフラグ削除
         if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (mounted) await prefs.remove('logged_out');
+        });
         return;
       }
       await _biometricThenLogin();

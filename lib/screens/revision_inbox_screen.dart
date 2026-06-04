@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, showJsSnackbar;
+import '../config/constants.dart';
 
-const String _apiUrl = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _apiUrl = kApiBaseUrl;
 
 class RevisionInboxScreen extends StatefulWidget {
   const RevisionInboxScreen({super.key});
@@ -16,6 +17,7 @@ class RevisionInboxScreen extends StatefulWidget {
 class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
   List<Map<String, dynamic>> _revisions = [];
   bool _loading = true;
+  bool _hasError = false;
 
   @override
   void initState() { super.initState(); _load(); }
@@ -29,7 +31,7 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() { _loading = true; _hasError = false; });
     try {
       final res = await http.get(
         Uri.parse('$_apiUrl/revisions/mine'),
@@ -45,10 +47,14 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
           });
         }
       } else {
-        if (mounted) { setState(() => _loading = false); }
+        if (mounted) { setState(() { _loading = false; _hasError = true; }); }
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      debugPrint('差し戻し一覧取得失敗: $e');
+      if (mounted) {
+        showJsSnackbar(context, '差し戻し一覧の取得に失敗しました。再度お試しください。', isError: true);
+        setState(() { _loading = false; _hasError = true; });
+      }
     }
   }
 
@@ -63,9 +69,11 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
-          : _revisions.isEmpty
-              ? _empty()
-              : RefreshIndicator(
+          : _hasError
+              ? _errorView()
+              : _revisions.isEmpty
+                  ? _emptyView()
+                  : RefreshIndicator(
                   onRefresh: _load,
                   color: JsColors.gold,
                   child: ListView.builder(
@@ -80,15 +88,35 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
     );
   }
 
-  Widget _empty() {
+  Widget _emptyView() {
     return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle_outline, color: JsColors.success, size: 64),
+          Icon(Icons.inbox, color: JsColors.silver, size: 64),
           SizedBox(height: 16),
-          Text('是正依頼はありません',
+          Text('差し戻しはありません',
               style: TextStyle(color: JsColors.silver, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _errorView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, color: JsColors.error, size: 64),
+          const SizedBox(height: 16),
+          const Text('取得に失敗しました',
+              style: TextStyle(color: JsColors.error, fontSize: 16)),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            label: const Text('再試行'),
+          ),
         ],
       ),
     );

@@ -5,8 +5,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import '../config/constants.dart';
 
-const String _apiBase = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _apiBase = kApiBaseUrl;
 
 enum WorkModeType { deemed, actual }
 

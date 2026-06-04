@@ -379,7 +379,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   DateTime? _healthCheckDate;
 
   // ─── 移動手段 ───
-  TransportType _transport = TransportType.car;
+  TransportType _transport = TransportType.none;
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
 
@@ -462,7 +462,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final overtimeM     = prefs.getInt('today_overtime_minutes') ?? 0;
     final transport = TransportType.values.firstWhere(
       (t) => t.name == transportName,
-      orElse: () => TransportType.car,
+      orElse: () => TransportType.none,
     );
     if (!mounted) return;
     setState(() {
@@ -696,6 +696,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       showJsSnackbar(context, '氏名が取得できていません', isError: true);
       return;
     }
+    if (_transport == TransportType.none) {
+      showJsSnackbar(context, '移動手段を選択してください', isError: true);
+      return;
+    }
     setState(() => _submitting = true);
     final name = _userName;
     final gpsAddr = _gpsAddress;
@@ -723,7 +727,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
       setState(() {
-        _transport = TransportType.car;
+        _transport = TransportType.none;
         _workCtrl.clear();
         _otherCtrl.clear();
         _parkingCtrl.clear();
@@ -742,7 +746,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             _parkingCtrl.clear();
             setState(() {
               _gpsAddress = '';
-              _transport = TransportType.car;
+              _transport = TransportType.none;
               _routeComparisons = {};
               _workPhotoPath = null;
             });
@@ -1001,188 +1005,193 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── ホームタブ本体 ───
   Widget _buildHomeTabContent() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 8),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // スクロール可能エリア
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
 
-          // ① GPS バー（1列、更新ボタン付き）
-          _GpsBar(
-            address: _gpsAddress,
-            loading: _gpsLoading,
-            onRefresh: _fetchGps,
-          ),
-          const SizedBox(height: 8),
+                // ① GPS バー（1列、更新ボタン付き）
+                _GpsBar(
+                  address: _gpsAddress,
+                  loading: _gpsLoading,
+                  onRefresh: _fetchGps,
+                ),
+                const SizedBox(height: 8),
 
-          // ② 天気（左）+ 熱中症指数（右）
-          _WeatherHeatRow(
-            weather: _weather,
-            loading: _weatherLoading,
-            seasonWarning: _seasonWarning,
-            onForecastTap: () => _showForecastSheet(context),
-          ),
+                // ② 天気（左）+ 熱中症指数（右）
+                _WeatherHeatRow(
+                  weather: _weather,
+                  loading: _weatherLoading,
+                  seasonWarning: _seasonWarning,
+                  onForecastTap: () => _showForecastSheet(context),
+                ),
 
-          // 健康診断警告
-          if (_buildHealthBannerMsg() != null) ...[
-            const SizedBox(height: 6),
-            _HealthCheckBanner(message: _buildHealthBannerMsg()!),
-          ],
-          const SizedBox(height: 8),
+                // 健康診断警告
+                if (_buildHealthBannerMsg() != null) ...[
+                  const SizedBox(height: 6),
+                  _HealthCheckBanner(message: _buildHealthBannerMsg()!),
+                ],
+                const SizedBox(height: 8),
 
-          // ③ AIの一言メッセージ
-          _DailyMessageRow(message: _dailyMessage),
-          const SizedBox(height: 8),
+                // ③ AIの一言メッセージ
+                _DailyMessageRow(message: _dailyMessage),
+                const SizedBox(height: 8),
 
-          // ④ 移動手段 4択 + ルート情報
-          _TransportRow(
-            selected: _transport,
-            onChanged: (t) {
-              setState(() => _transport = t);
-              _saveWorkStatus('moving');
-              _saveDraft();
-            },
-          ),
-          // ルート情報（移動手段の直後・金額の前）
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 6, 0, 0),
-            child: _RouteInfoBar(
-              transport: _transport,
-              comparisons: _routeComparisons,
-              loading: _loadingRoutes,
-            ),
-          ),
-          if (_transport == TransportType.car) ...[
-            const SizedBox(height: 6),
-            Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: JsColors.gunmetal,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _parkingCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: '駐車料金（円）',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
-                      onChanged: (_) => _saveDraft(),
+                // ④ 移動手段 4択 → 金額 → ルート情報
+                _TransportRow(
+                  selected: _transport,
+                  onChanged: (t) {
+                    setState(() => _transport = t);
+                    _saveWorkStatus('moving');
+                    _saveDraft();
+                  },
+                ),
+                if (_transport == TransportType.car) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 44,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: JsColors.gunmetal,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _parkingCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: '駐車料金（円）',
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                            onChanged: (_) => _saveDraft(),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-            ),
-          ],
-          if (_transport == TransportType.other) ...[
-            const SizedBox(height: 6),
-            Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: JsColors.gunmetal,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.edit_note, color: JsColors.silver, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _otherCtrl,
-                      decoration: const InputDecoration(
-                        hintText: 'その他の移動手段を入力（例：バイク等）',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                if (_transport == TransportType.other) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 44,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: JsColors.gunmetal,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.edit_note, color: JsColors.silver, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _otherCtrl,
+                            decoration: const InputDecoration(
+                              hintText: 'その他の移動手段を入力（例：バイク等）',
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                _RouteInfoBar(
+                  transport: _transport,
+                  comparisons: _routeComparisons,
+                  loading: _loadingRoutes,
+                ),
+                const SizedBox(height: 8),
 
-          // ⑤ 作業内容テキスト
-          Expanded(
-            child: _WorkContentSection(
-              controller: _workCtrl,
-              photoPath: _workPhotoPath,
-              onClearPhoto: () => setState(() => _workPhotoPath = null),
-            ),
-          ),
-          // マイク / カメラ（常時表示・Expandedの外）
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 6, 0, 0),
-            child: Row(children: [
-              Expanded(child: _MediaButton(
-                icon: _isListening ? Icons.mic : Icons.mic_none,
-                label: _isListening ? '録音中...' : '🎤 マイク',
-                active: _isListening,
-                onTap: _startVoice,
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _MediaButton(
-                icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                label: _workPhotoPath != null ? '📷 撮影済み' : '📷 カメラ',
-                active: _workPhotoPath != null,
-                onTap: _takeWorkPhoto,
-              )),
-            ]),
-          ),
-          const SizedBox(height: 8),
+                // ⑤ 作業内容テキスト
+                _WorkContentSection(
+                  controller: _workCtrl,
+                  photoPath: _workPhotoPath,
+                  onClearPhoto: () => setState(() => _workPhotoPath = null),
+                ),
+                const SizedBox(height: 8),
 
-          // ⑥ 残業（タップで時計入力）
-          _OvertimeSection(
-            hours: _overtimeHours,
-            minutes: _overtimeMinutes,
-            expanded: _overtimeExpanded,
-            onToggle: () =>
-                setState(() => _overtimeExpanded = !_overtimeExpanded),
-            onChanged: (h, m) {
-              setState(() { _overtimeHours = h; _overtimeMinutes = m; });
-              if (h > 0 || m > 0) {
-                _saveWorkStatus('overtime');
-                _saveDraft();
-              }
-            },
-          ),
-          const SizedBox(height: 8),
+                // ⑥ 残業（タップで時計入力）
+                _OvertimeSection(
+                  hours: _overtimeHours,
+                  minutes: _overtimeMinutes,
+                  expanded: _overtimeExpanded,
+                  onToggle: () =>
+                      setState(() => _overtimeExpanded = !_overtimeExpanded),
+                  onChanged: (h, m) {
+                    setState(() { _overtimeHours = h; _overtimeMinutes = m; });
+                    if (h > 0 || m > 0) {
+                      _saveWorkStatus('overtime');
+                      _saveDraft();
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
 
-          // 報告ボタン
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              child: _submitting
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.black))
-                  : const Text('報告を送信する',
-                      style: TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold)),
+                // 報告ボタン
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _submitting ? null : _submit,
+                    child: _submitting
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.5, color: Colors.black))
+                        : const Text('報告を送信する',
+                            style: TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-        ],
-      ),
+        ),
+
+        // マイク / カメラ（画面最下部に固定）
+        Container(
+          color: JsColors.black,
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+          child: Row(children: [
+            Expanded(child: _MediaButton(
+              icon: _isListening ? Icons.mic : Icons.mic_none,
+              label: _isListening ? '録音中...' : '🎤 マイク',
+              active: _isListening,
+              onTap: _startVoice,
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: _MediaButton(
+              icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+              label: _workPhotoPath != null ? '📷 撮影済み' : '📷 カメラ',
+              active: _workPhotoPath != null,
+              onTap: _takeWorkPhoto,
+            )),
+          ]),
+        ),
+      ],
     );
   }
 
@@ -1832,13 +1841,13 @@ class _WorkContentSection extends StatelessWidget {
           const Divider(height: 1, color: JsColors.divider),
 
           // テキスト入力欄
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 100),
               child: TextField(
                 controller: controller,
                 maxLines: null,
-                expands: true,
                 textAlignVertical: TextAlignVertical.top,
                 decoration: const InputDecoration(
                   hintText: '例：1階電気配線工事 コンセント10箇所設置',

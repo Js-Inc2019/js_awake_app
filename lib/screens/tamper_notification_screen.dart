@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, showJsSnackbar;
+import '../config/constants.dart';
 
-const String _API_URL = 'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
+const String _API_URL = kApiBaseUrl;
 
 class TamperNotificationScreen extends StatefulWidget {
   const TamperNotificationScreen({super.key});

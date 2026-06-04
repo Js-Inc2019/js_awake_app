@@ -5,11 +5,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import '../config/constants.dart';
 
 class SiteService {
   static final SiteService _instance = SiteService._internal();
-  static const String API_URL =
-      'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
   factory SiteService() {
     return _instance;
@@ -27,7 +26,7 @@ class SiteService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/sites'),
+        Uri.parse('$kApiBaseUrl/sites'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -60,7 +59,7 @@ class SiteService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$API_URL/sites'),
+        Uri.parse('$kApiBaseUrl/sites'),
         headers: headers,
         body: jsonEncode({
           'site_name':  siteName,
@@ -103,7 +102,7 @@ class SiteService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.put(
-        Uri.parse('$API_URL/sites/$siteId'),
+        Uri.parse('$kApiBaseUrl/sites/$siteId'),
         headers: headers,
         body: jsonEncode({
           'site_name':  siteName,
@@ -139,7 +138,7 @@ class SiteService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.delete(
-        Uri.parse('$API_URL/sites/$siteId'),
+        Uri.parse('$kApiBaseUrl/sites/$siteId'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 

@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart' show JsColors, API_URL, showJsSnackbar;
 import '../services/profile_service.dart';
+import '../config/constants.dart';
 import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
 
@@ -877,7 +878,12 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
       try {
         body['profile_image_base64'] =
             base64Encode(await File(_localImagePath!).readAsBytes());
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('プロフィール画像エンコード失敗: $e');
+        if (mounted) {
+          showJsSnackbar(context, '画像の読み込みに失敗しました。別の画像をお試しください。', isError: true);
+        }
+      }
     }
 
     try {
@@ -915,7 +921,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
       }
       widget.onSaved();
       Navigator.pop(context);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('プロフィール保存エラー: $e');
       await prefs.setString('user_name',    name);
       await prefs.setString('home_address', _addressCtrl.text.trim());
       await prefs.setString('profile_phone', _phoneCtrl.text.trim());
@@ -1253,6 +1260,13 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2.5, color: Colors.black))
                       : const Text('保存する'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Center(
+                child: Text(
+                  'v$kAppVersion',
+                  style: TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ),
             ],

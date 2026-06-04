@@ -5,11 +5,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import '../config/constants.dart';
 
 class ShareService {
   static final ShareService _instance = ShareService._internal();
-  static const String API_URL =
-      'https://js-office-api-prod-9ae070ebc5ba.herokuapp.com/api/v1';
 
   factory ShareService() {
     return _instance;
@@ -33,7 +32,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$API_URL/shares/send'),
+        Uri.parse('$kApiBaseUrl/shares/send'),
         headers: headers,
         body: jsonEncode({
           'report_id':          reportId,
@@ -67,7 +66,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/shares/inbox'),
+        Uri.parse('$kApiBaseUrl/shares/inbox'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -103,7 +102,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/shares/outbox'),
+        Uri.parse('$kApiBaseUrl/shares/outbox'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -130,7 +129,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.put(
-        Uri.parse('$API_URL/shares/$shareId/read'),
+        Uri.parse('$kApiBaseUrl/shares/$shareId/read'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
@@ -154,7 +153,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$API_URL/shares/check-tamper'),
+        Uri.parse('$kApiBaseUrl/shares/check-tamper'),
         headers: headers,
         body: jsonEncode({'share_id': shareId}),
       ).timeout(const Duration(seconds: 15));
@@ -183,7 +182,7 @@ class ShareService {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('$API_URL/shares/notifications'),
+        Uri.parse('$kApiBaseUrl/shares/notifications'),
         headers: headers,
       ).timeout(const Duration(seconds: 15));
 
