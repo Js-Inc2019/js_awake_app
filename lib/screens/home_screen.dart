@@ -1128,6 +1128,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   controller: _workCtrl,
                   photoPath: _workPhotoPath,
                   onClearPhoto: () => setState(() => _workPhotoPath = null),
+                  showMediaButtons: _transport == TransportType.car ||
+                      _transport == TransportType.other,
+                  isListening: _isListening,
+                  onMicTap: _startVoice,
+                  onCameraTap: _takeWorkPhoto,
                 ),
                 const SizedBox(height: 8),
 
@@ -1147,49 +1152,31 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   },
                 ),
                 const SizedBox(height: 8),
-
-                // 報告ボタン
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2.5, color: Colors.black))
-                        : const Text('報告を送信する',
-                            style: TextStyle(
-                                fontSize: 17, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                const SizedBox(height: 8),
               ],
             ),
           ),
         ),
 
-        // マイク / カメラ（画面最下部に固定）
+        // 送信ボタン（画面最下部に固定）
         Container(
           color: JsColors.black,
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-          child: Row(children: [
-            Expanded(child: _MediaButton(
-              icon: _isListening ? Icons.mic : Icons.mic_none,
-              label: _isListening ? '録音中...' : '🎤 マイク',
-              active: _isListening,
-              onTap: _startVoice,
-            )),
-            const SizedBox(width: 8),
-            Expanded(child: _MediaButton(
-              icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-              label: _workPhotoPath != null ? '📷 撮影済み' : '📷 カメラ',
-              active: _workPhotoPath != null,
-              onTap: _takeWorkPhoto,
-            )),
-          ]),
+          child: SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _submit,
+              child: _submitting
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.black))
+                  : const Text('報告を送信する',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.bold)),
+            ),
+          ),
         ),
       ],
     );
@@ -1808,10 +1795,18 @@ class _WorkContentSection extends StatelessWidget {
     required this.controller,
     required this.photoPath,
     required this.onClearPhoto,
+    this.showMediaButtons = false,
+    this.isListening = false,
+    this.onMicTap,
+    this.onCameraTap,
   });
   final TextEditingController controller;
   final String? photoPath;
   final VoidCallback onClearPhoto;
+  final bool showMediaButtons;
+  final bool isListening;
+  final VoidCallback? onMicTap;
+  final VoidCallback? onCameraTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1861,6 +1856,29 @@ class _WorkContentSection extends StatelessWidget {
               ),
             ),
           ),
+
+          // マイク / カメラ（車 or その他のみ）
+          if (showMediaButtons) ...[
+            const Divider(height: 1, color: JsColors.divider),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+              child: Row(children: [
+                Expanded(child: _MediaButton(
+                  icon: isListening ? Icons.mic : Icons.mic_none,
+                  label: isListening ? '録音中...' : '🎤 マイク',
+                  active: isListening,
+                  onTap: onMicTap ?? () {},
+                )),
+                const SizedBox(width: 8),
+                Expanded(child: _MediaButton(
+                  icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
+                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
+                  active: photoPath != null,
+                  onTap: onCameraTap ?? () {},
+                )),
+              ]),
+            ),
+          ],
 
           // 写真プレビュー
           if (photoPath != null) ...[
