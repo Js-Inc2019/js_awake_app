@@ -10,6 +10,7 @@ import 'dart:io';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/monthly_history_screen.dart';
+import 'screens/pending_approval_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/site_select_screen.dart';
 import 'screens/inbox_screen.dart';
@@ -96,9 +97,10 @@ class JsAwakeApp extends StatelessWidget {
       theme: AppTheme.dark,
       home: const LoginScreen(),
       routes: {
-        '/login': (_) => const LoginScreen(),
-        '/gate': (_) => const GateScreen(),
-        '/register': (_) => const RegisterScreen(),
+        '/login':   (_) => const LoginScreen(),
+        '/gate':    (_) => const GateScreen(),
+        '/register':(_) => const RegisterScreen(),
+        '/pending': (_) => const PendingApprovalScreen(),
       },
     );
   }

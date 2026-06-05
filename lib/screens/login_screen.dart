@@ -1,5 +1,5 @@
 // ============================================================
-// lib/screens/login_screen.dart - デバイス認証＋生体認証
+// lib/screens/login_screen.dart - 新設計ログイン画面
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,9 +11,16 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
+import 'pending_approval_screen.dart';
 import '../config/constants.dart';
 
 const String _apiBase = kApiBaseUrl;
+
+// ─── DAWNBREAKパレット（ログイン画面専用）─────────────────
+const _bgColor     = Color(0xFF0A0E14);
+const _goldColor   = Color(0xFFC9A84C);
+const _navyColor   = Color(0xFF0D1B2A);
+const _silverColor = Color(0xFF8A9BA8);
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -23,24 +30,25 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading    = true;
-  bool _isRegistered = false;
   String? _errorMessage;
-  final _companyCodeCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
-  String _selectedRole = 'worker';
+
+  // 自己登録用ロール
+  String _selfRole = 'worker';
+
   bool _biometricFailed = false;
 
-  // PIN設定ステップ（Sign Up後）
-  int _step = 0; // 0=登録フォーム, 1=PIN設定
+  // PIN設定ステップ（Sign Up後 — 旧フロー互換）
+  final int _step = 0;
   Map<String, dynamic>? _pendingData;
   final _pinCtrl     = TextEditingController();
   final _pinConfCtrl = TextEditingController();
   bool _obscurePin  = true;
   bool _obscureConf = true;
 
-  // PINログインフォールバック（生体認証NotAvailable時）
+  // PINログインフォールバック
   bool _showPinLogin = false;
-  bool _isUpdateRecovery = false; // アップデート後のPIN再認証フロー
+  bool _isUpdateRecovery = false;
   final _loginPinCtrl = TextEditingController();
   bool _biometricErrorShown = false;
   bool _obscureLoginPin = true;
@@ -84,7 +92,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _companyCodeCtrl.dispose();
     _nameCtrl.dispose();
     _pinCtrl.dispose();
     _pinConfCtrl.dispose();
@@ -92,7 +99,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // is_registeredをSharedPreferences消去後も保持するためのファイル永続化
   Future<File> _getRegFlagFile() async {
     final dir = await getApplicationSupportDirectory();
     return File('${dir.path}/.js_reg');
@@ -165,12 +171,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _init() async {
-    // ① Heroku コールドスタート対策 — /health が200を返すまで最大3回リトライ
     await _warmUpServer();
 
     final prefs = await SharedPreferences.getInstance();
 
-    // ② 初回起動: 同意未完了なら ConsentScreen を表示して完了後に続行
     final consentAgreed = prefs.getBool('consent_agreed') ?? false;
     if (!consentAgreed && mounted) {
       await Navigator.of(context).push(MaterialPageRoute(
@@ -186,7 +190,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
     }
 
-    // auth_token あり → POST /api/v1/auth/verify-token でサーバー検証
     final cachedToken = prefs.getString('auth_token') ?? '';
     if (cachedToken.isNotEmpty) {
       try {
@@ -199,7 +202,6 @@ class _LoginScreenState extends State<LoginScreen> {
         ).timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
-          // サーバーからconsent_agreed_atを取得してSharedPreferencesに保存（サーバー値優先）
           try {
             final data = jsonDecode(response.body) as Map<String, dynamic>;
             final serverConsentAt = data['consent_agreed_at'];
@@ -210,16 +212,24 @@ class _LoginScreenState extends State<LoginScreen> {
             if (serverConsentVersion != null) {
               await prefs.setString('consent_version', serverConsentVersion.toString());
             }
+            // 承認待ちステータス確認
+            final status = data['status'] as String?;
+            if (status == 'pending') {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
+                );
+              }
+              return;
+            }
           } catch (_) {}
           if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
           return;
         } else if (response.statusCode == 401 || response.statusCode == 403) {
-          // トークン無効・期限切れ → 削除してログイン画面を表示
           await prefs.remove('auth_token');
           if (mounted) setState(() => _isLoading = false);
           return;
         }
-        // 5xx などサーバーエラー → オフライン扱いで通過
         if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
         return;
       } catch (e) {
@@ -228,15 +238,12 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
 
-    // auth_token なし → デバイス登録チェック → 生体認証
     final hasDevice  = prefs.getString('device_id') != null;
     final registered = prefs.getBool('is_registered') ?? false;
-    if (mounted) setState(() => _isRegistered = registered);
+    // _isRegistered は内部チェック用（UI未使用）
     if (hasDevice) {
-      // ログアウト直後はPINログインへ直行（生体認証スキップ）
       final loggedOut = prefs.getBool('logged_out') ?? false;
       if (loggedOut) {
-        // setState で先に画面を切り替え、フレーム描画後にフラグ削除
         if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (mounted) await prefs.remove('logged_out');
@@ -245,19 +252,15 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       await _biometricThenLogin();
     } else if (registered) {
-      // Case 4a: device_idなし + is_registered=true (SharedPreferences内) → アップデート後PIN再認証
       if (!mounted) return;
       setState(() { _isUpdateRecovery = true; _showPinLogin = true; _isLoading = false; });
     } else {
-      // Case 4b: device_idなし + is_registeredなし → ファイルで永続登録フラグを確認
       final persistentReg = await _readPersistentRegistered();
       if (!mounted) return;
       if (persistentReg) {
-        // ファイルに登録済みフラグあり → アップデート後PIN再認証
         await prefs.setBool('is_registered', true);
         setState(() { _isUpdateRecovery = true; _showPinLogin = true; _isLoading = false; });
       } else {
-        // 新規ユーザー: サインアップ画面を表示
         setState(() => _isLoading = false);
       }
     }
@@ -267,7 +270,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _isLoading = true; _biometricFailed = false; _showPinLogin = false; _errorMessage = null; });
     final ok = await _doBiometric();
     if (!ok) {
-      // NotAvailable の場合は _doBiometric() 内で _showPinLogin = true が設定済み
       if (!_showPinLogin) {
         setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
       }
@@ -290,13 +292,8 @@ class _LoginScreenState extends State<LoginScreen> {
         await _saveAndNavigate(data);
         return;
       }
-      // サーバーが応答して非200を返した場合（トークン期限切れ・デバイス無効など）
-      // → キャッシュを信頼せず登録フォームを表示
-    } catch (_) {
-      // ネットワーク到達不可（タイムアウト・例外）
-    }
+    } catch (_) {}
     if (!serverResponded) {
-      // オフライン時のみキャッシュ済みトークンでゲートへ
       final prefs = await SharedPreferences.getInstance();
       final cachedToken = prefs.getString('auth_token') ?? '';
       if (cachedToken.isNotEmpty && mounted) {
@@ -305,45 +302,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
     if (mounted) setState(() => _isLoading = false);
-  }
-
-  Future<void> _register() async {
-    final companyCode = _companyCodeCtrl.text.trim().toUpperCase();
-    final name = _nameCtrl.text.trim();
-    if (companyCode.isEmpty || name.isEmpty) {
-      setState(() => _errorMessage = '会社コードと氏名を入力してください');
-      return;
-    }
-    setState(() { _isLoading = true; _errorMessage = null; });
-    try {
-      final deviceId = await _getDeviceId();
-      // Herokuコールドスタート対策：最大3回リトライ（60秒タイムアウト）
-      http.Response? response;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        try {
-          response = await http.post(
-            Uri.parse('$_apiBase/auth/register-device'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'company_code': companyCode, 'name': name, 'device_id': deviceId, 'role': _selectedRole}),
-          ).timeout(const Duration(seconds: 60));
-          break;
-        } catch (_) {
-          if (attempt == 2) rethrow;
-          await Future.delayed(Duration(seconds: (attempt + 1) * 2));
-        }
-      }
-      final data = jsonDecode(response!.body);
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        // PIN設定ステップへ（仮PIN 000000のまま進まないよう）
-        _pinCtrl.clear();
-        _pinConfCtrl.clear();
-        setState(() { _isLoading = false; _pendingData = data; _step = 1; _errorMessage = null; });
-      } else {
-        setState(() { _isLoading = false; _errorMessage = data['error'] ?? '登録に失敗しました'; });
-      }
-    } catch (e) {
-      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
-    }
   }
 
   Future<void> _setupPin() async {
@@ -439,6 +397,107 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ─── 自己登録（仮登録申請）────────────────────────────────
+  Future<void> _selfRegister() async {
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      setState(() => _errorMessage = '氏名を入力してください');
+      return;
+    }
+    setState(() => _errorMessage = null);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _navyColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          '仮登録として申請します',
+          style: TextStyle(color: _goldColor, fontSize: 16),
+        ),
+        content: const Text(
+          '職長・事務スタッフに通知されます\n承認後にフル機能が使えます\nよろしいですか？',
+          style: TextStyle(color: Colors.white, height: 1.7),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: _silverColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      final deviceId   = await _getDeviceId();
+      final deviceName = Platform.isAndroid ? 'Android' : 'iPhone';
+      final res = await http.post(
+        Uri.parse('$_apiBase/workers/self-register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name':        name,
+          'role':        _selfRole,
+          'device_id':   deviceId,
+          'device_name': deviceName,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (!mounted) return;
+
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final token = body['token'] as String?;
+        if (token != null && token.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('auth_token', token);
+          await prefs.setString('user_name',  name);
+          await prefs.setString('user_role',  _selfRole);
+          await prefs.setString('device_id',  deviceId);
+          await prefs.setBool('is_registered', true);
+          await _writePersistentRegistered();
+        }
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
+        );
+      } else {
+        final errMsg = body['error'] as String? ?? '登録に失敗しました';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(errMsg),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('通信エラー: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token',  data['token']      as String? ?? '');
@@ -456,26 +515,22 @@ class _LoginScreenState extends State<LoginScreen> {
       deviceId = await _getDeviceId();
       await prefs.setString('device_id', deviceId);
     }
-    // is_registeredをファイルにも保存（SharedPreferences消去後も検出できるよう）
     await _writePersistentRegistered();
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
 
+  // ─── build ───────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFF080806),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFFA89868))),
+        backgroundColor: _bgColor,
+        body: Center(child: CircularProgressIndicator(color: _goldColor)),
       );
     }
-    if (_step == 1) {
-      return _buildPinSetupScreen();
-    }
-    if (_showPinLogin) {
-      return _buildPinLoginScreen();
-    }
+    if (_step == 1) return _buildPinSetupScreen();
+    if (_showPinLogin) return _buildPinLoginScreen();
     if (_biometricFailed) {
       return Scaffold(
         backgroundColor: const Color(0xFF080806),
@@ -485,15 +540,21 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Icon(Icons.fingerprint, color: Color(0xFFA89868), size: 80),
               const SizedBox(height: 24),
-              const Text('Login', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+              const Text('Login',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text(_errorMessage ?? '', style: const TextStyle(color: Color(0xFF686040)), textAlign: TextAlign.center),
+              Text(_errorMessage ?? '',
+                  style: const TextStyle(color: Color(0xFF686040)),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: _biometricThenLogin,
                 icon: const Icon(Icons.fingerprint),
                 label: const Text('Retry'),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA89868), foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFA89868),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
               const SizedBox(height: 16),
               TextButton(
@@ -511,123 +572,150 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
+
+    // ─── 新設計ランディングページ ─────────────────────────────
     return Scaffold(
-      backgroundColor: const Color(0xFF080806),
+      backgroundColor: _bgColor,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFA89868), fontSize: 28, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('勤務管理システム', style: TextStyle(color: Color(0xFFEDE8DC), fontSize: 16)),
-              const SizedBox(height: 48),
-              TextField(
-                controller: _companyCodeCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: '会社コード',
-                  labelStyle: const TextStyle(color: Color(0xFF686040)),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
+              // ── ヘッダー ─────────────────────────────────
+              const Text(
+                '株式会社J\'s',
+                style: TextStyle(
+                  color: _goldColor,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
                 ),
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 6),
+              const Text(
+                '勤務管理システム',
+                style: TextStyle(color: Colors.white70, fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 48),
+
+              // ── PIN ログインボタン ────────────────────────
+              _loginButton(
+                icon: Icons.lock_outline,
+                label: 'PIN入力でログイン',
+                onTap: () => setState(() {
+                  _showPinLogin = true;
+                  _errorMessage = null;
+                }),
+              ),
+              const SizedBox(height: 12),
+
+              // ── 招待コードボタン ─────────────────────────
+              _loginButton(
+                icon: Icons.vpn_key_outlined,
+                label: '招待コードをお持ちの方',
+                onTap: () => Navigator.of(context)
+                    .pushNamed('/register')
+                    .then((_) async {
+                  // 招待コード登録完了後の処理
+                  if (mounted) setState(() {});
+                }),
+              ),
+              const SizedBox(height: 40),
+
+              // ── 新規登録 セクション ──────────────────────
+              const Row(children: [
+                Expanded(child: Divider(color: _silverColor)),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Text('新規登録',
+                      style: TextStyle(color: _silverColor, fontSize: 13)),
+                ),
+                Expanded(child: Divider(color: _silverColor)),
+              ]),
+              const SizedBox(height: 24),
+
+              // 氏名フィールド
               TextField(
                 controller: _nameCtrl,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: '氏名',
-                  labelStyle: const TextStyle(color: Color(0xFF686040)),
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
+                  labelStyle: const TextStyle(color: _silverColor),
+                  prefixIcon: const Icon(Icons.person_outline, color: _silverColor),
+                  filled: true,
+                  fillColor: _navyColor,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _silverColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _silverColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _goldColor, width: 2),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Align(alignment: Alignment.centerLeft, child: Text('役割', style: TextStyle(color: Color(0xFF686040), fontSize: 12))),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedRole = 'worker'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedRole == 'worker' ? const Color(0xFFA89868) : Colors.transparent,
-                          border: Border.all(color: _selectedRole == 'worker' ? const Color(0xFFA89868) : const Color(0xFF242418)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(child: Text('職人', style: TextStyle(color: _selectedRole == 'worker' ? Colors.black : const Color(0xFFEDE8DC), fontWeight: FontWeight.bold))),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedRole = 'boss'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedRole == 'boss' ? const Color(0xFFA89868) : Colors.transparent,
-                          border: Border.all(color: _selectedRole == 'boss' ? const Color(0xFFA89868) : const Color(0xFF242418)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(child: Text('職長', style: TextStyle(color: _selectedRole == 'boss' ? Colors.black : const Color(0xFFEDE8DC), fontWeight: FontWeight.bold))),
-                      ),
-                    ),
-                  ),
-                ],
+
+              // 役割選択
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('役割',
+                    style: TextStyle(color: _silverColor, fontSize: 13)),
               ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
-              ],
-              const SizedBox(height: 32),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selfRole = 'worker'),
+                    child: _roleChip('職人', _selfRole == 'worker'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selfRole = 'foreman'),
+                    child: _roleChip('職長', _selfRole == 'foreman'),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 24),
+
+              // サインアップボタン
               SizedBox(
-                width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: _register,
-                  icon: const Icon(Icons.fingerprint),
-                  label: const Text('Sign Up', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA89868), foregroundColor: Colors.black),
+                  onPressed: _selfRegister,
+                  icon: const Icon(Icons.key),
+                  label: const Text('サインアップ',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _goldColor,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
                 ),
               ),
-              // 未登録ユーザー向け「新規登録はこちら」ボタン
-              if (!_isRegistered) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context)
-                        .pushNamed('/register')
-                        .then((_) async {
-                      // 登録完了後にフラグを再読み込みしてボタンを隠す
-                      final prefs = await SharedPreferences.getInstance();
-                      if (mounted) {
-                        setState(() {
-                          _isRegistered = prefs.getBool('is_registered') ?? false;
-                        });
-                      }
-                    }),
-                    icon: const Icon(Icons.person_add_alt_1,
-                        color: Color(0xFFA89868)),
-                    label: const Text(
-                      '招待コードをお持ちの方はこちら',
-                      style: TextStyle(
-                          color: Color(0xFFA89868),
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFA89868)),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                    ),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    border: Border.all(color: Colors.red),
+                    borderRadius: BorderRadius.circular(8),
                   ),
+                  child: Text(_errorMessage!,
+                      style: const TextStyle(
+                          color: Colors.redAccent, fontSize: 13)),
                 ),
               ],
             ],
@@ -637,9 +725,70 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // ─── ランディングページ ボタンウィジェット ──────────────────
+  Widget _loginButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: 54,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, color: _goldColor),
+        label: Text(
+          label,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: _navyColor,
+          side: const BorderSide(color: _silverColor),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _roleChip(String label, bool selected) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        color: selected ? _goldColor : _navyColor,
+        border: Border.all(color: selected ? _goldColor : _silverColor),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.black : Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── PIN ログイン画面 ─────────────────────────────────────
   Widget _buildPinLoginScreen() {
     return Scaffold(
       backgroundColor: const Color(0xFF080806),
+      appBar: _isUpdateRecovery
+          ? null
+          : AppBar(
+              backgroundColor: const Color(0xFF080806),
+              foregroundColor: const Color(0xFFA89868),
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => setState(() {
+                  _showPinLogin = false;
+                  _errorMessage = null;
+                  _loginPinCtrl.clear();
+                }),
+              ),
+            ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -649,26 +798,33 @@ class _LoginScreenState extends State<LoginScreen> {
               const Icon(Icons.lock_outline, color: Color(0xFFA89868), size: 64),
               const SizedBox(height: 24),
               const Text('PINでログイン',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               if (_isUpdateRecovery) ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1A1810),
-                    border: Border.all(color: const Color(0xFFA89868), width: 1),
+                    border:
+                        Border.all(color: const Color(0xFFA89868), width: 1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
                     'アプリのアップデートのため、\nPINコードでの再認証が必要です',
-                    style: TextStyle(color: Color(0xFFA89868), fontSize: 13, height: 1.6),
+                    style: TextStyle(
+                        color: Color(0xFFA89868), fontSize: 13, height: 1.6),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: 24),
               ] else ...[
                 const Text('登録済みのPINを入力してください',
-                    style: TextStyle(color: Color(0xFF686040), fontSize: 13)),
+                    style: TextStyle(
+                        color: Color(0xFF686040), fontSize: 13)),
                 const SizedBox(height: 40),
               ],
               TextField(
@@ -676,26 +832,41 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: _obscureLoginPin,
                 keyboardType: TextInputType.number,
                 maxLength: 6,
-                style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 8),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 24, letterSpacing: 8),
                 textAlign: TextAlign.center,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: InputDecoration(
                   counterText: '',
                   hintText: '● ● ● ●',
-                  hintStyle: const TextStyle(color: Color(0xFF242418), letterSpacing: 8),
+                  hintStyle: const TextStyle(
+                      color: Color(0xFF242418), letterSpacing: 8),
                   filled: true,
                   fillColor: const Color(0xFF181810),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFA89868), width: 2)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                          color: Color(0xFFA89868), width: 2)),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscureLoginPin ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF484830)),
-                    onPressed: () => setState(() => _obscureLoginPin = !_obscureLoginPin),
+                    icon: Icon(
+                        _obscureLoginPin
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: const Color(0xFF484830)),
+                    onPressed: () =>
+                        setState(() => _obscureLoginPin = !_obscureLoginPin),
                   ),
                 ),
               ),
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 13), textAlign: TextAlign.center),
+                Text(_errorMessage!,
+                    style: const TextStyle(
+                        color: Colors.redAccent, fontSize: 13),
+                    textAlign: TextAlign.center),
               ],
               const SizedBox(height: 32),
               SizedBox(
@@ -706,11 +877,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFA89868),
                     foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                   child: _isLoading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : const Text('ログイン', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.black))
+                      : const Text('ログイン',
+                          style: TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -720,6 +898,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // ─── PIN 設定画面（旧フロー互換）────────────────────────────
   Widget _buildPinSetupScreen() {
     return Scaffold(
       backgroundColor: const Color(0xFF080806),
@@ -730,11 +909,20 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('株式会社J\'s', style: TextStyle(color: Color(0xFFA89868), fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text('株式会社J\'s',
+                  style: TextStyle(
+                      color: Color(0xFFA89868),
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text('勤務管理システム', style: TextStyle(color: Color(0xFFEDE8DC), fontSize: 16)),
+              const Text('勤務管理システム',
+                  style: TextStyle(color: Color(0xFFEDE8DC), fontSize: 16)),
               const SizedBox(height: 40),
-              const Text('PINを設定', style: TextStyle(color: Color(0xFFA89868), fontSize: 22, fontWeight: FontWeight.bold)),
+              const Text('PINを設定',
+                  style: TextStyle(
+                      color: Color(0xFFA89868),
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
                   style: TextStyle(color: Color(0xFF484830), fontSize: 13)),
@@ -748,13 +936,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: InputDecoration(
                   labelText: 'PIN（4〜6桁）',
                   labelStyle: const TextStyle(color: Color(0xFF686040)),
-                  prefixIcon: const Icon(Icons.lock, color: Color(0xFF686040)),
+                  prefixIcon:
+                      const Icon(Icons.lock, color: Color(0xFF686040)),
                   counterText: '',
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
+                  enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF242418)),
+                      borderRadius: BorderRadius.circular(8)),
+                  focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFA89868)),
+                      borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF686040)),
-                    onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                    icon: Icon(
+                        _obscurePin
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: const Color(0xFF686040)),
+                    onPressed: () =>
+                        setState(() => _obscurePin = !_obscurePin),
                   ),
                 ),
               ),
@@ -768,19 +966,30 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: InputDecoration(
                   labelText: 'PIN確認',
                   labelStyle: const TextStyle(color: Color(0xFF686040)),
-                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF686040)),
+                  prefixIcon: const Icon(Icons.lock_outline,
+                      color: Color(0xFF686040)),
                   counterText: '',
-                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF242418)), borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFA89868)), borderRadius: BorderRadius.circular(8)),
+                  enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFF242418)),
+                      borderRadius: BorderRadius.circular(8)),
+                  focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Color(0xFFA89868)),
+                      borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscureConf ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF686040)),
-                    onPressed: () => setState(() => _obscureConf = !_obscureConf),
+                    icon: Icon(
+                        _obscureConf
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: const Color(0xFF686040)),
+                    onPressed: () =>
+                        setState(() => _obscureConf = !_obscureConf),
                   ),
                 ),
               ),
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
+                Text(_errorMessage!,
+                    style: const TextStyle(color: Colors.redAccent)),
               ],
               const SizedBox(height: 32),
               SizedBox(
@@ -791,11 +1000,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFA89868),
                     foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   child: _isLoading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : const Text('PINを設定してはじめる', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.black))
+                      : const Text('PINを設定してはじめる',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
