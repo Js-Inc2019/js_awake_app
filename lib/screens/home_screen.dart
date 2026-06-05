@@ -1008,9 +1008,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // コンテンツエリア（スクロールなし・1画面固定）
+        // コンテンツエリア
         Expanded(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1156,8 +1156,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   controller: _workCtrl,
                   photoPath: _workPhotoPath,
                   onClearPhoto: () => setState(() => _workPhotoPath = null),
-                  showMediaButtons: _transport == TransportType.car ||
-                      _transport == TransportType.other,
+                  showMediaButtons: true,
                   isListening: _isListening,
                   onMicTap: _startVoice,
                   onCameraTap: _takeWorkPhoto,
@@ -1185,7 +1184,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           ),
         ),
 
-        // 送信ボタン（画面最下部に固定）
+        // 送信ボタン（画面最下部に固定・スクロール外）
         Container(
           color: JsColors.black,
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),

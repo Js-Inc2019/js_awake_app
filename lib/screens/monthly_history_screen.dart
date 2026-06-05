@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, API_URL;
+import 'revision_inbox_screen.dart';
 
 // ─────────────────────────────────────────────
 // MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
@@ -228,22 +229,34 @@ class _ReportTile extends StatelessWidget {
     final addr    = report['gps_address']  as String? ?? '';
     final trans   = report['transport_type'] as String? ?? '';
 
+    final isRejected = status == 'rejected';
+
     return GestureDetector(
-      onTap: () => showModalBottomSheet(
-        context: context,
-        backgroundColor: JsColors.gunmetal,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-        builder: (_) => _ReportDetailSheet(report: report),
-      ),
+      onTap: () {
+        if (isRejected) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+          );
+        } else {
+          showModalBottomSheet(
+            context: context,
+            backgroundColor: JsColors.gunmetal,
+            isScrollControlled: true,
+            shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+            builder: (_) => _ReportDetailSheet(report: report),
+          );
+        }
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: JsColors.gunmetal,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsColors.divider),
+          border: Border.all(
+              color: isRejected ? JsColors.error : JsColors.divider),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,6 +284,18 @@ class _ReportTile extends StatelessWidget {
                         style: const TextStyle(color: JsColors.silver, fontSize: 11),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
+                  if (isRejected) ...[
+                    const SizedBox(height: 6),
+                    const Row(children: [
+                      Icon(Icons.arrow_forward, color: JsColors.error, size: 13),
+                      SizedBox(width: 4),
+                      Text('是正依頼を確認',
+                          style: TextStyle(
+                              color: JsColors.error,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
+                    ]),
+                  ],
                 ],
               ),
             ),
