@@ -869,6 +869,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   String _originType = 'home'; // 今日の起点: home / office
   String _companyAddress = '';
   int _pendingCount = 0;
+  int _revisionCount = 0;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   @override
@@ -881,6 +882,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     _loadOriginPrefs();
     _scheduleOvertimeReminderIfNeeded();
     _refreshPendingCount();
+    if (!widget.isBossMode) _loadRevisionCount();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
         ReportStore.instance.retryPending().then((_) => _refreshPendingCount());
@@ -913,6 +915,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _fetchGps();
+      if (!widget.isBossMode) _loadRevisionCount();
     }
   }
 
@@ -937,6 +940,25 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   Future<void> _refreshPendingCount() async {
     final count = await ReportStore.instance.pendingCount();
     if (mounted) setState(() => _pendingCount = count);
+  }
+
+  Future<void> _loadRevisionCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) return;
+      final res = await http.get(
+        Uri.parse('$API_URL/revisions/mine'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200 && mounted) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final count = (data['revisions'] as List? ?? [])
+            .where((r) => (r as Map<String, dynamic>)['status'] == 'pending')
+            .length;
+        setState(() => _revisionCount = count);
+      }
+    } catch (_) {}
   }
 
   Future<void> _fetchGps() async {
@@ -1254,15 +1276,16 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                 icon: const Icon(Icons.warning_amber),
                 tooltip: '是正依頼',
                 onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const RevisionInboxScreen())),
+                    MaterialPageRoute(builder: (_) => const RevisionInboxScreen()))
+                  .then((_) => _loadRevisionCount()),
               ),
-              if (_pendingCount > 0)
+              if (_revisionCount > 0)
                 Positioned(
                   top: 8, right: 8,
                   child: Container(
                     padding: const EdgeInsets.all(3),
                     decoration: const BoxDecoration(color: JsColors.error, shape: BoxShape.circle),
-                    child: Text('$_pendingCount',
+                    child: Text('$_revisionCount',
                         style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                   ),
                 ),
