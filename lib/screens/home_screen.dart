@@ -711,7 +711,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return;
     }
     setState(() => _submitting = true);
-    if (_transport == TransportType.car && _parkingPhotoPath == null) {
+    if ((_transport == TransportType.car || _transport == TransportType.other) && _parkingPhotoPath == null) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -875,7 +875,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     // IndexedStack の children リスト
     final tabChildren = <Widget>[
       _buildHomeTabContent(),
-      const MonthlyHistoryBody(),
+      MonthlyHistoryBody(onHome: () => _setTab(0)),
       if (widget.isForeman) const _ForemanManagementBody(),
     ];
 
@@ -1125,13 +1125,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           active: _isListening,
                           onTap: _startVoice,
                         ),
-                        const SizedBox(width: 4),
-                        _MediaButton(
-                          icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                          label: _workPhotoPath != null ? '撮影済' : 'カメラ',
-                          active: _workPhotoPath != null,
-                          onTap: _takeWorkPhoto,
-                        ),
                       ],
                     ),
                   ),
@@ -1189,18 +1182,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.edit_note, color: JsColors.silver, size: 16),
+                        const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
-                            controller: _otherCtrl,
+                            controller: _parkingCtrl,
+                            keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              hintText: 'その他の移動手段を入力（例：バイク等）',
+                              hintText: '駐車料金（円）',
                               border: InputBorder.none,
                               hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
                               contentPadding: EdgeInsets.zero,
                             ),
                             style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                            onChanged: (_) => _saveDraft(),
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -1210,14 +1205,48 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           active: _isListening,
                           onTap: _startVoice,
                         ),
-                        const SizedBox(width: 4),
-                        _MediaButton(
-                          icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                          label: _workPhotoPath != null ? '撮影済' : 'カメラ',
-                          active: _workPhotoPath != null,
-                          onTap: _takeWorkPhoto,
-                        ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: _takeParkingPhoto,
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _parkingPhotoPath != null
+                              ? JsColors.gold
+                              : JsColors.gold.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                            color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
+                              style: TextStyle(
+                                color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          if (_parkingPhotoPath != null)
+                            GestureDetector(
+                              onTap: () => setState(() => _parkingPhotoPath = null),
+                              child: const Icon(Icons.close, color: JsColors.silver, size: 16),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],

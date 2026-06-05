@@ -10,7 +10,8 @@ import 'revision_inbox_screen.dart';
 // MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
 // ─────────────────────────────────────────────
 class MonthlyHistoryBody extends StatefulWidget {
-  const MonthlyHistoryBody({super.key});
+  const MonthlyHistoryBody({super.key, this.onHome});
+  final VoidCallback? onHome;
   @override
   State<MonthlyHistoryBody> createState() => _MonthlyHistoryBodyState();
 }
@@ -118,6 +119,11 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
                 onPressed: isCurrentMonth ? null : _nextMonth,
               ),
               const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.home_outlined, color: JsColors.silver, size: 20),
+                tooltip: 'ホームに戻る',
+                onPressed: () => widget.onHome?.call(),
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh, color: JsColors.silver, size: 20),
                 onPressed: _load,
