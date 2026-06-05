@@ -388,6 +388,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   final _otherCtrl   = TextEditingController();
   final _parkingCtrl = TextEditingController();
   String? _workPhotoPath;
+  String? _parkingPhotoPath;
   bool _isListening = false;
   final _speechMgr = SpeechManager();
   final _imagePicker = ImagePicker();
@@ -690,6 +691,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _takeParkingPhoto() async {
+    final f = await _imagePicker.pickImage(
+        source: ImageSource.camera, imageQuality: 80);
+    if (f != null && mounted) {
+      setState(() => _parkingPhotoPath = f.path);
+      showJsSnackbar(context, '✅ 駐車場の写真を撮影しました');
+    }
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (_userName.isEmpty) {
@@ -701,6 +711,30 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return;
     }
     setState(() => _submitting = true);
+    if (_transport == TransportType.car && _parkingPhotoPath == null) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('写真が添付されていません'),
+          content: const Text('駐車場の看板または領収書の写真が添付されていません。このまま送信しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('写真を撮る'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('このまま送信'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) {
+        if (mounted) setState(() => _submitting = false);
+        await _takeParkingPhoto();
+        return;
+      }
+    }
     final name = _userName;
     final gpsAddr = _gpsAddress;
     try {
@@ -718,6 +752,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             ? '[その他:${_otherCtrl.text.trim()}] '
             : '') + _workCtrl.text.trim() + overtimeNote,
         workPhotoPath: _workPhotoPath,
+        parkingPhotoPath: _parkingPhotoPath,
         gpsAddress: gpsAddr,
       ));
       await ReportStore.instance.retryPending();
@@ -732,6 +767,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _otherCtrl.clear();
         _parkingCtrl.clear();
         _workPhotoPath = null;
+        _parkingPhotoPath = null;
         _overtimeExpanded = false;
         _overtimeHours = 0;
         _overtimeMinutes = 0;
@@ -749,6 +785,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               _transport = TransportType.none;
               _routeComparisons = {};
               _workPhotoPath = null;
+              _parkingPhotoPath = null;
             });
             _fetchGps();
           },
@@ -1096,6 +1133,47 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           onTap: _takeWorkPhoto,
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: _takeParkingPhoto,
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _parkingPhotoPath != null
+                              ? JsColors.gold
+                              : JsColors.gold.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                            color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
+                              style: TextStyle(
+                                color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          if (_parkingPhotoPath != null)
+                            GestureDetector(
+                              onTap: () => setState(() => _parkingPhotoPath = null),
+                              child: const Icon(Icons.close, color: JsColors.silver, size: 16),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
