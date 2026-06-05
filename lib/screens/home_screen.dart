@@ -1081,6 +1081,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             onChanged: (_) => _saveDraft(),
                           ),
                         ),
+                        const SizedBox(width: 4),
+                        _MediaButton(
+                          icon: _isListening ? Icons.mic : Icons.mic_none,
+                          label: _isListening ? '録音中' : 'マイク',
+                          active: _isListening,
+                          onTap: _startVoice,
+                        ),
+                        const SizedBox(width: 4),
+                        _MediaButton(
+                          icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                          label: _workPhotoPath != null ? '撮影済' : 'カメラ',
+                          active: _workPhotoPath != null,
+                          onTap: _takeWorkPhoto,
+                        ),
                       ],
                     ),
                   ),
@@ -1110,6 +1124,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             ),
                             style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
                           ),
+                        ),
+                        const SizedBox(width: 4),
+                        _MediaButton(
+                          icon: _isListening ? Icons.mic : Icons.mic_none,
+                          label: _isListening ? '録音中' : 'マイク',
+                          active: _isListening,
+                          onTap: _startVoice,
+                        ),
+                        const SizedBox(width: 4),
+                        _MediaButton(
+                          icon: _workPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                          label: _workPhotoPath != null ? '撮影済' : 'カメラ',
+                          active: _workPhotoPath != null,
+                          onTap: _takeWorkPhoto,
                         ),
                       ],
                     ),
@@ -1839,7 +1867,7 @@ class _WorkContentSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 100),
+              constraints: const BoxConstraints(minHeight: 60),
               child: TextField(
                 controller: controller,
                 maxLines: null,
