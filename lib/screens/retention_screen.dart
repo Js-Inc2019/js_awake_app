@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, showJsSnackbar, showConfirmDialog;
 import '../config/constants.dart';
+import 'home_screen.dart';
 
 const String _API_URL = kApiBaseUrl;
 
@@ -85,6 +86,15 @@ class _RetentionScreenState extends State<RetentionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.home),
+          color: JsColors.gold,
+          onPressed: () => Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          ),
+        ),
         title: const Text('データ保持管理'),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _check)],
       ),
