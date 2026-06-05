@@ -1008,14 +1008,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // スクロール可能エリア
+        // コンテンツエリア（スクロールなし・1画面固定）
         Expanded(
-          child: SingleChildScrollView(
+          child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ① GPS バー（1列、更新ボタン付き）
                 _GpsBar(
@@ -1023,7 +1023,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   loading: _gpsLoading,
                   onRefresh: _fetchGps,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ② 天気（左）+ 熱中症指数（右）
                 _WeatherHeatRow(
@@ -1035,14 +1035,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
                 // 健康診断警告
                 if (_buildHealthBannerMsg() != null) ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   _HealthCheckBanner(message: _buildHealthBannerMsg()!),
                 ],
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ③ AIの一言メッセージ
                 _DailyMessageRow(message: _dailyMessage),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ④ 移動手段 4択 → 金額 → ルート情報
                 _TransportRow(
@@ -1054,7 +1054,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   },
                 ),
                 if (_transport == TransportType.car) ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Container(
                     height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1100,7 +1100,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   ),
                 ],
                 if (_transport == TransportType.other) ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Container(
                     height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1143,13 +1143,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 _RouteInfoBar(
                   transport: _transport,
                   comparisons: _routeComparisons,
                   loading: _loadingRoutes,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ⑤ 作業内容テキスト
                 _WorkContentSection(
@@ -1162,7 +1162,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   onMicTap: _startVoice,
                   onCameraTap: _takeWorkPhoto,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
                 // ⑥ 残業（タップで時計入力）
                 _OvertimeSection(
@@ -1179,7 +1179,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     }
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
               ],
             ),
           ),
@@ -1848,18 +1848,37 @@ class _WorkContentSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ヘッダー
-          const Padding(
-            padding: EdgeInsets.fromLTRB(12, 10, 12, 6),
-            child: Row(children: [
-              Icon(Icons.construction,
-                  color: JsColors.gold, size: 15),
-              SizedBox(width: 6),
-              Text('作業内容',
-                  style: TextStyle(
-                      color: JsColors.offWhite,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold)),
-            ]),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Row(children: [
+                  Icon(Icons.construction,
+                      color: JsColors.gold, size: 15),
+                  SizedBox(width: 6),
+                  Text('作業内容',
+                      style: TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
+                ]),
+                if (showMediaButtons)
+                  Row(children: [
+                    _SmallMediaButton(
+                      icon: isListening ? Icons.mic : Icons.mic_none,
+                      active: isListening,
+                      onTap: onMicTap,
+                    ),
+                    const SizedBox(width: 8),
+                    _SmallMediaButton(
+                      icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
+                      active: photoPath != null,
+                      onTap: onCameraTap,
+                    ),
+                  ]),
+              ],
+            ),
           ),
           const Divider(height: 1, color: JsColors.divider),
 
@@ -1867,7 +1886,7 @@ class _WorkContentSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 60),
+              constraints: const BoxConstraints(minHeight: 50),
               child: TextField(
                 controller: controller,
                 maxLines: null,
@@ -1884,29 +1903,6 @@ class _WorkContentSection extends StatelessWidget {
               ),
             ),
           ),
-
-          // マイク / カメラ（車 or その他のみ）
-          if (showMediaButtons) ...[
-            const Divider(height: 1, color: JsColors.divider),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-              child: Row(children: [
-                Expanded(child: _MediaButton(
-                  icon: isListening ? Icons.mic : Icons.mic_none,
-                  label: isListening ? '録音中...' : '🎤 マイク',
-                  active: isListening,
-                  onTap: onMicTap ?? () {},
-                )),
-                const SizedBox(width: 8),
-                Expanded(child: _MediaButton(
-                  icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
-                  label: photoPath != null ? '📷 撮影済み' : '📷 カメラ',
-                  active: photoPath != null,
-                  onTap: onCameraTap ?? () {},
-                )),
-              ]),
-            ),
-          ],
 
           // 写真プレビュー
           if (photoPath != null) ...[
@@ -1949,6 +1945,37 @@ class _WorkContentSection extends StatelessWidget {
 // ─────────────────────────────────────────────
 // メディアボタン（マイク / カメラ）
 // ─────────────────────────────────────────────
+class _SmallMediaButton extends StatelessWidget {
+  const _SmallMediaButton({
+    required this.icon,
+    required this.active,
+    this.onTap,
+  });
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 32,
+      height: 28,
+      decoration: BoxDecoration(
+        color: active
+            ? JsColors.gold.withValues(alpha: 0.18)
+            : JsColors.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+            color: active ? JsColors.gold : JsColors.divider),
+      ),
+      child: Icon(icon,
+          size: 15,
+          color: active ? JsColors.gold : JsColors.silver),
+    ),
+  );
+}
+
 class _MediaButton extends StatelessWidget {
   const _MediaButton({
     required this.icon,
