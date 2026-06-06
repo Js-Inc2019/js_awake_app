@@ -2359,10 +2359,12 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
     });
   }
 
-  void _onPermanentError() {
+  void _onPermanentError(String errorMsg) {
     if (!mounted) return;
     setState(() => _listening = false);
-    showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
+    if (errorMsg.contains('permission')) {
+      showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
+    }
   }
 
   void _start() {

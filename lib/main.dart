@@ -501,10 +501,23 @@ class SpeechExtractResult {
 class SpeechManager {
   final _speech = SpeechToText();
   bool _initialized = false;
+  VoidCallback? _onSessionDone;
+  void Function(String errorMsg)? _onPermanentError;
 
   Future<bool> initialize() async {
     _initialized = await _speech.initialize(
-      onError: (_) {},
+      debugLogging: false,
+      onStatus: (status) {
+        debugPrint('SpeechManager status: $status');
+        if (status == 'notListening' || status == 'done') {
+          _onSessionDone?.call();
+        }
+      },
+      onError: (error) {
+        debugPrint('SpeechManager error: ${error.errorMsg} permanent=${error.permanent}');
+        if (error.errorMsg == 'error_busy') return;
+        if (error.permanent) _onPermanentError?.call(error.errorMsg);
+      },
     );
     return _initialized;
   }
@@ -514,19 +527,39 @@ class SpeechManager {
 
   Future<void> startListening({
     required void Function(String text, bool isFinal) onResult,
+    VoidCallback? onSessionDone,
+    void Function(String errorMsg)? onPermanentError,
   }) async {
     if (!_initialized) return;
+    _onSessionDone    = onSessionDone;
+    _onPermanentError = onPermanentError;
     await _speech.listen(
       onResult: (SpeechRecognitionResult r) =>
           onResult(r.recognizedWords, r.finalResult),
       localeId:  'ja_JP',
       listenFor: const Duration(seconds: 60),
-      pauseFor:  const Duration(seconds: 15),
+      pauseFor:  const Duration(seconds: 3),
+      listenOptions: SpeechListenOptions(
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+        autoPunctuation: false,
+        enableHapticFeedback: false,
+      ),
     );
   }
 
-  Future<void> stop()   async => _speech.stop();
-  Future<void> cancel() async => _speech.cancel();
+  Future<void> stop() async {
+    _onSessionDone    = null;
+    _onPermanentError = null;
+    await _speech.stop();
+  }
+
+  Future<void> cancel() async {
+    _onSessionDone    = null;
+    _onPermanentError = null;
+    await _speech.cancel();
+  }
 
   SpeechExtractResult extractInfo(String text) {
     String?        name;
@@ -2224,8 +2257,11 @@ class _VoiceDialog extends StatefulWidget {
 
 class _VoiceDialogState extends State<_VoiceDialog>
     with SingleTickerProviderStateMixin {
-  String _text      = '';
-  bool   _listening = false;
+  String _text          = '';
+  bool   _listening     = false;
+  bool   _manualStop    = false;
+  String _committed     = '';
+  int    _emptyRestarts = 0;
   late   AnimationController _pulse;
 
   @override
@@ -2240,12 +2276,53 @@ class _VoiceDialogState extends State<_VoiceDialog>
   @override
   void dispose() { _pulse.dispose(); super.dispose(); }
 
-  Future<void> _start() async {
-    setState(() { _listening = true; _text = ''; });
-    await widget.manager.startListening(
-      onResult: (text, isFinal) { if (mounted) setState(() => _text = text); },
+  void _onResult(String text, bool isFinal) {
+    if (!mounted) return;
+    if (text.trim().isNotEmpty) _emptyRestarts = 0;
+    setState(() => _text = '$_committed$text'.trim());
+    if (isFinal && text.trim().isNotEmpty) _committed = '$_committed$text ';
+  }
+
+  void _onSessionDone() {
+    if (!mounted || !_listening || _manualStop) return;
+    if (++_emptyRestarts > 6) { setState(() => _listening = false); return; }
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (mounted && _listening && !_manualStop) {
+        widget.manager.startListening(
+          onResult: _onResult,
+          onSessionDone: _onSessionDone,
+          onPermanentError: _onPermanentError,
+        );
+      }
+    });
+  }
+
+  void _onPermanentError(String errorMsg) {
+    if (!mounted) return;
+    setState(() => _listening = false);
+    if (errorMsg.contains('permission')) {
+      showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
+    }
+  }
+
+  void _start() {
+    _listening     = true;
+    _manualStop    = false;
+    _emptyRestarts = 0;
+    _committed     = _text.isEmpty ? '' : '${_text.trim()} ';
+    setState(() {});
+    widget.manager.startListening(
+      onResult: _onResult,
+      onSessionDone: _onSessionDone,
+      onPermanentError: _onPermanentError,
     );
-    if (mounted) setState(() => _listening = false);
+  }
+
+  void _stop() {
+    _manualStop = true;
+    _listening  = false;
+    widget.manager.stop();
+    if (mounted) setState(() {});
   }
 
   @override
@@ -2300,10 +2377,7 @@ class _VoiceDialogState extends State<_VoiceDialog>
       ),
       if (_listening)
         TextButton(
-          onPressed: () async {
-            await widget.manager.stop();
-            setState(() => _listening = false);
-          },
+          onPressed: _stop,
           child: const Text('停止', style: TextStyle(color: JsColors.gold)),
         ),
       if (!_listening && _text.isNotEmpty)
