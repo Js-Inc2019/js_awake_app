@@ -2362,7 +2362,7 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
   void _onPermanentError(String errorMsg) {
     if (!mounted) return;
     setState(() => _listening = false);
-    if (errorMsg.contains('permission')) {
+    if (errorMsg.toLowerCase().contains('permission')) {
       showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
     }
   }
