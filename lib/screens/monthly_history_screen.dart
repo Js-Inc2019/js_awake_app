@@ -120,11 +120,6 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.home_outlined, color: JsColors.silver, size: 20),
-                tooltip: 'ホームに戻る',
-                onPressed: () => widget.onHome?.call(),
-              ),
-              IconButton(
                 icon: const Icon(Icons.refresh, color: JsColors.silver, size: 20),
                 onPressed: _load,
                 tooltip: '再読み込み',

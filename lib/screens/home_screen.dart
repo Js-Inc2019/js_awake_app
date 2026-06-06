@@ -896,7 +896,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     // IndexedStack の children リスト
     final tabChildren = <Widget>[
       _buildHomeTabContent(),
-      MonthlyHistoryBody(onHome: () => _setTab(0)),
+      const MonthlyHistoryBody(),
       if (widget.isForeman) const _ForemanManagementBody(),
     ];
 
@@ -936,36 +936,37 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ],
       ),
       actions: [
-        // ⚠️ 是正依頼ボタン（未読バッジ付き）
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            IconButton(
-              icon: Icon(Icons.warning_amber_rounded,
-                  color: _revisionCount > 0 ? JsColors.error : JsColors.silver),
-              tooltip: '是正依頼',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
-              ).then((_) => _loadRevisionCount()),
-            ),
-            if (_revisionCount > 0)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(
-                      color: JsColors.error, shape: BoxShape.circle),
-                  child: Text('$_revisionCount',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold)),
-                ),
+        // ⚠️ 是正依頼ボタン（foreman/boss のみ）
+        if (widget.isForeman)
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: Icon(Icons.warning_amber_rounded,
+                    color: _revisionCount > 0 ? JsColors.error : JsColors.silver),
+                tooltip: '是正依頼',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+                ).then((_) => _loadRevisionCount()),
               ),
-          ],
-        ),
+              if (_revisionCount > 0)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        color: JsColors.error, shape: BoxShape.circle),
+                    child: Text('$_revisionCount',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
+          ),
         // ⚙️ 設定ボタン
         IconButton(
           icon: const Icon(Icons.settings, color: JsColors.silver),
@@ -1010,46 +1011,43 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ─── BottomBar ───
   Widget _buildBottomBar() {
     final divider = Container(width: 1, height: 36, color: JsColors.divider);
-    if (widget.isForeman) {
-      return BottomAppBar(
-        color: JsColors.gunmetal,
-        height: 60,
-        padding: EdgeInsets.zero,
-        child: Row(children: [
-          _BottomTabItem(
-            icon: Icons.calendar_month,
-            label: '月間履歴',
-            active: _tabIndex == 1,
-            onTap: () => _setTab(_tabIndex == 1 ? 0 : 1),
-          ),
-          divider,
-          _BottomTabItem(
-            icon: Icons.bar_chart,
-            label: '管理・集計',
-            active: _tabIndex == 2,
-            onTap: () => _setTab(_tabIndex == 2 ? 0 : 2),
-          ),
-          divider,
-          _BottomTabItem(
-            icon: Icons.build,
-            label: 'TOOL',
-            active: false,
-            onTap: _launchToolApp,
-          ),
-        ]),
-      );
-    }
     return BottomAppBar(
       color: JsColors.gunmetal,
       height: 60,
       padding: EdgeInsets.zero,
       child: Row(children: [
         _BottomTabItem(
+          icon: Icons.home_outlined,
+          label: '日報',
+          active: _tabIndex == 0,
+          onTap: () => _setTab(0),
+        ),
+        divider,
+        _BottomTabItem(
           icon: Icons.calendar_month,
           label: '月間履歴',
           active: _tabIndex == 1,
-          onTap: () => _setTab(_tabIndex == 1 ? 0 : 1),
+          onTap: () => _setTab(1),
         ),
+        divider,
+        if (widget.isForeman)
+          _BottomTabItem(
+            icon: Icons.bar_chart,
+            label: '管理・集計',
+            active: _tabIndex == 2,
+            onTap: () => _setTab(2),
+          )
+        else
+          _BottomTabItem(
+            icon: Icons.warning_amber_rounded,
+            label: '是正依頼',
+            active: false,
+            badge: _revisionCount,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+            ).then((_) => _loadRevisionCount()),
+          ),
         divider,
         _BottomTabItem(
           icon: Icons.build,
@@ -1364,11 +1362,13 @@ class _BottomTabItem extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.badge = 0,
   });
   final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
+  final int badge;
 
   @override
   Widget build(BuildContext context) => Expanded(
@@ -1377,8 +1377,27 @@ class _BottomTabItem extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon,
-              color: active ? JsColors.gold : JsColors.silver, size: 22),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(icon,
+                  color: active ? JsColors.gold : JsColors.silver, size: 22),
+              if (badge > 0)
+                Positioned(
+                  top: -4, right: -6,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        color: JsColors.error, shape: BoxShape.circle),
+                    child: Text('$badge',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 2),
           Text(label,
               style: TextStyle(
