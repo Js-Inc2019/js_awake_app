@@ -525,6 +525,8 @@ class SpeechManager {
       onError: (error) {
         debugPrint('SpeechManager error: ${error.errorMsg} permanent=${error.permanent}');
         if (error.errorMsg == 'error_busy') return;
+        if (error.errorMsg == 'error_no_match') return;
+        if (error.errorMsg == 'error_speech_timeout') return;
         if (error.permanent) _onPermanentError?.call(error.errorMsg);
       },
     );
@@ -533,6 +535,7 @@ class SpeechManager {
 
   bool get isAvailable => _initialized && _speech.isAvailable;
   bool get isListening => _speech.isListening;
+  Future<bool> get hasPermission => _speech.hasPermission;
 
   Future<void> startListening({
     required void Function(String text, bool isFinal) onResult,
@@ -2326,10 +2329,11 @@ class _VoiceDialogState extends State<_VoiceDialog>
     });
   }
 
-  void _onPermanentError(String errorMsg) {
+  void _onPermanentError(String errorMsg) async {
     if (!mounted) return;
     setState(() => _listening = false);
-    if (errorMsg.toLowerCase().contains('permission')) {
+    final ok = await widget.manager.hasPermission;
+    if (!ok && mounted) {
       showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
     }
   }

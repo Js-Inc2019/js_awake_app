@@ -2399,10 +2399,11 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
     });
   }
 
-  void _onPermanentError(String errorMsg) {
+  void _onPermanentError(String errorMsg) async {
     if (!mounted) return;
     setState(() => _listening = false);
-    if (errorMsg.toLowerCase().contains('permission')) {
+    final ok = await widget.manager.hasPermission;
+    if (!ok && mounted) {
       showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
     }
   }
