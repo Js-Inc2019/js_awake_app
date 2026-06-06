@@ -1118,13 +1118,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             onChanged: (_) => _saveDraft(),
                           ),
                         ),
-                        const SizedBox(width: 4),
-                        _MediaButton(
-                          icon: _isListening ? Icons.mic : Icons.mic_none,
-                          label: _isListening ? '録音中' : 'マイク',
-                          active: _isListening,
-                          onTap: _startVoice,
-                        ),
                       ],
                     ),
                   ),
@@ -1197,13 +1190,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
                             onChanged: (_) => _saveDraft(),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        _MediaButton(
-                          icon: _isListening ? Icons.mic : Icons.mic_none,
-                          label: _isListening ? '録音中' : 'マイク',
-                          active: _isListening,
-                          onTap: _startVoice,
                         ),
                       ],
                     ),
@@ -2333,8 +2319,11 @@ class _VoiceInputDialog extends StatefulWidget {
 
 class _VoiceInputDialogState extends State<_VoiceInputDialog>
     with SingleTickerProviderStateMixin {
-  String _text = '';
-  bool _listening = false;
+  String _text          = '';
+  bool   _listening     = false;
+  bool   _manualStop    = false;
+  String _committed     = '';
+  int    _emptyRestarts = 0;
   late AnimationController _pulse;
 
   @override
@@ -2349,12 +2338,51 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
   @override
   void dispose() { _pulse.dispose(); super.dispose(); }
 
-  Future<void> _start() async {
-    setState(() { _listening = true; _text = ''; });
-    await widget.manager.startListening(
-      onResult: (t, _) { if (mounted) setState(() => _text = t); },
+  void _onResult(String text, bool isFinal) {
+    if (!mounted) return;
+    if (text.trim().isNotEmpty) _emptyRestarts = 0;
+    setState(() => _text = '$_committed$text'.trim());
+    if (isFinal && text.trim().isNotEmpty) _committed = '$_committed$text ';
+  }
+
+  void _onSessionDone() {
+    if (!mounted || !_listening || _manualStop) return;
+    if (++_emptyRestarts > 6) { setState(() => _listening = false); return; }
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (mounted && _listening && !_manualStop) {
+        widget.manager.startListening(
+          onResult: _onResult,
+          onSessionDone: _onSessionDone,
+          onPermanentError: _onPermanentError,
+        );
+      }
+    });
+  }
+
+  void _onPermanentError() {
+    if (!mounted) return;
+    setState(() => _listening = false);
+    showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
+  }
+
+  void _start() {
+    _listening     = true;
+    _manualStop    = false;
+    _emptyRestarts = 0;
+    _committed     = _text.isEmpty ? '' : '${_text.trim()} ';
+    setState(() {});
+    widget.manager.startListening(
+      onResult: _onResult,
+      onSessionDone: _onSessionDone,
+      onPermanentError: _onPermanentError,
     );
-    if (mounted) setState(() => _listening = false);
+  }
+
+  void _stop() {
+    _manualStop = true;
+    _listening  = false;
+    widget.manager.stop();
+    if (mounted) setState(() {});
   }
 
   @override
@@ -2419,10 +2447,7 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
               style: TextStyle(color: JsColors.silver))),
       if (_listening)
         TextButton(
-            onPressed: () async {
-              await widget.manager.stop();
-              setState(() => _listening = false);
-            },
+            onPressed: _stop,
             child: const Text('停止',
                 style: TextStyle(color: JsColors.gold))),
       if (!_listening && _text.isNotEmpty)
