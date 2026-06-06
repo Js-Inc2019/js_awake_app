@@ -506,9 +506,11 @@ class SpeechManager {
   VoidCallback? _onSessionDone;
   void Function(String errorMsg)? _onPermanentError;
 
-  Future<bool> ensureReady() {
+  Future<bool> ensureReady() async {
     _initFuture ??= initialize();
-    return _initFuture!;
+    final ok = await _initFuture!;
+    if (!ok) _initFuture = null; // 失敗はキャッシュしない → 設定許可後に再試行可能
+    return ok;
   }
 
   Future<bool> initialize() async {
