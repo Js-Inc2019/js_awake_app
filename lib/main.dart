@@ -30,6 +30,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -501,8 +502,14 @@ class SpeechExtractResult {
 class SpeechManager {
   final _speech = SpeechToText();
   bool _initialized = false;
+  Future<bool>? _initFuture;
   VoidCallback? _onSessionDone;
   void Function(String errorMsg)? _onPermanentError;
+
+  Future<bool> ensureReady() {
+    _initFuture ??= initialize();
+    return _initFuture!;
+  }
 
   Future<bool> initialize() async {
     _initialized = await _speech.initialize(
@@ -530,7 +537,6 @@ class SpeechManager {
     VoidCallback? onSessionDone,
     void Function(String errorMsg)? onPermanentError,
   }) async {
-    if (!_initialized) return;
     _onSessionDone    = onSessionDone;
     _onPermanentError = onPermanentError;
     await _speech.listen(
@@ -909,7 +915,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _speechMgr.initialize();
+    _speechMgr.ensureReady();
     _fetchGps();
     _loadUserName();
     _loadOriginPrefs();
@@ -1034,6 +1040,27 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   }
 
   Future<void> _startVoiceWork() async {
+    final ready = await _speechMgr.ensureReady();
+    if (!ready) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          backgroundColor: JsColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: '設定を開く',
+            textColor: Colors.white,
+            onPressed: () => launchUrl(Uri.parse('app-settings:')),
+          ),
+        ));
+      return;
+    }
     setState(() { _isListening = true; _voiceMode = true; });
     await showDialog(
       context: context,

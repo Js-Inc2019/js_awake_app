@@ -415,7 +415,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
-        _speechMgr.initialize();
+        _speechMgr.ensureReady();
         ReportStore.instance.retryPending();
       }
     });
@@ -663,6 +663,27 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   Future<void> _startVoice() async {
+    final ready = await _speechMgr.ensureReady();
+    if (!ready) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          backgroundColor: JsColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: '設定を開く',
+            textColor: Colors.white,
+            onPressed: () => launchUrl(Uri.parse('app-settings:')),
+          ),
+        ));
+      return;
+    }
     setState(() => _isListening = true);
     await showDialog(
       context: context,
