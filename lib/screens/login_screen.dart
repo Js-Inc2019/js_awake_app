@@ -518,6 +518,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('user_name',   data['name']       as String? ?? '');
     await prefs.setString('user_role',   data['role']       as String? ?? 'worker');
     await prefs.setString('company_id',  data['company_id'] as String? ?? '');
+    await prefs.setString('company_name', data['company_name'] as String? ?? '');
     await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');
     await prefs.setString('user_id',     data['user_id']    as String? ?? '');
     await prefs.setString('consent_agreed_at',
