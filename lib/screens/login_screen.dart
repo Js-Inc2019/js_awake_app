@@ -31,10 +31,10 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading    = true;
   String? _errorMessage;
-  final _nameCtrl = TextEditingController();
-
-  // 自己登録用ロール
-  String _selfRole = 'worker';
+  final _nameCtrl           = TextEditingController();
+  final _companyCodeCtrl    = TextEditingController();
+  final _partnerCompanyCtrl = TextEditingController();
+  final _ownCompanyCtrl     = TextEditingController();
 
   bool _biometricFailed = false;
 
@@ -93,6 +93,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _companyCodeCtrl.dispose();
+    _partnerCompanyCtrl.dispose();
+    _ownCompanyCtrl.dispose();
     _pinCtrl.dispose();
     _pinConfCtrl.dispose();
     _loginPinCtrl.dispose();
@@ -399,7 +402,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ─── 自己登録（仮登録申請）────────────────────────────────
   Future<void> _selfRegister() async {
-    final name = _nameCtrl.text.trim();
+    final ownCompany     = _ownCompanyCtrl.text.trim();
+    final name           = _nameCtrl.text.trim();
+    final partnerCompany = _partnerCompanyCtrl.text.trim();
+    final companyCode    = _companyCodeCtrl.text.trim().toUpperCase();
+
+    if (ownCompany.isEmpty) {
+      setState(() => _errorMessage = '自社の会社名を入力してください');
+      return;
+    }
     if (name.isEmpty) {
       setState(() => _errorMessage = '氏名を入力してください');
       return;
@@ -448,10 +459,12 @@ class _LoginScreenState extends State<LoginScreen> {
         Uri.parse('$_apiBase/workers/self-register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'name':        name,
-          'role':        _selfRole,
-          'device_id':   deviceId,
-          'device_name': deviceName,
+          'name':                 name,
+          'own_company_name':     ownCompany,
+          'partner_company_name': partnerCompany.isNotEmpty ? partnerCompany : null,
+          'company_code':         companyCode.isNotEmpty ? companyCode : null,
+          'device_id':            deviceId,
+          'device_name':          deviceName,
         }),
       ).timeout(const Duration(seconds: 30));
 
@@ -464,12 +477,13 @@ class _LoginScreenState extends State<LoginScreen> {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token', token);
           await prefs.setString('user_name',  name);
-          await prefs.setString('user_role',  _selfRole);
+          await prefs.setString('user_role',  'worker');
           await prefs.setString('device_id',  deviceId);
           await prefs.setBool('is_registered', true);
           await _writePersistentRegistered();
         }
         if (!mounted) return;
+        // already_registered: true でも PendingApprovalScreen へ（ゲートUIはフェーズ2）
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
         );
@@ -601,27 +615,42 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 48),
 
-              // ── PIN ログインボタン ────────────────────────
-              _loginButton(
-                icon: Icons.lock_outline,
-                label: 'PIN入力でログイン',
-                onTap: () => setState(() {
-                  _showPinLogin = true;
-                  _errorMessage = null;
-                }),
-              ),
-              const SizedBox(height: 12),
-
-              // ── 招待コードボタン ─────────────────────────
-              _loginButton(
-                icon: Icons.vpn_key_outlined,
-                label: '招待コードをお持ちの方',
-                onTap: () => Navigator.of(context)
-                    .pushNamed('/register')
-                    .then((_) async {
-                  // 招待コード登録完了後の処理
-                  if (mounted) setState(() {});
-                }),
+              // ── ログイン ─────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _biometricThenLogin,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _goldColor,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: _silverColor),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('生体認証',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => setState(() {
+                        _showPinLogin = true;
+                        _errorMessage = null;
+                      }),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _goldColor,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: _silverColor),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('PIN入力',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 40),
 
@@ -637,70 +666,50 @@ class _LoginScreenState extends State<LoginScreen> {
               ]),
               const SizedBox(height: 24),
 
-              // 氏名フィールド
-              TextField(
-                controller: _nameCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: '氏名',
-                  labelStyle: const TextStyle(color: _silverColor),
-                  prefixIcon: const Icon(Icons.person_outline, color: _silverColor),
-                  filled: true,
-                  fillColor: _navyColor,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _silverColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _silverColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _goldColor, width: 2),
-                  ),
-                ),
+              // 会社コード（任意）
+              _regField(
+                controller: _companyCodeCtrl,
+                label: '会社コード（わかる方のみ）',
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // 役割選択
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('役割',
-                    style: TextStyle(color: _silverColor, fontSize: 13)),
+              // 協力先の業者名（任意）
+              _regField(
+                controller: _partnerCompanyCtrl,
+                label: '協力先の業者名（自社で働く方は未記入でOK）',
+                showMic: true,
               ),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selfRole = 'worker'),
-                    child: _roleChip('職人', _selfRole == 'worker'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selfRole = 'foreman'),
-                    child: _roleChip('職長', _selfRole == 'foreman'),
-                  ),
-                ),
-              ]),
+              const SizedBox(height: 14),
+
+              // 自社の会社名（必須）
+              _regField(
+                controller: _ownCompanyCtrl,
+                label: '自社の会社名',
+                showMic: true,
+              ),
+              const SizedBox(height: 14),
+
+              // 氏名（必須）
+              _regField(
+                controller: _nameCtrl,
+                label: '氏名',
+                showMic: true,
+              ),
               const SizedBox(height: 24),
 
               // サインアップボタン
               SizedBox(
                 height: 52,
-                child: ElevatedButton.icon(
+                child: ElevatedButton(
                   onPressed: _selfRegister,
-                  icon: const Icon(Icons.key),
-                  label: const Text('サインアップ',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _goldColor,
                     foregroundColor: Colors.black,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
+                  child: const Text('サインアップ',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                 ),
               ),
 
@@ -750,21 +759,34 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _roleChip(String label, bool selected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        color: selected ? _goldColor : _navyColor,
-        border: Border.all(color: selected ? _goldColor : _silverColor),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.black : Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+  Widget _regField({
+    required TextEditingController controller,
+    required String label,
+    bool showMic = false,
+  }) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: _silverColor, fontSize: 13),
+        prefixIcon: const Icon(Icons.edit_note, color: _silverColor),
+        suffixIcon: showMic
+            ? const Icon(Icons.mic_none, color: _silverColor)
+            : null,
+        filled: true,
+        fillColor: _navyColor,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _silverColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _silverColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _goldColor, width: 2),
         ),
       ),
     );
