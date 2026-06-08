@@ -358,7 +358,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── ユーザー情報 ───
   bool _initialLoading = true;
-  String _companyName = "株式会社J's";
+  String _companyName = "";
   String _userName = '';
   int _revisionCount = 0;
 
@@ -527,7 +527,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (mounted) {
       setState(() {
         _userName        = prefs.getString('user_name') ?? '';
-        _companyName     = prefs.getString('company_name') ?? "株式会社J's";
+        _companyName     = prefs.getString('company_name') ?? "";
         _healthCheckDate = hcIso != null ? DateTime.tryParse(hcIso) : null;
         _revisionCount   = revCount;
         if (cachedAddr.isNotEmpty) _gpsAddress = cachedAddr;

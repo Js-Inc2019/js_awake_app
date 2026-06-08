@@ -32,7 +32,7 @@ class User {
       name: json['name'] as String? ?? '',
       phoneNumber: json['phone_number'] as String?,
       email: json['email'] as String?,
-      company: json['company'] as String? ?? '株式会社J\'s',
+      company: json['company'] as String? ?? '',
       role: json['role'] as String? ?? 'worker',
       isActive: json['is_active'] as bool? ?? true,
       createdAt: json['created_at'] != null

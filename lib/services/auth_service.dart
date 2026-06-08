@@ -117,27 +117,30 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final token     = data['token']      as String?;
-        final userId    = data['user_id']    as String?;
-        final role      = data['role']       as String?;
-        final companyId = data['company_id'] as String?;
-        final userName  = data['name']       as String?;
+        final token       = data['token']        as String?;
+        final userId      = data['user_id']      as String?;
+        final role        = data['role']         as String?;
+        final companyId   = data['company_id']   as String?;
+        final companyName = data['company_name'] as String?;
+        final userName    = data['name']         as String?;
 
         if (token != null && userId != null) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('auth_token',  token);
-          await prefs.setString('user_id',     userId);
-          await prefs.setString('role',        role      ?? 'worker');
-          await prefs.setString('company_id',  companyId ?? '');
-          await prefs.setString('user_name',   userName  ?? '');
+          await prefs.setString('auth_token',   token);
+          await prefs.setString('user_id',      userId);
+          await prefs.setString('role',         role        ?? 'worker');
+          await prefs.setString('company_id',   companyId   ?? '');
+          await prefs.setString('company_name', companyName ?? '');
+          await prefs.setString('user_name',    userName    ?? '');
           return {
-            'success':    true,
-            'message':    'ログインに成功しました',
-            'token':      token,
-            'user_id':    userId,
-            'role':       role,
-            'company_id': companyId,
-            'user_name':  userName,
+            'success':      true,
+            'message':      'ログインに成功しました',
+            'token':        token,
+            'user_id':      userId,
+            'role':         role,
+            'company_id':   companyId,
+            'company_name': companyName,
+            'user_name':    userName,
           };
         }
       } else if (response.statusCode == 401) {
