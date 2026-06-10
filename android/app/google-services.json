@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "319896772382",
+    "project_id": "js-awake-app",
+    "storage_bucket": "js-awake-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:319896772382:android:54e2e9f2d85b5d9278f30f",
+        "android_client_info": {
+          "package_name": "com.js.awake.js_awake_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDklFD5u-SEybz_753S7oVMtY1fd0VOue8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

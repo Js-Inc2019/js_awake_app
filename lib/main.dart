@@ -43,6 +43,8 @@ import 'package:geocoding/geocoding.dart'
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 // ============================================================
 // API設定
@@ -57,6 +59,7 @@ const String API_URL = kApiBaseUrl;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await dotenv.load(fileName: '.env');
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
