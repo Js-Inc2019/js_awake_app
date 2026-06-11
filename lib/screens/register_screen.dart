@@ -11,7 +11,8 @@ import '../config/constants.dart';
 const String _apiUrl = kApiBaseUrl;
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.initialInviteCode});
+  final String? initialInviteCode;
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -26,6 +27,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePin  = true;
   bool _obscureConf = true;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final code = widget.initialInviteCode;
+    if (code != null && code.isNotEmpty) {
+      _inviteCtrl.text = code;
+      _step = 1;
+    }
+  }
 
   @override
   void dispose() {

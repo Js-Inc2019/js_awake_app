@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
+import 'register_screen.dart';
 import '../config/constants.dart';
 
 const String _apiBase = kApiBaseUrl;
@@ -37,6 +38,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _ownCompanyCtrl     = TextEditingController();
 
   bool _biometricFailed = false;
+  final _landingInviteCtrl = TextEditingController();
+  bool _showSelfReg = false;
 
   // PIN設定ステップ（Sign Up後 — 旧フロー互換）
   final int _step = 0;
@@ -96,6 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _companyCodeCtrl.dispose();
     _partnerCompanyCtrl.dispose();
     _ownCompanyCtrl.dispose();
+    _landingInviteCtrl.dispose();
     _pinCtrl.dispose();
     _pinConfCtrl.dispose();
     _loginPinCtrl.dispose();
@@ -656,64 +660,149 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 40),
 
-              // ── 新規登録 セクション ──────────────────────
+              // ── はじめての方 セクション ──────────────────
               const Row(children: [
                 Expanded(child: Divider(color: _silverColor)),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 14),
-                  child: Text('新規登録',
+                  child: Text('はじめての方',
                       style: TextStyle(color: _silverColor, fontSize: 13)),
                 ),
                 Expanded(child: Divider(color: _silverColor)),
               ]),
               const SizedBox(height: 24),
 
-              // 会社コード（任意）
-              _regField(
-                controller: _companyCodeCtrl,
-                label: '会社コード（わかる方のみ）',
+              // ── 招待コード入力（6桁・大字中央）──────────
+              TextField(
+                controller: _landingInviteCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  letterSpacing: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: '● ● ● ●',
+                  hintStyle: const TextStyle(
+                      color: Color(0xFF242418), letterSpacing: 8, fontSize: 24),
+                  filled: true,
+                  fillColor: _navyColor,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                        color: Color(0xFFA89868), width: 2),
+                  ),
+                ),
               ),
-              const SizedBox(height: 14),
-
-              // 協力先の業者名（任意）
-              _regField(
-                controller: _partnerCompanyCtrl,
-                label: '協力先の業者名（自社で働く方は未記入でOK）',
-                showMic: true,
-              ),
-              const SizedBox(height: 14),
-
-              // 自社の会社名（必須）
-              _regField(
-                controller: _ownCompanyCtrl,
-                label: '自社の会社名',
-                showMic: true,
-              ),
-              const SizedBox(height: 14),
-
-              // 氏名（必須）
-              _regField(
-                controller: _nameCtrl,
-                label: '氏名',
-                showMic: true,
+              const SizedBox(height: 8),
+              const Text(
+                '管理者から受け取った6桁の番号を入れてください',
+                style: TextStyle(color: _silverColor, fontSize: 12),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-
-              // サインアップボタン
               SizedBox(
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _selfRegister,
+                  onPressed: () {
+                    final code = _landingInviteCtrl.text.trim();
+                    if (code.length < 6) {
+                      setState(() => _errorMessage = '6桁の番号を入力してください');
+                      return;
+                    }
+                    setState(() => _errorMessage = null);
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => RegisterScreen(initialInviteCode: code),
+                    ));
+                  },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _goldColor,
+                    backgroundColor: const Color(0xFFA89868),
                     foregroundColor: Colors.black,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('サインアップ',
+                  child: const Text('次へ（PIN設定）',
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                 ),
               ),
+              const SizedBox(height: 32),
+
+              // ── 応急登録リンク（薄いゴールド・最下部）────
+              Center(
+                child: TextButton(
+                  onPressed: () => setState(() {
+                    _showSelfReg = !_showSelfReg;
+                    _errorMessage = null;
+                  }),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFC1B07C),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    '招待コードがない方（応急登録）',
+                    style: TextStyle(
+                      color: Color(0x9EC1B07C),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── 応急登録フォーム（展開式・リンクで開閉）──
+              if (_showSelfReg) ...[
+                const SizedBox(height: 16),
+                _regField(
+                  controller: _companyCodeCtrl,
+                  label: '会社コード（わかる方のみ）',
+                ),
+                const SizedBox(height: 14),
+                _regField(
+                  controller: _partnerCompanyCtrl,
+                  label: '協力先の業者名（自社で働く方は未記入でOK）',
+                  showMic: true,
+                ),
+                const SizedBox(height: 14),
+                _regField(
+                  controller: _ownCompanyCtrl,
+                  label: '自社の会社名',
+                  showMic: true,
+                ),
+                const SizedBox(height: 14),
+                _regField(
+                  controller: _nameCtrl,
+                  label: '氏名',
+                  showMic: true,
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _selfRegister,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _navyColor,
+                      foregroundColor: _goldColor,
+                      side: const BorderSide(color: _goldColor),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('仮登録する',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
 
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
