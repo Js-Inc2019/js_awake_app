@@ -414,6 +414,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback(
           (_) => _restoreDraft(widget.restoreWorkStatus!));
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final d = FcmService.pendingTapData;
+      if (d != null) {
+        FcmService.pendingTapData = null;
+        FcmService().handleNotificationTap(d);
+      }
+    });
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _speechMgr.ensureReady();

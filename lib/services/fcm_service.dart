@@ -15,6 +15,8 @@ class FcmService {
 
   static final navigatorKey = GlobalKey<NavigatorState>();
 
+  static Map<String, dynamic>? pendingTapData;
+
   static const _channelId   = 'js_fcm';
   static const _channelName = '通知';
 
@@ -64,6 +66,9 @@ class FcmService {
     });
 
     FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
+
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) pendingTapData = initial.data;
   }
 
   Future<void> registerToken() async {
