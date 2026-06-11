@@ -773,7 +773,7 @@ class _GateScreenState extends State<GateScreen> {
     }
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
-    if (role == 'boss' || role == 'foreman') { _pushBoss(context); }
+    if (role == 'boss') { _pushBoss(context); }
     else { await _pushWorker(context); }
   }
   @override
