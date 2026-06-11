@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import '../config/constants.dart';
+import '../services/fcm_service.dart';
 
 const String _apiBase = kApiBaseUrl;
 
@@ -531,6 +532,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString('device_id', deviceId);
     }
     await _writePersistentRegistered();
+    FcmService().registerAfterLogin(); // fire-and-forget
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }
