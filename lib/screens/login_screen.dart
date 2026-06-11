@@ -13,7 +13,6 @@ import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import '../config/constants.dart';
-import '../services/fcm_service.dart';
 
 const String _apiBase = kApiBaseUrl;
 
@@ -532,7 +531,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString('device_id', deviceId);
     }
     await _writePersistentRegistered();
-    FcmService().registerToken(); // fire-and-forget（権限要求はホーム画面で順番化）
+    // FCM token 取得・POST はホーム画面で権限取得後に行う
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }

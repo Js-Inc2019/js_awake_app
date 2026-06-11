@@ -551,8 +551,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
     ]);
-    // 位置情報ダイアログ完了後に通知許可を要求（権限衝突防止）
+    // 位置 → 通知許可 → token取得・POST の順を保証（権限衝突完全解消）
     await FcmService().requestNotificationPermission();
+    await FcmService().registerToken();
   }
 
   Future<void> _fetchGps({SharedPreferences? prefs}) async {
