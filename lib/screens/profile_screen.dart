@@ -49,6 +49,7 @@ class _ProfileData {
   final int? experienceYears;
   final DateTime? healthCheckDate;
   final String? profileImageUrl;
+  final String? workerId;
 
   const _ProfileData({
     required this.name,
@@ -60,6 +61,7 @@ class _ProfileData {
     this.experienceYears,
     this.healthCheckDate,
     this.profileImageUrl,
+    this.workerId,
   });
 
   String get roleLabel {
@@ -130,6 +132,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       bloodType:       prefs.getString('profile_blood_type') ?? '',
       experienceYears: prefs.getInt('experience_years'),
       healthCheckDate: hcIso != null ? DateTime.tryParse(hcIso) : null,
+      workerId:        prefs.getString('worker_id'),
     ));
   }
 
@@ -183,6 +186,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             experienceYears: expYears ?? local.experienceYears,
             healthCheckDate: hcDate,
             profileImageUrl: data['profile_image_url'] as String?,
+            workerId:        local.workerId,
           );
         });
       }
@@ -543,6 +547,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(children: [
         _InfoRow(icon: Icons.business,  label: '会社名',    value: p.companyName),
+        const Divider(height: 1, color: JsColors.divider),
+        _InfoRow(
+          icon: Icons.badge,
+          label: '職人ID',
+          value: (p.workerId?.isNotEmpty ?? false) ? p.workerId! : '未発行',
+        ),
         const Divider(height: 1, color: JsColors.divider),
         _InfoRow(
           icon: Icons.home,

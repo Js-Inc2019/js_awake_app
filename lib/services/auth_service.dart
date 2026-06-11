@@ -123,6 +123,7 @@ class AuthService {
         final companyId   = data['company_id']   as String?;
         final companyName = data['company_name'] as String?;
         final userName    = data['name']         as String?;
+        final workerId    = data['worker_id']    as String?;
 
         if (token != null && userId != null) {
           final prefs = await SharedPreferences.getInstance();
@@ -132,6 +133,9 @@ class AuthService {
           await prefs.setString('company_id',   companyId   ?? '');
           await prefs.setString('company_name', companyName ?? '');
           await prefs.setString('user_name',    userName    ?? '');
+          if (workerId != null && workerId.isNotEmpty) {
+            await prefs.setString('worker_id', workerId);
+          }
           return {
             'success':      true,
             'message':      'ログインに成功しました',
@@ -141,6 +145,7 @@ class AuthService {
             'company_id':   companyId,
             'company_name': companyName,
             'user_name':    userName,
+            'worker_id':    workerId,
           };
         }
       } else if (response.statusCode == 401) {
