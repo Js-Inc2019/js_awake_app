@@ -1,15 +1,19 @@
 import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
+import '../screens/revision_inbox_screen.dart';
 import 'auth_service.dart';
 
 class FcmService {
   static final FcmService _instance = FcmService._internal();
   factory FcmService() => _instance;
   FcmService._internal();
+
+  static final navigatorKey = GlobalKey<NavigatorState>();
 
   static const _channelId   = 'js_fcm';
   static const _channelName = '通知';
@@ -24,7 +28,16 @@ class FcmService {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit     = DarwinInitializationSettings();
     await _plugin.initialize(
-        const InitializationSettings(android: androidInit, iOS: iosInit));
+      const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        final payload = response.payload;
+        if (payload == null) return;
+        try {
+          final data = jsonDecode(payload) as Map<String, dynamic>;
+          handleNotificationTap(data);
+        } catch (_) {}
+      },
+    );
 
     const channel = AndroidNotificationChannel(
       _channelId,
@@ -42,7 +55,12 @@ class FcmService {
         title:     notification.title ?? '',
         body:      notification.body  ?? '',
         messageId: message.messageId,
+        data:      message.data,
       );
+    });
+
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      handleNotificationTap(message.data);
     });
 
     FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
@@ -70,6 +88,15 @@ class FcmService {
     } catch (_) {}
   }
 
+  Future<void> handleNotificationTap(Map<String, dynamic> data) async {
+    if (data['type'] != 'revision_request') return;
+    final loggedIn = await AuthService().isLoggedIn();
+    if (!loggedIn) return;
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+    );
+  }
+
   Future<void> _postToken(String token) async {
     try {
       final userId = await AuthService().getUserId();
@@ -85,7 +112,12 @@ class FcmService {
     }
   }
 
-  Future<void> _showLocal({required String title, required String body, String? messageId}) async {
+  Future<void> _showLocal({
+    required String title,
+    required String body,
+    String? messageId,
+    Map<String, dynamic>? data,
+  }) async {
     final notifId = messageId != null
         ? messageId.hashCode.abs() % 2147483647
         : DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
@@ -102,6 +134,7 @@ class FcmService {
           ),
           iOS: DarwinNotificationDetails(),
         ),
+        payload: data != null ? jsonEncode(data) : null,
       );
     } catch (e) {
       debugPrint('FCM local show error: $e');

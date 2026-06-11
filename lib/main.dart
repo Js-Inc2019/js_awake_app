@@ -103,6 +103,7 @@ class JsAwakeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: FcmService.navigatorKey,
       title: "J's FIELD",
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
