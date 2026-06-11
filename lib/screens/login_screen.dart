@@ -532,7 +532,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString('device_id', deviceId);
     }
     await _writePersistentRegistered();
-    FcmService().registerAfterLogin(); // fire-and-forget
+    FcmService().registerToken(); // fire-and-forget（権限要求はホーム画面で順番化）
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }

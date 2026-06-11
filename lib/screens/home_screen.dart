@@ -32,6 +32,7 @@ import 'revision_inbox_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
+import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
 import '../services/profile_service.dart';
 
@@ -550,6 +551,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
     ]);
+    // 位置情報ダイアログ完了後に通知許可を要求（権限衝突防止）
+    await FcmService().requestNotificationPermission();
   }
 
   Future<void> _fetchGps({SharedPreferences? prefs}) async {

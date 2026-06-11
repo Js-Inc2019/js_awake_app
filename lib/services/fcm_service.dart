@@ -38,7 +38,17 @@ class FcmService {
     FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
   }
 
-  Future<void> registerAfterLogin() async {
+  Future<void> registerToken() async {
+    if (kIsWeb) return;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) await _postToken(token);
+    } catch (e) {
+      debugPrint('FCM registerToken error: $e');
+    }
+  }
+
+  Future<void> requestNotificationPermission() async {
     if (kIsWeb) return;
     try {
       await FirebaseMessaging.instance.requestPermission(
@@ -48,13 +58,6 @@ class FcmService {
         provisional: false,
       );
     } catch (_) {}
-
-    try {
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) await _postToken(token);
-    } catch (e) {
-      debugPrint('FCM registerAfterLogin error: $e');
-    }
   }
 
   Future<void> _postToken(String token) async {
