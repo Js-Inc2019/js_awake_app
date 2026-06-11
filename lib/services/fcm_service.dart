@@ -26,6 +26,15 @@ class FcmService {
     await _plugin.initialize(
         const InitializationSettings(android: androidInit, iOS: iosInit));
 
+    const channel = AndroidNotificationChannel(
+      _channelId,
+      _channelName,
+      importance: Importance.high,
+    );
+    await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       final notification = message.notification;
       if (notification == null) return;
