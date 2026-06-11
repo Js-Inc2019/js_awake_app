@@ -39,8 +39,9 @@ class FcmService {
       final notification = message.notification;
       if (notification == null) return;
       _showLocal(
-        title: notification.title ?? '',
-        body:  notification.body  ?? '',
+        title:     notification.title ?? '',
+        body:      notification.body  ?? '',
+        messageId: message.messageId,
       );
     });
 
@@ -84,10 +85,13 @@ class FcmService {
     }
   }
 
-  Future<void> _showLocal({required String title, required String body}) async {
+  Future<void> _showLocal({required String title, required String body, String? messageId}) async {
+    final notifId = messageId != null
+        ? messageId.hashCode.abs() % 2147483647
+        : DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
     try {
       await _plugin.show(
-        0,
+        notifId,
         title,
         body,
         const NotificationDetails(
