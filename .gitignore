@@ -50,3 +50,8 @@ secrets.txt
 !build/web/
 !build/web/**
 .env
+
+# Firebase Hosting / CLI 作業ファイル
+.firebase/
+firebase.hosting.json.bak
+.firebaserc
