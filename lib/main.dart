@@ -401,7 +401,16 @@ class NotificationManager {
       requestSoundPermission: true,
     );
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit));
+      const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        final payload = response.payload;
+        if (payload == null || payload.isEmpty) return;
+        try {
+          final data = jsonDecode(payload) as Map<String, dynamic>;
+          FcmService().handleNotificationTap(data);
+        } catch (_) {}
+      },
+    );
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList(_K.notifHours);
     if (saved != null && saved.isNotEmpty) {
