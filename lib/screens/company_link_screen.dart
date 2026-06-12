@@ -1,0 +1,248 @@
+// lib/screens/company_link_screen.dart - 協力申請管理画面（FIELD 職人用）
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../main.dart' show JsColors, showJsSnackbar;
+import '../config/constants.dart';
+
+class CompanyLinkScreen extends StatefulWidget {
+  const CompanyLinkScreen({super.key});
+  @override
+  State<CompanyLinkScreen> createState() => _CompanyLinkScreenState();
+}
+
+class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
+  List<Map<String, dynamic>> _links = [];
+  bool _loading    = true;
+  bool _submitting = false;
+
+  Future<Map<String, String>> get _headers async {
+    final prefs = await SharedPreferences.getInstance();
+    return {
+      'Authorization': 'Bearer ${prefs.getString('auth_token') ?? ''}',
+      'Content-Type':  'application/json',
+    };
+  }
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/company-links/my'),
+        headers: await _headers,
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200 && mounted) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        setState(() {
+          _links = (data['links'] as List? ?? [])
+              .map((e) => e as Map<String, dynamic>)
+              .toList();
+          _loading = false;
+        });
+      } else {
+        if (mounted) setState(() => _loading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _showRequestDialog() async {
+    final ctrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.gunmetal,
+        title: const Text('協力申請', style: TextStyle(color: JsColors.offWhite)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+            '申請先の会社コードを入力してください',
+            style: TextStyle(color: JsColors.silver, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            style: const TextStyle(color: JsColors.offWhite),
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              hintText: '例: JS-001',
+              hintStyle: TextStyle(color: JsColors.silver),
+              enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: JsColors.divider)),
+              focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: JsColors.gold)),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('申請する', style: TextStyle(color: JsColors.gold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || ctrl.text.trim().isEmpty || !mounted) return;
+    final code = ctrl.text.trim().toUpperCase();
+
+    setState(() => _submitting = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/company-links/request'),
+        headers: await _headers,
+        body: jsonEncode({'company_code': code}),
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 201) {
+        showJsSnackbar(context, '申請を送信しました');
+        _load();
+      } else {
+        final err = (jsonDecode(res.body) as Map<String, dynamic>)['error'] as String? ?? 'エラーが発生しました';
+        showJsSnackbar(context, err, isError: true);
+      }
+    } catch (e) {
+      if (mounted) showJsSnackbar(context, '通信エラーが発生しました', isError: true);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  String _fmtDate(String? raw) {
+    if (raw == null || raw.length < 10) return '';
+    final p = raw.substring(0, 10).split('-');
+    if (p.length == 3) return '${int.parse(p[1])}月${int.parse(p[2])}日';
+    return raw.substring(0, 10);
+  }
+
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'active':   return JsColors.success;
+      case 'rejected': return JsColors.error;
+      default:         return JsColors.gold;
+    }
+  }
+
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'active':   return '承認済み';
+      case 'rejected': return '却下';
+      default:         return '審査中';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: JsColors.black,
+      appBar: AppBar(
+        backgroundColor: JsColors.black,
+        title: const Text('協力申請',
+            style: TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold)),
+        iconTheme: const IconThemeData(color: JsColors.silver),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: JsColors.silver),
+            onPressed: _load,
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _submitting ? null : _showRequestDialog,
+        backgroundColor: JsColors.gold,
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.add),
+        label: const Text('新しく申請する', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+          : _links.isEmpty
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.handshake_outlined, color: JsColors.silver, size: 48),
+                    const SizedBox(height: 12),
+                    const Text('協力申請はありません',
+                        style: TextStyle(color: JsColors.silver)),
+                    const SizedBox(height: 6),
+                    const Text('右下のボタンから申請できます',
+                        style: TextStyle(color: JsColors.silver, fontSize: 12)),
+                  ]),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  color: JsColors.gold,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+                    itemCount: _links.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, i) {
+                      final link        = _links[i];
+                      final status      = link['status'] as String?;
+                      final companyName = (link['resolved_company_name'] ??
+                          link['company_name']) as String? ?? '不明';
+                      final date   = _fmtDate(link['created_at'] as String?);
+                      final reason = link['reject_reason'] as String?;
+                      final sc     = _statusColor(status);
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A2435),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border(
+                            left:   BorderSide(color: sc, width: 3),
+                            top:    const BorderSide(color: Color(0x24FFFFFF)),
+                            right:  const BorderSide(color: Color(0x14FFFFFF)),
+                            bottom: const BorderSide(color: Color(0x14FFFFFF)),
+                          ),
+                        ),
+                        child: Row(children: [
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(companyName,
+                                  style: const TextStyle(
+                                      color: JsColors.offWhite,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14)),
+                              if (reason != null && reason.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text('理由: $reason',
+                                    style: const TextStyle(
+                                        color: JsColors.error, fontSize: 11)),
+                              ],
+                              if (date.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(date,
+                                    style: const TextStyle(
+                                        color: JsColors.silver, fontSize: 11)),
+                              ],
+                            ]),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: sc.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: sc),
+                            ),
+                            child: Text(_statusLabel(status),
+                                style: TextStyle(
+                                    color: sc,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ]),
+                      );
+                    },
+                  ),
+                ),
+    );
+  }
+}

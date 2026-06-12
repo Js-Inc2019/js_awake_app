@@ -29,6 +29,7 @@ import '../main.dart'
         OvertimeDialog,
         API_URL;
 import 'revision_inbox_screen.dart';
+import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
@@ -362,6 +363,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _companyName = "";
   String _userName = '';
   int _revisionCount = 0;
+  int _linkCount     = 0;
 
   // ─── GPS ───
   String _gpsAddress = '';
@@ -557,6 +559,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await Future.wait([
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
+      _loadLinkCount(),
     ]);
     // 位置 → 通知許可 → token取得・POST の順を保証（権限衝突完全解消）
     await FcmService().requestNotificationPermission();
@@ -646,6 +649,27 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('是正件数取得エラー: $e');
+    }
+  }
+
+  Future<void> _loadLinkCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http.get(
+        Uri.parse('$API_URL/company-links/my'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200 && mounted) {
+        final j = jsonDecode(res.body) as Map<String, dynamic>;
+        final links = (j['links'] as List? ?? [])
+            .map((e) => e as Map<String, dynamic>)
+            .toList();
+        final count = links.where((l) => (l['status'] as String?) == 'pending').length;
+        setState(() => _linkCount = count);
+      }
+    } catch (e) {
+      debugPrint('協力申請件数取得エラー: $e');
     }
   }
 
@@ -978,6 +1002,38 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ),
             ],
           ),
+        // 🤝 協力申請ボタン
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: Icon(
+                Icons.handshake_outlined,
+                color: _linkCount > 0 ? JsColors.gold : JsColors.silver,
+              ),
+              tooltip: '協力申請',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CompanyLinkScreen()),
+              ).then((_) => _loadLinkCount()),
+            ),
+            if (_linkCount > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                      color: JsColors.gold, shape: BoxShape.circle),
+                  child: Text('$_linkCount',
+                      style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+          ],
+        ),
         // ⚙️ 設定ボタン
         IconButton(
           icon: const Icon(Icons.settings, color: JsColors.silver),
