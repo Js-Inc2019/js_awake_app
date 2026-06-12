@@ -1,4 +1,5 @@
 // lib/screens/company_link_screen.dart - 協力申請管理画面（FIELD 職人用）
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -51,61 +52,35 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
     }
   }
 
-  Future<void> _showRequestDialog() async {
-    final ctrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
+  Future<void> _showRequestSheet() async {
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.gunmetal,
-        title: const Text('協力申請', style: TextStyle(color: JsColors.offWhite)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text(
-            '申請先の会社コードを入力してください',
-            style: TextStyle(color: JsColors.silver, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            style: const TextStyle(color: JsColors.offWhite),
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              hintText: '例: JS-001',
-              hintStyle: TextStyle(color: JsColors.silver),
-              enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: JsColors.divider)),
-              focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: JsColors.gold)),
-            ),
-          ),
-        ]),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('申請する', style: TextStyle(color: JsColors.gold)),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _CompanySearchSheet(
+        onSelect: (companyId, companyName) async {
+          Navigator.pop(ctx);
+          await _submitRequest(companyId, companyName);
+        },
       ),
     );
-    if (confirmed != true || ctrl.text.trim().isEmpty || !mounted) return;
-    final code = ctrl.text.trim().toUpperCase();
+  }
 
+  Future<void> _submitRequest(String companyId, String companyName) async {
     setState(() => _submitting = true);
     try {
       final res = await http.post(
         Uri.parse('$kApiBaseUrl/company-links/request'),
         headers: await _headers,
-        body: jsonEncode({'company_code': code}),
+        body: jsonEncode({'company_id': companyId}),
       ).timeout(const Duration(seconds: 15));
       if (!mounted) return;
       if (res.statusCode == 201) {
-        showJsSnackbar(context, '申請を送信しました');
+        showJsSnackbar(context, '$companyName に申請を送信しました');
         _load();
       } else {
-        final err = (jsonDecode(res.body) as Map<String, dynamic>)['error'] as String? ?? 'エラーが発生しました';
+        final err = (jsonDecode(res.body) as Map<String, dynamic>)['error']
+            as String? ?? 'エラーが発生しました';
         showJsSnackbar(context, err, isError: true);
       }
     } catch (e) {
@@ -155,7 +130,7 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _submitting ? null : _showRequestDialog,
+        onPressed: _submitting ? null : _showRequestSheet,
         backgroundColor: JsColors.gold,
         foregroundColor: Colors.black,
         icon: const Icon(Icons.add),
@@ -166,7 +141,8 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
           : _links.isEmpty
               ? Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.handshake_outlined, color: JsColors.silver, size: 48),
+                    const Icon(Icons.handshake_outlined,
+                        color: JsColors.silver, size: 48),
                     const SizedBox(height: 12),
                     const Text('協力申請はありません',
                         style: TextStyle(color: JsColors.silver)),
@@ -204,29 +180,33 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
                         ),
                         child: Row(children: [
                           Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(companyName,
-                                  style: const TextStyle(
-                                      color: JsColors.offWhite,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14)),
-                              if (reason != null && reason.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text('理由: $reason',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(companyName,
                                     style: const TextStyle(
-                                        color: JsColors.error, fontSize: 11)),
+                                        color: JsColors.offWhite,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14)),
+                                if (reason != null && reason.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text('理由: $reason',
+                                      style: const TextStyle(
+                                          color: JsColors.error, fontSize: 11)),
+                                ],
+                                if (date.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(date,
+                                      style: const TextStyle(
+                                          color: JsColors.silver, fontSize: 11)),
+                                ],
                               ],
-                              if (date.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(date,
-                                    style: const TextStyle(
-                                        color: JsColors.silver, fontSize: 11)),
-                              ],
-                            ]),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
                               color: sc.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(20),
@@ -243,6 +223,238 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
                     },
                   ),
                 ),
+    );
+  }
+}
+
+// ─── 会社名検索シート ───────────────────────────────────────
+
+class _CompanySearchSheet extends StatefulWidget {
+  const _CompanySearchSheet({required this.onSelect});
+  final Future<void> Function(String companyId, String companyName) onSelect;
+
+  @override
+  State<_CompanySearchSheet> createState() => _CompanySearchSheetState();
+}
+
+class _CompanySearchSheetState extends State<_CompanySearchSheet> {
+  final _ctrl = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _searching = false;
+  bool _searched  = false;
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    if (v.trim().isEmpty) {
+      setState(() {
+        _results   = [];
+        _searched  = false;
+        _searching = false;
+      });
+      return;
+    }
+    _debounce =
+        Timer(const Duration(milliseconds: 300), () => _search(v.trim()));
+  }
+
+  Future<void> _search(String q) async {
+    if (!mounted) return;
+    setState(() => _searching = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final uri = Uri.parse('$kApiBaseUrl/companies/search')
+          .replace(queryParameters: {'q': q});
+      final res = await http
+          .get(uri, headers: {'Authorization': 'Bearer $token'})
+          .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        setState(() {
+          _results   = (data['companies'] as List? ?? [])
+              .map((e) => e as Map<String, dynamic>)
+              .toList();
+          _searching = false;
+          _searched  = true;
+        });
+      } else {
+        setState(() { _searching = false; _searched = true; });
+      }
+    } catch (_) {
+      if (mounted) setState(() { _searching = false; _searched = true; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1A2435),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      padding: EdgeInsets.only(bottom: bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ドラッグハンドル
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 8),
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFF4A5568),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Text(
+            '協力申請',
+            style: TextStyle(
+                color: JsColors.gold,
+                fontWeight: FontWeight.bold,
+                fontSize: 15),
+          ),
+          const SizedBox(height: 12),
+          // 検索フィールド
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              style: const TextStyle(color: JsColors.offWhite),
+              onChanged: _onChanged,
+              decoration: InputDecoration(
+                hintText: '会社名でさがす',
+                hintStyle: const TextStyle(color: JsColors.silver),
+                prefixIcon: const Icon(Icons.search,
+                    color: JsColors.silver, size: 20),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: JsColors.gold),
+                        ),
+                      )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF0D1520),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: JsColors.gold),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // 候補リスト
+          if (_searched && _results.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                '該当する会社が見つかりません',
+                style: TextStyle(color: JsColors.silver, fontSize: 13),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                itemCount: _results.length,
+                itemBuilder: (_, i) {
+                  final c    = _results[i];
+                  final name = c['company_name'] as String? ?? '';
+                  final city = c['address_city'] as String? ?? '';
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D1520),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: const Color(0x28FFFFFF)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                    color: JsColors.offWhite,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14),
+                              ),
+                              if (city.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  city,
+                                  style: const TextStyle(
+                                      color: JsColors.silver,
+                                      fontSize: 11),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          height: 36,
+                          child: ElevatedButton(
+                            onPressed: () => widget.onSelect(
+                                c['company_id'] as String, name),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: JsColors.gold,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(8)),
+                              tapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: Size.zero,
+                            ),
+                            child: const Text(
+                              '申請',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 16),
+        ],
+      ),
     );
   }
 }

@@ -114,6 +114,30 @@ class CompanyService {
   }
 
   // ============================================================
+  // 会社名正規化検索（協力申請の申請先選択用）
+  // ============================================================
+
+  Future<List<Map<String, dynamic>>> searchCompanies(String query) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final uri = Uri.parse('$kApiBaseUrl/companies/search')
+          .replace(queryParameters: {'q': query});
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return (data['companies'] as List? ?? [])
+            .map((e) => e as Map<String, dynamic>)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ============================================================
   // 会社間の繋がりを登録（admin_execのみ）
   // ============================================================
 

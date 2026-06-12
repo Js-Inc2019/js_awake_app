@@ -1044,29 +1044,43 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           ).then((_) => _loadCacheAndStart()),
         ),
       ],
-      // 2段目: 会社名 + 氏名
+      // 2段目: 上段=会社名（薄・小）、下段=アイコン+氏名（メイン）
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(34),
+        preferredSize: const Size.fromHeight(46),
         child: Container(
           width: double.infinity,
           color: JsColors.gunmetal,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(14, 5, 14, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.business, color: JsColors.gold, size: 14),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  _userName.isEmpty
-                      ? _companyName
-                      : '$_companyName　$_userName',
-                  style: const TextStyle(
-                      color: JsColors.offWhite,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+              Text(
+                _companyName,
+                style: const TextStyle(
+                    color: Color(0xFF637080),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w400),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: [
+                  const Icon(Icons.business, color: JsColors.gold, size: 13),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      _userName.isEmpty ? '---' : _userName,
+                      style: const TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
