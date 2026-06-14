@@ -416,7 +416,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback(
           (_) => _restoreDraft(widget.restoreWorkStatus!));
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await FcmService.ready;
       final d = FcmService.pendingTapData;
       if (d != null) {
         FcmService.pendingTapData = null;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -16,6 +17,8 @@ class FcmService {
   static final navigatorKey = GlobalKey<NavigatorState>();
 
   static Map<String, dynamic>? pendingTapData;
+  static final _ready = Completer<void>();
+  static Future<void> get ready => _ready.future;
 
   static const _channelId   = 'js_fcm';
   static const _channelName = '通知';
@@ -24,51 +27,60 @@ class FcmService {
   bool _initialized = false;
 
   Future<void> init() async {
-    if (kIsWeb || _initialized) return;
+    if (kIsWeb || _initialized) {
+      if (!_ready.isCompleted) _ready.complete();
+      return;
+    }
     _initialized = true;
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit     = DarwinInitializationSettings();
-    await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        final payload = response.payload;
-        if (payload == null) return;
-        try {
-          final data = jsonDecode(payload) as Map<String, dynamic>;
-          handleNotificationTap(data);
-        } catch (_) {}
-      },
-    );
-
-    const channel = AndroidNotificationChannel(
-      _channelId,
-      _channelName,
-      importance: Importance.high,
-    );
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      final notification = message.notification;
-      if (notification == null) return;
-      _showLocal(
-        title:     notification.title ?? '',
-        body:      notification.body  ?? '',
-        messageId: message.messageId,
-        data:      message.data,
+    try {
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosInit     = DarwinInitializationSettings();
+      await _plugin.initialize(
+        const InitializationSettings(android: androidInit, iOS: iosInit),
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          final payload = response.payload;
+          if (payload == null) return;
+          try {
+            final data = jsonDecode(payload) as Map<String, dynamic>;
+            handleNotificationTap(data);
+          } catch (_) {}
+        },
       );
-    });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      handleNotificationTap(message.data);
-    });
+      const channel = AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        importance: Importance.high,
+      );
+      await _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
 
-    FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        final notification = message.notification;
+        if (notification == null) return;
+        _showLocal(
+          title:     notification.title ?? '',
+          body:      notification.body  ?? '',
+          messageId: message.messageId,
+          data:      message.data,
+        );
+      });
 
-    final initial = await FirebaseMessaging.instance.getInitialMessage();
-    if (initial != null) pendingTapData = initial.data;
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        handleNotificationTap(message.data);
+      });
+
+      FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
+
+      final initial = await FirebaseMessaging.instance
+          .getInitialMessage()
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      if (initial != null) pendingTapData = initial.data;
+    } finally {
+      if (!_ready.isCompleted) _ready.complete();
+    }
   }
 
   Future<void> registerToken() async {
