@@ -33,6 +33,8 @@ import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
+import '../services/auth_service.dart';
+import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
 import '../services/profile_service.dart';
@@ -381,6 +383,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _dailyMessage = '';
   DateTime? _healthCheckDate;
 
+  // ─── 起点 ───
+  String _originType = 'home';
+  String _companyAddress = '';
+
   // ─── 移動手段 ───
   TransportType _transport = TransportType.none;
   Map<String, dynamic> _routeComparisons = {};
@@ -411,6 +417,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _initSeasonAndDaily();
     _loadCacheAndStart();
     _restoreTabIndex();
+    _loadOriginPrefs();
     _workCtrl.addListener(_onWorkContentChanged);
     if (widget.restoreWorkStatus != null) {
       WidgetsBinding.instance.addPostFrameCallback(
@@ -561,6 +568,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
       _loadLinkCount(),
+      _fetchCompanyAddress(),
     ]);
     // 位置 → 通知許可 → token取得・POST の順を保証（権限衝突完全解消）
     await FcmService().requestNotificationPermission();
@@ -631,6 +639,35 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     return null;
   }
 
+  Future<void> _loadOriginPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _originType     = prefs.getString('default_origin') ?? 'home';
+        _companyAddress = prefs.getString('company_address') ?? '';
+      });
+    }
+  }
+
+  Future<void> _fetchCompanyAddress() async {
+    try {
+      final companyId = await AuthService().getCompanyId();
+      if (companyId == null || companyId.isEmpty) return;
+      final result = await CompanyService().getCompanyById(companyId);
+      if (result['success'] == true) {
+        final company = result['company'] as Map<String, dynamic>?;
+        final address = company?['address'] as String? ?? '';
+        if (address.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('company_address', address);
+          if (mounted) setState(() => _companyAddress = address);
+        }
+      }
+    } catch (e) {
+      debugPrint('会社住所取得エラー: $e');
+    }
+  }
+
   Future<void> _loadRevisionCount({SharedPreferences? prefs}) async {
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
@@ -676,8 +713,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   Future<void> _calculateRoutes() async {
     if (_gpsAddress.isEmpty) return;
-    final homeAddr =
-        await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
+    final String originAddr;
+    if (_originType == 'office' && _companyAddress.isNotEmpty) {
+      originAddr = _companyAddress;
+    } else {
+      originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
+    }
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
     if (mounted) setState(() => _loadingRoutes = true);
@@ -685,7 +726,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     for (int attempt = 0; attempt < 3 && routes.isEmpty; attempt++) {
       if (attempt > 0) await Future.delayed(Duration(seconds: attempt * 2));
       routes = await RoutesService().compareRoutesV2(
-        origin: homeAddr,
+        origin: originAddr,
         destination: (_lat != null && _lon != null)
             ? '${_lat!.toStringAsFixed(6)},${_lon!.toStringAsFixed(6)}'
             : _gpsAddress,
@@ -813,6 +854,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         workPhotoPath: _workPhotoPath,
         parkingPhotoPath: _parkingPhotoPath,
         gpsAddress: gpsAddr,
+        originType: _originType,
       ));
       await ReportStore.instance.retryPending();
       _saveWorkStatus('done');
@@ -1162,6 +1204,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   address: _gpsAddress,
                   loading: _gpsLoading,
                   onRefresh: _fetchGps,
+                ),
+                const SizedBox(height: 8),
+
+                // 起点選択（自宅/会社）
+                _OriginSelector(
+                  selected: _originType,
+                  onChanged: (type) async {
+                    setState(() => _originType = type);
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('default_origin', type);
+                    await _calculateRoutes();
+                  },
                 ),
                 const SizedBox(height: 4),
 
@@ -1972,6 +2026,58 @@ class _DailyMessageRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
+// ③.5 起点選択（自宅 / 会社）
+// ─────────────────────────────────────────────
+class _OriginSelector extends StatelessWidget {
+  const _OriginSelector({required this.selected, required this.onChanged});
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text('今日の起点:',
+            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+        const SizedBox(width: 10),
+        ...['home', 'office'].map((type) {
+          final label = type == 'home' ? '自宅' : '会社';
+          final sel = selected == type;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => onChanged(type),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: sel
+                      ? JsColors.gold.withValues(alpha: 0.15)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(20),
+                  border:
+                      Border.all(color: sel ? JsColors.gold : JsColors.divider),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: sel ? JsColors.gold : JsColors.silver,
+                    fontSize: 13,
+                    fontWeight:
+                        sel ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
 // ④ 移動手段 4択横並び
 // ─────────────────────────────────────────────
 class _TransportRow extends StatelessWidget {
@@ -2002,7 +2108,7 @@ class _TransportRow extends StatelessWidget {
                     right: t != _options.last ? 6 : 0),
                 decoration: BoxDecoration(
                   color: sel ? JsColors.gold : JsColors.gunmetal,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                       color: sel ? JsColors.gold : JsColors.divider),
                 ),

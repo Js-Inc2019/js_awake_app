@@ -138,6 +138,30 @@ class CompanyService {
   }
 
   // ============================================================
+  // 会社1件取得（company_id 指定）
+  // ============================================================
+
+  Future<Map<String, dynamic>> getCompanyById(String companyId) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/companies/$companyId'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'company': data['company']};
+      }
+
+      return {'success': false, 'message': data['error'] ?? 'エラーが発生しました'};
+    } catch (e) {
+      return {'success': false, 'message': 'サーバーに接続できません: $e'};
+    }
+  }
+
+  // ============================================================
   // 会社間の繋がりを登録（admin_execのみ）
   // ============================================================
 
