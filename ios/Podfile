@@ -56,6 +56,18 @@ post_install do |installer|
     end
   end
 
+  # speech_to_text が CwlCatchException を Swift import するが
+  # CocoaPods が CwlCatchException 本体のパスを xcconfig に追加しないため補完
+  Dir.glob(File.join(__dir__, 'Pods/Target Support Files/speech_to_text/speech_to_text.*.xcconfig')).each do |path|
+    content = File.read(path)
+    next if content.include?('"${PODS_CONFIGURATION_BUILD_DIR}/CwlCatchException"')
+    content = content.gsub(
+      '"${PODS_CONFIGURATION_BUILD_DIR}/CwlCatchExceptionSupport"',
+      '"${PODS_CONFIGURATION_BUILD_DIR}/CwlCatchExceptionSupport" "${PODS_CONFIGURATION_BUILD_DIR}/CwlCatchException"'
+    )
+    File.write(path, content)
+  end
+
   # iOS 26 / macOS 26: resource fork detritus を除去してコード署名エラーを防ぐ
   runner_target = installer.aggregate_targets.find { |t| t.name == 'Pods-Runner' }
   if runner_target
