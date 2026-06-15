@@ -144,6 +144,7 @@ class WorkerReportItem {
   WorkerReportItem({
     required this.name,
     required this.transport,
+    this.transportTypes,
     this.parkingFee,
     this.parkingPhotoPath,
     this.workContent = '',
@@ -160,6 +161,7 @@ class WorkerReportItem {
   final String id;
   final String name;
   final TransportType transport;
+  final List<String>? transportTypes;
   final String? parkingFee;
   final String? parkingPhotoPath;
   final String workContent;
@@ -180,6 +182,7 @@ class WorkerReportItem {
     'id':               id,
     'name':             name,
     'transport':        transport.name,
+    'transportTypes':   transportTypes,
     'parkingFee':       parkingFee,
     'parkingPhotoPath': parkingPhotoPath,
     'workContent':      workContent,
@@ -196,6 +199,7 @@ class WorkerReportItem {
     name:             j['name'] as String? ?? '',
     transport:        TransportType.values.firstWhere(
       (t) => t.name == j['transport'], orElse: () => TransportType.train),
+    transportTypes:   (j['transportTypes'] as List?)?.cast<String>(),
     parkingFee:       j['parkingFee']       as String?,
     parkingPhotoPath: j['parkingPhotoPath'] as String?,
     workContent:      j['workContent']      as String? ?? '',
@@ -262,11 +266,12 @@ class ReportStore {
           'worker_company': '',
           'report_date':   item.timestamp.toIso8601String().substring(0, 10),
           'clock_in_time': '${item.timeLabel}:00',
-          'transport_type': item.transport.name,
-          'parking_fee':   item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
-          'gps_address':   item.gpsAddress,
-          'origin_type':   item.originType,
-          'work_content':  item.workContent,
+          'transport_type':      item.transport.name,
+          'transport_types_json': item.transportTypes,
+          'parking_fee':         item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+          'gps_address':         item.gpsAddress,
+          'origin_type':         item.originType,
+          'work_content':        item.workContent,
         };
         if (item.parkingPhotoPath != null) {
           try {

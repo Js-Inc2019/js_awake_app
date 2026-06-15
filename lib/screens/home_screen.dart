@@ -25,6 +25,7 @@ import '../main.dart'
         WorkerNameStore,
         fetchGpsAddress,
         showJsSnackbar,
+        showConfirmDialog,
         NotificationManager,
         OvertimeDialog,
         API_URL;
@@ -388,7 +389,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _companyAddress = '';
 
   // ─── 移動手段 ───
-  TransportType _transport = TransportType.none;
+  Set<TransportType> _transports = {};
+  TransportType get _transport => _transports.isEmpty ? TransportType.none : _transports.first;
+  String _carType = 'own';
+  final _carpoolCtrl       = TextEditingController();
+  final _transportMemoCtrl = TextEditingController();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
 
@@ -456,7 +461,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   Future<void> _saveDraft() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('today_transport', _transport.name);
+    await prefs.setString('today_transport', _transports.map((t) => t.name).join(','));
     await prefs.setString('today_work_content', _workCtrl.text);
     await prefs.setString('today_parking_fee', _parkingCtrl.text);
     await prefs.setInt('today_overtime_hours', _overtimeHours);
@@ -479,13 +484,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final parkingFee    = prefs.getString('today_parking_fee') ?? '';
     final overtimeH     = prefs.getInt('today_overtime_hours') ?? 0;
     final overtimeM     = prefs.getInt('today_overtime_minutes') ?? 0;
-    final transport = TransportType.values.firstWhere(
-      (t) => t.name == transportName,
-      orElse: () => TransportType.none,
-    );
+    final restored = transportName.isEmpty
+        ? <TransportType>{}
+        : transportName.split(',').map((n) => TransportType.values.firstWhere(
+              (t) => t.name == n, orElse: () => TransportType.none))
+            .where((t) => t != TransportType.none)
+            .toSet();
     if (!mounted) return;
     setState(() {
-      _transport = transport;
+      _transports = restored;
       _workCtrl.text = workContent;
       _parkingCtrl.text = parkingFee;
       _overtimeHours = overtimeH;
@@ -519,6 +526,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _workCtrl.dispose();
     _otherCtrl.dispose();
     _parkingCtrl.dispose();
+    _carpoolCtrl.dispose();
+    _transportMemoCtrl.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -806,12 +815,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       showJsSnackbar(context, '氏名が取得できていません', isError: true);
       return;
     }
-    if (_transport == TransportType.none) {
+    if (_transports.isEmpty) {
       showJsSnackbar(context, '移動手段を選択してください', isError: true);
       return;
     }
     setState(() => _submitting = true);
-    if ((_transport == TransportType.car || _transport == TransportType.other) && _parkingPhotoPath == null) {
+    if ((_transports.contains(TransportType.car) || _transports.contains(TransportType.other)) && _parkingPhotoPath == null) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -841,16 +850,21 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final overtimeNote = (_overtimeHours > 0 || _overtimeMinutes > 0)
           ? ' 【残業$_overtimeHours時間$_overtimeMinutes分】'
           : '';
+      final carpoolPrefix = (_transports.contains(TransportType.car) && _carType == 'carpool')
+          ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] '
+          : '';
+      final parkingPrefix = (_transports.contains(TransportType.car) && _carType == 'own' && _parkingCtrl.text.trim().isNotEmpty)
+          ? '[駐車料金:${_parkingCtrl.text.trim()}円] '
+          : '';
+      final otherPrefix = (_transports.contains(TransportType.other) && _otherCtrl.text.trim().isNotEmpty)
+          ? '[その他:${_otherCtrl.text.trim()}] '
+          : '';
       await WorkerNameStore.instance.add(name);
       await ReportStore.instance.addReport(WorkerReportItem(
         name: name,
         transport: _transport,
-        workContent: (_transport == TransportType.car && _parkingCtrl.text.trim().isNotEmpty
-            ? '[駐車料金:${_parkingCtrl.text.trim()}円] '
-            : '') +
-            (_transport == TransportType.other && _otherCtrl.text.trim().isNotEmpty
-            ? '[その他:${_otherCtrl.text.trim()}] '
-            : '') + _workCtrl.text.trim() + overtimeNote,
+        transportTypes: _transports.map((t) => t.name).toList(),
+        workContent: carpoolPrefix + parkingPrefix + otherPrefix + _workCtrl.text.trim() + overtimeNote,
         workPhotoPath: _workPhotoPath,
         parkingPhotoPath: _parkingPhotoPath,
         gpsAddress: gpsAddr,
@@ -862,8 +876,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       NotificationManager.instance.cancelOvertimeReminder();
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
+      _carpoolCtrl.clear();
+      _transportMemoCtrl.clear();
       setState(() {
-        _transport = TransportType.none;
+        _transports = {};
+        _carType = 'own';
         _workCtrl.clear();
         _otherCtrl.clear();
         _parkingCtrl.clear();
@@ -881,9 +898,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             Navigator.pop(context);
             _otherCtrl.clear();
             _parkingCtrl.clear();
+            _carpoolCtrl.clear();
+            _transportMemoCtrl.clear();
             setState(() {
               _gpsAddress = '';
-              _transport = TransportType.none;
+              _transports = {};
+              _carType = 'own';
               _routeComparisons = {};
               _workPhotoPath = null;
               _parkingPhotoPath = null;
@@ -1238,16 +1258,200 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 _DailyMessageRow(message: _dailyMessage),
                 const SizedBox(height: 4),
 
-                // ④ 移動手段 4択 → 金額 → ルート情報
+                // ④ 移動手段 4択（1タップ排他・ダブルタップで複数追加）→ 車種別/相乗り → ルート情報
                 _TransportRow(
-                  selected: _transport,
-                  onChanged: (t) {
-                    setState(() => _transport = t);
+                  selectedSet: _transports,
+                  onTap: (t) {
+                    final newSet = Set<TransportType>.from(_transports);
+                    if (!newSet.contains(t)) {
+                      newSet.clear();
+                      newSet.add(t);
+                    } else if (newSet.length > 1) {
+                      newSet.remove(t);
+                    }
+                    if (!newSet.contains(TransportType.car)) {
+                      _parkingCtrl.clear();
+                      _parkingPhotoPath = null;
+                    }
+                    setState(() => _transports = newSet);
                     _saveWorkStatus('moving');
                     _saveDraft();
                   },
+                  onDoubleTap: (t) async {
+                    final newSet = Set<TransportType>.from(_transports);
+                    if (!newSet.contains(t)) {
+                      newSet.add(t);
+                      if (newSet.length >= 2) {
+                        if (!context.mounted) return;
+                        final ok = await showConfirmDialog(context,
+                          title: '⚠️ 複数の移動手段',
+                          message: '移動手段が2つ以上選択されています。\nよろしいですか？',
+                          confirmText: 'OK', cancelText: 'キャンセル',
+                        );
+                        if (!ok) return;
+                      }
+                      if (!newSet.contains(TransportType.car)) {
+                        _parkingCtrl.clear();
+                        if (mounted) setState(() => _parkingPhotoPath = null);
+                      }
+                      if (mounted) setState(() => _transports = newSet);
+                      _saveWorkStatus('moving');
+                      _saveDraft();
+                    }
+                  },
                 ),
-                if (_transport == TransportType.car) ...[
+                // 車選択時: 社用車/相乗り 2択 → 各入力欄
+                if (_transports.contains(TransportType.car)) ...[
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _carType = 'own'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _carType == 'own' ? JsColors.gold : JsColors.gunmetal,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _carType == 'own' ? JsColors.gold : JsColors.divider),
+                          ),
+                          child: Center(child: Text('社用車・自家用車',
+                            style: TextStyle(
+                              color: _carType == 'own' ? Colors.black : JsColors.offWhite,
+                              fontSize: 12,
+                              fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
+                            ))),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() {
+                          _carType = 'carpool';
+                          _parkingCtrl.clear();
+                          _parkingPhotoPath = null;
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _carType == 'carpool' ? JsColors.gold : JsColors.gunmetal,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _carType == 'carpool' ? JsColors.gold : JsColors.divider),
+                          ),
+                          child: Center(child: Text('相乗り',
+                            style: TextStyle(
+                              color: _carType == 'carpool' ? Colors.black : JsColors.offWhite,
+                              fontSize: 12,
+                              fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
+                            ))),
+                        ),
+                      ),
+                    ),
+                  ]),
+                  if (_carType == 'carpool') ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.people, color: JsColors.silver, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _carpoolCtrl,
+                            decoration: const InputDecoration(
+                              hintText: '誰の相乗りか（任意）',
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ],
+                  if (_carType == 'own') ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: JsColors.gunmetal,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _parkingCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                hintText: '駐車料金（円）',
+                                border: InputBorder.none,
+                                hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
+                              onChanged: (_) => _saveDraft(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    GestureDetector(
+                      onTap: _takeParkingPhoto,
+                      child: Container(
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: JsColors.gunmetal,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _parkingPhotoPath != null
+                                ? JsColors.gold
+                                : JsColors.gold.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
+                              color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
+                                style: TextStyle(
+                                  color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            if (_parkingPhotoPath != null)
+                              GestureDetector(
+                                onTap: () => setState(() => _parkingPhotoPath = null),
+                                child: const Icon(Icons.close, color: JsColors.silver, size: 16),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+                // その他選択時: 駐車料金・写真欄
+                if (_transports.contains(TransportType.other)) ...[
                   const SizedBox(height: 4),
                   Container(
                     height: 44,
@@ -1320,77 +1524,33 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
-                if (_transport == TransportType.other) ...[
+                // 補足テキスト（その他 or 複数選択時）
+                if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
                   const SizedBox(height: 4),
                   Container(
                     height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
                       color: JsColors.gunmetal,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: JsColors.gold.withValues(alpha: 0.4)),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.local_parking, color: JsColors.silver, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _parkingCtrl,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              hintText: '駐車料金（円）',
-                              border: InputBorder.none,
-                              hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
-                            onChanged: (_) => _saveDraft(),
+                    child: Row(children: [
+                      const Icon(Icons.edit_note, color: JsColors.silver, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _transportMemoCtrl,
+                          decoration: const InputDecoration(
+                            hintText: '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩',
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(color: JsColors.silver, fontSize: 12),
+                            contentPadding: EdgeInsets.zero,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  GestureDetector(
-                    onTap: _takeParkingPhoto,
-                    child: Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: JsColors.gunmetal,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _parkingPhotoPath != null
-                              ? JsColors.gold
-                              : JsColors.gold.withValues(alpha: 0.3),
+                          style: const TextStyle(color: JsColors.offWhite, fontSize: 13),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                            color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
-                              style: TextStyle(
-                                color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          if (_parkingPhotoPath != null)
-                            GestureDetector(
-                              onTap: () => setState(() => _parkingPhotoPath = null),
-                              child: const Icon(Icons.close, color: JsColors.silver, size: 16),
-                            ),
-                        ],
-                      ),
-                    ),
+                    ]),
                   ),
                 ],
                 const SizedBox(height: 4),
@@ -2081,10 +2241,14 @@ class _OriginSelector extends StatelessWidget {
 // ④ 移動手段 4択横並び
 // ─────────────────────────────────────────────
 class _TransportRow extends StatelessWidget {
-  const _TransportRow(
-      {required this.selected, required this.onChanged});
-  final TransportType selected;
-  final ValueChanged<TransportType> onChanged;
+  const _TransportRow({
+    required this.selectedSet,
+    required this.onTap,
+    required this.onDoubleTap,
+  });
+  final Set<TransportType> selectedSet;
+  final Function(TransportType) onTap;
+  final Function(TransportType) onDoubleTap;
 
   static const _options = [
     TransportType.car,
@@ -2099,33 +2263,28 @@ class _TransportRow extends StatelessWidget {
       height: 56,
       child: Row(
         children: _options.map((t) {
-          final sel = t == selected;
+          final sel = selectedSet.contains(t);
           return Expanded(
             child: GestureDetector(
-              onTap: () => onChanged(t),
+              onTap: () => onTap(t),
+              onDoubleTap: () => onDoubleTap(t),
               child: Container(
-                margin: EdgeInsets.only(
-                    right: t != _options.last ? 6 : 0),
+                margin: EdgeInsets.only(right: t != _options.last ? 6 : 0),
                 decoration: BoxDecoration(
                   color: sel ? JsColors.gold : JsColors.gunmetal,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: sel ? JsColors.gold : JsColors.divider),
+                  border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(t.icon,
-                        size: 18,
-                        color: sel ? Colors.black : JsColors.silver),
+                    Icon(t.icon, size: 18, color: sel ? Colors.black : JsColors.silver),
                     const SizedBox(height: 3),
                     Text(t.label,
                         style: TextStyle(
                             color: sel ? Colors.black : JsColors.offWhite,
                             fontSize: 11,
-                            fontWeight: sel
-                                ? FontWeight.bold
-                                : FontWeight.normal)),
+                            fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
                   ],
                 ),
               ),
