@@ -638,15 +638,18 @@ class SpeechManager {
 // GPS + 住所変換
 // ============================================================
 
-Future<String> fetchGpsAddress() async {
+Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
   try {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.deniedForever) return '位置情報の権限がありません';
-    if (permission == LocationPermission.denied) return '位置情報の権限がありません';
-    if (!await Geolocator.isLocationServiceEnabled()) return 'GPS が無効です';
+    if (permission == LocationPermission.deniedForever)
+      return (address: '位置情報の権限がありません', lat: null, lon: null);
+    if (permission == LocationPermission.denied)
+      return (address: '位置情報の権限がありません', lat: null, lon: null);
+    if (!await Geolocator.isLocationServiceEnabled())
+      return (address: 'GPS が無効です', lat: null, lon: null);
 
     final pos = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
@@ -669,15 +672,24 @@ Future<String> fetchGpsAddress() async {
             final s = p.street!;
             final sub = p.subLocality ?? '';
             final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
-            if (idx >= 0) return '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}';
+            if (idx >= 0) return (
+              address: '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}',
+              lat: pos.latitude, lon: pos.longitude,
+            );
           }
-          if (parts.isNotEmpty) return parts.join('');
+          if (parts.isNotEmpty) return (
+            address: parts.join(''),
+            lat: pos.latitude, lon: pos.longitude,
+          );
         }
       } catch (_) {}
     }
-    return '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+    return (
+      address: '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
+      lat: pos.latitude, lon: pos.longitude,
+    );
   } catch (e) {
-    return 'GPS取得失敗';
+    return (address: 'GPS取得失敗', lat: null, lon: null);
   }
 }
 
@@ -934,6 +946,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   String _companyAddress = '';
   int _pendingCount = 0;
   int _revisionCount = 0;
+  double? _gpsLat;
+  double? _gpsLon;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   @override
@@ -1027,9 +1041,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
 
   Future<void> _fetchGps() async {
     setState(() => _gpsLoading = true);
-    final addr = await fetchGpsAddress();
+    final (:address, :lat, :lon) = await fetchGpsAddress();
+    _gpsLat = lat;
+    _gpsLon = lon;
     if (mounted) {
-      setState(() { _gpsAddress = addr; _gpsLoading = false; });
+      setState(() { _gpsAddress = address; _gpsLoading = false; });
       await _calculateRoutes();
     }
   }
@@ -1052,7 +1068,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       if (attempt > 0) await Future.delayed(Duration(seconds: attempt * 2));
       routes = await _routesService.compareRoutesV2(
         origin: originAddr,
-        destination: _gpsAddress,
+        destination: (_gpsLat != null && _gpsLon != null)
+            ? '${_gpsLat!.toStringAsFixed(6)},${_gpsLon!.toStringAsFixed(6)}'
+            : _gpsAddress,
         authToken: token,
       );
     }
