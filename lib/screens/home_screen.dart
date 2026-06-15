@@ -585,10 +585,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('GPS取得エラー: $e');
     }
-    final addr = await fetchGpsAddress();
-    if (addr.isNotEmpty) prefs?.setString('gps_address', addr);
+    final (:address, lat: _, lon: _) = await fetchGpsAddress();
+    if (address.isNotEmpty) prefs?.setString('gps_address', address);
     if (mounted) {
-      setState(() { _gpsAddress = addr; _gpsLoading = false; });
+      setState(() { _gpsAddress = address; _gpsLoading = false; });
       _loadWeather();
       _calculateRoutes();
     }
@@ -686,7 +686,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       if (attempt > 0) await Future.delayed(Duration(seconds: attempt * 2));
       routes = await RoutesService().compareRoutesV2(
         origin: homeAddr,
-        destination: _gpsAddress,
+        destination: (_lat != null && _lon != null)
+            ? '${_lat!.toStringAsFixed(6)},${_lon!.toStringAsFixed(6)}'
+            : _gpsAddress,
         authToken: token,
       );
     }
