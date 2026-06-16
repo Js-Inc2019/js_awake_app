@@ -3000,7 +3000,7 @@ class _ForemanManagementBody extends StatelessWidget {
               children: [
                 _CalendarTab(),
                 _PlaceholderTab(label: '社員一覧'),
-                _PlaceholderTab(label: '協力業者'),
+                _CooperationTab(),
               ],
             ),
           ),
@@ -3033,6 +3033,227 @@ class _PlaceholderTab extends StatelessWidget {
       ],
     ),
   );
+}
+
+// ─────────────────────────────────────────────
+// ③ 協力業者タブ
+// ─────────────────────────────────────────────
+class _CooperationTab extends StatefulWidget {
+  const _CooperationTab();
+
+  @override
+  State<_CooperationTab> createState() => _CooperationTabState();
+}
+
+class _CooperationTabState extends State<_CooperationTab> {
+  DateTime _selectedMonth = DateTime.now();
+  List<Map<String, dynamic>> _companies = [];
+  bool _loading = false;
+
+  String get _monthStr =>
+      '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadByCompany();
+  }
+
+  void _prevMonth() {
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+    });
+    _loadByCompany();
+  }
+
+  void _nextMonth() {
+    final now = DateTime.now();
+    if (_selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month) {
+      return;
+    }
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+    });
+    _loadByCompany();
+  }
+
+  Future<void> _loadByCompany() async {
+    setState(() => _loading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http
+          .get(
+            Uri.parse('$API_URL/reports/by-company?month=$_monthStr'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) { return; }
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        setState(() {
+          _companies =
+              List<Map<String, dynamic>>.from(data['companies'] ?? []);
+          _loading = false;
+        });
+      } else {
+        setState(() => _loading = false);
+      }
+    } catch (_) {
+      if (mounted) { setState(() => _loading = false); }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrentMonth = _selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month;
+
+    return Column(
+      children: [
+        Container(
+          color: JsColors.gunmetal,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                onPressed: _prevMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '${_selectedMonth.year}年${_selectedMonth.month}月',
+                    style: const TextStyle(
+                        color: JsColors.gold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.chevron_right,
+                  color: isCurrentMonth ? JsColors.divider : JsColors.gold,
+                ),
+                onPressed: isCurrentMonth ? null : _nextMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(
+                  child:
+                      CircularProgressIndicator(color: JsColors.gold))
+              : _companies.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'この月の協力業者実績はありません',
+                        style:
+                            TextStyle(color: JsColors.silver, fontSize: 13),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _companies.length,
+                      itemBuilder: (context, i) =>
+                          _CoopCard(company: _companies[i]),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CoopCard extends StatelessWidget {
+  const _CoopCard({required this.company});
+  final Map<String, dynamic> company;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = company['coop_company_id'] as String? ?? '';
+    final isPerson = id.startsWith('person:');
+    final name = company['company_name'] as String? ?? '不明';
+    final reportCount =
+        (company['report_count'] as num?)?.toInt() ?? 0;
+    final workerCount =
+        (company['worker_count'] as num?)?.toInt() ?? 0;
+    final siteCount =
+        (company['site_count'] as num?)?.toInt() ?? 0;
+    final parkingFee =
+        (company['parking_fee_total'] as num?)?.toInt() ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isPerson
+                    ? Icons.person_outline
+                    : Icons.business_outlined,
+                color: const Color(0xFF4FC3F7),
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (isPerson)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4FC3F7).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    '個人',
+                    style: TextStyle(
+                        color: Color(0xFF4FC3F7), fontSize: 10),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              JsStatChip('延べ人工', reportCount, JsColors.silver),
+              const SizedBox(width: 4),
+              JsStatChip('職人', workerCount,
+                  const Color(0xFF4FC3F7)),
+              const SizedBox(width: 4),
+              JsStatChip('現場', siteCount, JsColors.gold),
+              const SizedBox(width: 4),
+              JsStatChip('¥駐車料金', parkingFee, JsColors.silver),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
