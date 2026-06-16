@@ -791,6 +791,10 @@ class _GateScreenState extends State<GateScreen> {
     final role = prefs.getString('user_role') ?? 'worker';
     if (!mounted) return;
     if (role == 'boss') { _pushBoss(context); }
+    else if (role == 'admin_exec' || role == 'admin_office') {
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
+    }
     else { await _pushWorker(context); }
   }
   @override
