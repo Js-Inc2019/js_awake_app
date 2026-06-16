@@ -132,13 +132,13 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(children: [
-              _StatChip('合計', total, JsColors.silver),
+              JsStatChip('合計', total, JsColors.silver),
               const SizedBox(width: 8),
-              _StatChip('承認', approved, JsColors.success),
+              JsStatChip('承認', approved, JsColors.success),
               const SizedBox(width: 8),
-              _StatChip('差戻', rejected, JsColors.error),
+              JsStatChip('差戻', rejected, JsColors.error),
               const SizedBox(width: 8),
-              _StatChip('未承認', pending, JsColors.warning),
+              JsStatChip('未承認', pending, JsColors.warning),
             ]),
           ),
         // リスト
@@ -154,7 +154,7 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
                       : ListView.builder(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                           itemCount: _reports.length,
-                          itemBuilder: (ctx, i) => _ReportTile(report: _reports[i]),
+                          itemBuilder: (ctx, i) => JsReportTile(report: _reports[i]),
                         ),
         ),
       ],
@@ -187,8 +187,8 @@ class MonthlyHistoryScreen extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Sub-widgets
 // ─────────────────────────────────────────────
-class _StatChip extends StatelessWidget {
-  const _StatChip(this.label, this.count, this.color);
+class JsStatChip extends StatelessWidget {
+  const JsStatChip(this.label, this.count, this.color, {super.key});
   final String label;
   final int count;
   final Color color;
@@ -211,9 +211,13 @@ class _StatChip extends StatelessWidget {
   );
 }
 
-class _ReportTile extends StatelessWidget {
-  const _ReportTile({required this.report});
+class JsReportTile extends StatelessWidget {
+  const JsReportTile({super.key, required this.report, this.myCompanyId = ''});
   final Map<String, dynamic> report;
+  final String myCompanyId;
+
+  bool get _isOwn =>
+      myCompanyId.isNotEmpty && report['company_id'] == myCompanyId;
 
   @override
   Widget build(BuildContext context) {
@@ -225,12 +229,16 @@ class _ReportTile extends StatelessWidget {
       case 'rejected': sc = JsColors.error;   sl = '差戻し'; break;
       default:         sc = JsColors.silver;  sl = '未承認'; break;
     }
-    final date    = report['report_date'] as String? ?? '';
-    final content = report['work_content'] as String? ?? '作業内容 未入力';
-    final addr    = report['gps_address']  as String? ?? '';
-    final trans   = report['transport_type'] as String? ?? '';
+    final date       = report['report_date']   as String? ?? '';
+    final content    = report['work_content']  as String? ?? '作業内容 未入力';
+    final addr       = report['gps_address']   as String? ?? '';
+    final trans      = report['transport_type'] as String? ?? '';
+    final workerName = report['worker_name']   as String? ?? '';
 
-    final isRejected = status == 'rejected';
+    final isRejected  = status == 'rejected';
+    final accentColor = myCompanyId.isEmpty
+        ? null
+        : (_isOwn ? JsColors.gold : const Color(0xFF4FC3F7));
 
     return GestureDetector(
       onTap: () {
@@ -246,81 +254,119 @@ class _ReportTile extends StatelessWidget {
             isScrollControlled: true,
             shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-            builder: (_) => _ReportDetailSheet(report: report),
+            builder: (_) => JsReportDetailSheet(report: report),
           );
         }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: JsColors.gunmetal,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
               color: isRejected ? JsColors.error : JsColors.divider),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Text(date,
-                        style: const TextStyle(color: JsColors.silver, fontSize: 12)),
-                    if (trans.isNotEmpty) ...[
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (accentColor != null)
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(9),
+                      bottomLeft: Radius.circular(9),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Text(date,
+                                  style: const TextStyle(
+                                      color: JsColors.silver, fontSize: 12)),
+                              if (trans.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Text(trans,
+                                    style: const TextStyle(
+                                        color: JsColors.silver, fontSize: 11)),
+                              ],
+                              if (accentColor != null && workerName.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Text(workerName,
+                                    style: TextStyle(
+                                        color: accentColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold)),
+                              ],
+                            ]),
+                            const SizedBox(height: 4),
+                            Text(content,
+                                style: const TextStyle(
+                                    color: JsColors.offWhite, fontSize: 14),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis),
+                            if (addr.isNotEmpty)
+                              Text(addr,
+                                  style: const TextStyle(
+                                      color: JsColors.silver, fontSize: 11),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis),
+                            if (isRejected) ...[
+                              const SizedBox(height: 6),
+                              const Row(children: [
+                                Icon(Icons.arrow_forward,
+                                    color: JsColors.error, size: 13),
+                                SizedBox(width: 4),
+                                Text('是正依頼を確認',
+                                    style: TextStyle(
+                                        color: JsColors.error,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold)),
+                              ]),
+                            ],
+                          ],
+                        ),
+                      ),
                       const SizedBox(width: 8),
-                      Text(trans,
-                          style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: sc.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: sc),
+                        ),
+                        child: Text(sl,
+                            style: TextStyle(
+                                color: sc,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold)),
+                      ),
                     ],
-                  ]),
-                  const SizedBox(height: 4),
-                  Text(content,
-                      style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
-                  if (addr.isNotEmpty)
-                    Text(addr,
-                        style: const TextStyle(color: JsColors.silver, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  if (isRejected) ...[
-                    const SizedBox(height: 6),
-                    const Row(children: [
-                      Icon(Icons.arrow_forward, color: JsColors.error, size: 13),
-                      SizedBox(width: 4),
-                      Text('是正依頼を確認',
-                          style: TextStyle(
-                              color: JsColors.error,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold)),
-                    ]),
-                  ],
-                ],
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: sc.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: sc),
-              ),
-              child: Text(sl,
-                  style: TextStyle(
-                      color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _ReportDetailSheet extends StatelessWidget {
-  const _ReportDetailSheet({required this.report});
+class JsReportDetailSheet extends StatelessWidget {
+  const JsReportDetailSheet({super.key, required this.report});
   final Map<String, dynamic> report;
 
   @override
@@ -384,22 +430,22 @@ class _ReportDetailSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _DetailRow(icon: Icons.work_outline,      label: '作業内容', value: content),
+            JsDetailRow(icon: Icons.work_outline,      label: '作業内容', value: content),
             if (addr.isNotEmpty)
-              _DetailRow(icon: Icons.location_on_outlined, label: '現場住所', value: addr),
+              JsDetailRow(icon: Icons.location_on_outlined, label: '現場住所', value: addr),
             if (trans.isNotEmpty)
-              _DetailRow(icon: Icons.directions_car_outlined, label: '移動手段', value: trans),
+              JsDetailRow(icon: Icons.directions_car_outlined, label: '移動手段', value: trans),
             if (distKm != null)
-              _DetailRow(icon: Icons.straighten, label: '距離',
+              JsDetailRow(icon: Icons.straighten, label: '距離',
                   value: '${distKm}km'),
             if (transCost != null)
-              _DetailRow(icon: Icons.train_outlined, label: '交通費',
+              JsDetailRow(icon: Icons.train_outlined, label: '交通費',
                   value: '¥$transCost'),
             if (parking != null)
-              _DetailRow(icon: Icons.local_parking, label: '駐車料金',
+              JsDetailRow(icon: Icons.local_parking, label: '駐車料金',
                   value: '¥$parking'),
             if (otHours > 0 || otMinutes > 0)
-              _DetailRow(icon: Icons.access_time, label: '残業時間',
+              JsDetailRow(icon: Icons.access_time, label: '残業時間',
                   value: '$otHours時間$otMinutes分'),
           ],
         ),
@@ -408,8 +454,8 @@ class _ReportDetailSheet extends StatelessWidget {
   }
 }
 
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.icon, required this.label, required this.value});
+class JsDetailRow extends StatelessWidget {
+  const JsDetailRow({super.key, required this.icon, required this.label, required this.value});
   final IconData icon;
   final String label;
   final String value;

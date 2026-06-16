@@ -31,7 +31,7 @@ import '../main.dart'
         API_URL;
 import 'revision_inbox_screen.dart';
 import 'company_link_screen.dart';
-import 'monthly_history_screen.dart' show MonthlyHistoryBody;
+import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
 import '../services/auth_service.dart';
@@ -2974,28 +2974,514 @@ class _RouteInfoBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// 職長管理・集計タブ本体（プレースホルダー）
+// 職長管理・集計タブ本体（3入口）
 // ─────────────────────────────────────────────
 class _ForemanManagementBody extends StatelessWidget {
   const _ForemanManagementBody();
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return DefaultTabController(
+      length: 3,
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.bar_chart, color: JsColors.silver, size: 64),
-          SizedBox(height: 16),
-          Text('管理・集計画面は準備中',
-              style: TextStyle(
-                  color: JsColors.silver,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500)),
-          SizedBox(height: 8),
-          Text('部下の日報確認・承認・是正依頼',
-              style: TextStyle(color: JsColors.divider, fontSize: 13)),
+          Container(
+            color: JsColors.gunmetal,
+            child: const TabBar(
+              tabs: [
+                Tab(text: '📅 カレンダー'),
+                Tab(text: '👥 社員'),
+                Tab(text: '🏢 協力'),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                _CalendarTab(),
+                _PlaceholderTab(label: '社員一覧'),
+                _PlaceholderTab(label: '協力業者'),
+              ],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// 準備中タブ（②社員 / ③協力）
+// ─────────────────────────────────────────────
+class _PlaceholderTab extends StatelessWidget {
+  const _PlaceholderTab({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.construction_outlined,
+            color: JsColors.silver, size: 48),
+        const SizedBox(height: 12),
+        Text('$label は準備中',
+            style: const TextStyle(color: JsColors.silver, fontSize: 15)),
+        const SizedBox(height: 6),
+        const Text('attendance-v1 merge 後に実装予定',
+            style: TextStyle(color: JsColors.divider, fontSize: 11)),
+      ],
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────
+// ① カレンダータブ
+// ─────────────────────────────────────────────
+class _CalendarTab extends StatefulWidget {
+  const _CalendarTab();
+
+  @override
+  State<_CalendarTab> createState() => _CalendarTabState();
+}
+
+class _CalendarTabState extends State<_CalendarTab> {
+  DateTime _selectedMonth = DateTime.now();
+  DateTime? _selectedDate;
+  List<Map<String, dynamic>> _monthReports = [];
+  List<Map<String, dynamic>> _dayReports = [];
+  Set<String> _submittedDates = {};
+  bool _monthLoading = false;
+  Map<String, dynamic> _summary = {};
+  String _myCompanyId = '';
+
+  String get _monthStr =>
+      '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _initCompanyId();
+    _loadMonth();
+    _loadSummary();
+  }
+
+  Future<void> _initCompanyId() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _myCompanyId = prefs.getString('company_id') ?? '');
+  }
+
+  void _prevMonth() {
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+      _selectedDate = null;
+      _dayReports = [];
+    });
+    _loadMonth();
+    _loadSummary();
+  }
+
+  void _nextMonth() {
+    final now = DateTime.now();
+    if (_selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month) {
+      return;
+    }
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+      _selectedDate = null;
+      _dayReports = [];
+    });
+    _loadMonth();
+    _loadSummary();
+  }
+
+  Future<void> _loadMonth() async {
+    setState(() {
+      _monthLoading = true;
+      _monthReports = [];
+      _submittedDates = {};
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http
+          .get(
+            Uri.parse('$API_URL/reports?date=$_monthStr&limit=300'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final raw = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+        final enriched = raw.map((r) {
+          final approved = r['approved'] == true;
+          final revision = r['revision_requested'] == true;
+          return <String, dynamic>{
+            ...r,
+            'status': approved ? 'approved' : revision ? 'rejected' : 'pending',
+          };
+        }).toList();
+        final dates = enriched
+            .map((r) => r['report_date'] as String? ?? '')
+            .where((d) => d.isNotEmpty)
+            .toSet();
+        setState(() {
+          _monthReports = enriched;
+          _submittedDates = dates;
+          _monthLoading = false;
+        });
+        if (_selectedDate != null) {
+            _filterDay(_selectedDate!);
+          }
+      } else {
+        setState(() => _monthLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _monthLoading = false);
+    }
+  }
+
+  Future<void> _loadSummary() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http
+          .get(
+            Uri.parse('$API_URL/reports/summary?month=$_monthStr'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        setState(
+            () => _summary = jsonDecode(res.body) as Map<String, dynamic>);
+      }
+    } catch (_) {}
+  }
+
+  void _filterDay(DateTime date) {
+    final ds =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    setState(() {
+      _selectedDate = date;
+      _dayReports =
+          _monthReports.where((r) => r['report_date'] == ds).toList();
+    });
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupBySite(
+      List<Map<String, dynamic>> reps) {
+    final Map<String, List<Map<String, dynamic>>> g = {};
+    for (final r in reps) {
+      final key = (r['site_id'] as String?) ??
+          (r['gps_address'] as String?) ??
+          '住所未取得';
+      g.putIfAbsent(key, () => []).add(r);
+    }
+    return g;
+  }
+
+  String _siteLabel(List<Map<String, dynamic>> reps) {
+    final r = reps.first;
+    final name = r['site_name'] as String?;
+    if (name != null && name.isNotEmpty) return name;
+    final addr = r['gps_address'] as String?;
+    if (addr != null && addr.isNotEmpty) return addr;
+    return '住所未取得';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrentMonth = _selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month;
+
+    return Column(
+      children: [
+        // ① 月ナビ
+        Container(
+          color: JsColors.gunmetal,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                onPressed: _prevMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '${_selectedMonth.year}年${_selectedMonth.month}月',
+                    style: const TextStyle(
+                        color: JsColors.offWhite,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.chevron_right,
+                    color: isCurrentMonth ? JsColors.silver : JsColors.gold),
+                onPressed: isCurrentMonth ? null : _nextMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh,
+                    color: JsColors.silver, size: 18),
+                onPressed: () {
+                  _loadMonth();
+                  _loadSummary();
+                },
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+        // ② 集計バー
+        if (!_monthLoading && _summary.isNotEmpty) _buildSummaryBar(),
+        // ③ カレンダーグリッド
+        _monthLoading
+            ? const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(
+                    child: CircularProgressIndicator(color: JsColors.gold)))
+            : _buildCalendarGrid(),
+        // ④ 日別詳細
+        const Divider(height: 1, color: JsColors.divider),
+        Expanded(
+          child: _selectedDate == null ? _buildHint() : _buildDayDetail(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryBar() {
+    final total    = _summary['totalReports'] as int? ?? 0;
+    final pending  = _summary['pendingCount']  as int? ?? 0;
+    final revision = _summary['revisionCount'] as int? ?? 0;
+    final approved = (total - pending - revision).clamp(0, total);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+      child: Row(children: [
+        JsStatChip('合計',   total,    JsColors.silver),
+        const SizedBox(width: 6),
+        JsStatChip('承認済', approved, JsColors.success),
+        const SizedBox(width: 6),
+        JsStatChip('差戻中', revision, JsColors.error),
+        const SizedBox(width: 6),
+        JsStatChip('未確認', pending,  JsColors.warning),
+      ]),
+    );
+  }
+
+  Widget _buildCalendarGrid() {
+    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    final now      = DateTime.now();
+    final firstDay = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+    final lastDay  =
+        DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
+    final startOffset = firstDay.weekday - 1; // 月曜始まり
+    final rowCount = ((startOffset + lastDay.day) / 7).ceil();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+      child: Table(
+        children: [
+          // 曜日ヘッダー
+          TableRow(
+            children: weekdays.asMap().entries.map((e) {
+              final color = e.key == 5
+                  ? const Color(0xFF90CAF9)
+                  : e.key == 6
+                      ? const Color(0xFFEF9A9A)
+                      : JsColors.silver;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Center(
+                  child: Text(e.value,
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600)),
+                ),
+              );
+            }).toList(),
+          ),
+          // 日付行
+          for (int row = 0; row < rowCount; row++)
+            TableRow(
+              children: List.generate(7, (col) {
+                final cellIndex = row * 7 + col;
+                final dayNum = cellIndex - startOffset + 1;
+                if (dayNum < 1 || dayNum > lastDay.day) {
+                  return const SizedBox(height: 48);
+                }
+                final date = DateTime(
+                    _selectedMonth.year, _selectedMonth.month, dayNum);
+                final ds =
+                    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                final isSel = _selectedDate != null &&
+                    _selectedDate!.year == date.year &&
+                    _selectedDate!.month == date.month &&
+                    _selectedDate!.day == date.day;
+                final isToday = date.year == now.year &&
+                    date.month == now.month &&
+                    date.day == now.day;
+                return _DayCell(
+                  day: dayNum,
+                  hasReport: _submittedDates.contains(ds),
+                  isSelected: isSel,
+                  isToday: isToday,
+                  isSaturday: col == 5,
+                  isSunday: col == 6,
+                  onTap: () => _filterDay(date),
+                );
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHint() => const Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.touch_app_outlined, color: JsColors.silver, size: 32),
+        SizedBox(height: 8),
+        Text('日付をタップして日報を確認',
+            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+      ],
+    ),
+  );
+
+  Widget _buildDayDetail() {
+    if (_dayReports.isEmpty) {
+      return const Center(
+        child: Text('この日の日報はありません',
+            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+      );
+    }
+    final d = _selectedDate!;
+    final header =
+        '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} の日報（${_dayReports.length}件）';
+    final grouped = _groupBySite(_dayReports);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      children: [
+        Text(header,
+            style: const TextStyle(
+                color: JsColors.gold,
+                fontSize: 13,
+                fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        for (final entry in grouped.entries) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              const Icon(Icons.location_on, color: JsColors.gold, size: 13),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _siteLabel(entry.value),
+                  style: const TextStyle(
+                      color: JsColors.gold,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text('${entry.value.length}件',
+                  style: const TextStyle(
+                      color: JsColors.silver, fontSize: 11)),
+            ]),
+          ),
+          ...entry.value.map(
+            (r) => JsReportTile(report: r, myCompanyId: _myCompanyId),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// カレンダーのセル
+// ─────────────────────────────────────────────
+class _DayCell extends StatelessWidget {
+  const _DayCell({
+    required this.day,
+    required this.hasReport,
+    required this.isSelected,
+    required this.isToday,
+    this.isSaturday = false,
+    this.isSunday = false,
+    required this.onTap,
+  });
+  final int day;
+  final bool hasReport;
+  final bool isSelected;
+  final bool isToday;
+  final bool isSaturday;
+  final bool isSunday;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color textColor = isSunday
+        ? const Color(0xFFEF9A9A)
+        : isSaturday
+            ? const Color(0xFF90CAF9)
+            : JsColors.offWhite;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        margin: const EdgeInsets.all(1),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? JsColors.gold.withValues(alpha: 0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: isToday
+              ? Border.all(color: JsColors.gold, width: 1.5)
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '$day',
+              style: TextStyle(
+                color: textColor,
+                fontSize: 13,
+                fontWeight: (isToday || isSelected)
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
+            ),
+            if (hasReport)
+              Container(
+                width: 5,
+                height: 5,
+                margin: const EdgeInsets.only(top: 2),
+                decoration: const BoxDecoration(
+                  color: JsColors.gold,
+                  shape: BoxShape.circle,
+                ),
+              )
+            else
+              const SizedBox(height: 7),
+          ],
+        ),
       ),
     );
   }
