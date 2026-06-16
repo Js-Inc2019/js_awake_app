@@ -2999,7 +2999,7 @@ class _ForemanManagementBody extends StatelessWidget {
             child: TabBarView(
               children: [
                 _CalendarTab(),
-                _PlaceholderTab(label: '社員一覧'),
+                _StaffTab(),
                 _CooperationTab(),
               ],
             ),
@@ -3011,28 +3011,392 @@ class _ForemanManagementBody extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// 準備中タブ（②社員 / ③協力）
+// ② 社員一覧タブ
 // ─────────────────────────────────────────────
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({required this.label});
-  final String label;
+class _StaffTab extends StatefulWidget {
+  const _StaffTab();
+  @override
+  State<_StaffTab> createState() => _StaffTabState();
+}
+
+class _StaffTabState extends State<_StaffTab> {
+  List<Map<String, dynamic>> _staff = [];
+  bool _loading = false;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.construction_outlined,
-            color: JsColors.silver, size: 48),
-        const SizedBox(height: 12),
-        Text('$label は準備中',
-            style: const TextStyle(color: JsColors.silver, fontSize: 15)),
-        const SizedBox(height: 6),
-        const Text('attendance-v1 merge 後に実装予定',
-            style: TextStyle(color: JsColors.divider, fontSize: 11)),
-      ],
-    ),
-  );
+  void initState() {
+    super.initState();
+    _loadStaff();
+  }
+
+  Future<void> _loadStaff() async {
+    setState(() => _loading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http
+          .get(
+            Uri.parse('$API_URL/workers?membership_type=employee'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final companies =
+            List<Map<String, dynamic>>.from(data['companies'] ?? []);
+        final own = companies.firstWhere(
+          (c) => c['is_own'] == true,
+          orElse: () => <String, dynamic>{},
+        );
+        setState(() {
+          _staff = List<Map<String, dynamic>>.from(own['workers'] ?? []);
+          _loading = false;
+        });
+      } else {
+        setState(() => _loading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+          child: CircularProgressIndicator(color: JsColors.gold));
+    }
+    if (_staff.isEmpty) {
+      return const Center(
+        child: Text('社員がいません',
+            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _staff.length,
+      itemBuilder: (context, i) => _StaffCard(worker: _staff[i]),
+    );
+  }
+}
+
+class _StaffCard extends StatelessWidget {
+  const _StaffCard({required this.worker});
+  final Map<String, dynamic> worker;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = worker['name'] as String? ?? '不明';
+    final role = worker['role'] as String? ?? '';
+    final roleLabel = role == 'boss' ? '職長' : '職人';
+    final expYears = (worker['experience_years'] as num?)?.toInt() ?? 0;
+    final personId = worker['user_id'] as String? ?? '';
+
+    return GestureDetector(
+      onTap: () => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: JsColors.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (_) => _StaffMonthlySheet(personId: personId, name: name),
+      ),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.person_outline, color: JsColors.silver, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                name,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: JsColors.gold.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(roleLabel,
+                  style:
+                      const TextStyle(color: JsColors.gold, fontSize: 10)),
+            ),
+            const SizedBox(width: 8),
+            Text('$expYears年',
+                style:
+                    const TextStyle(color: JsColors.silver, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffMonthlySheet extends StatefulWidget {
+  const _StaffMonthlySheet({required this.personId, required this.name});
+  final String personId;
+  final String name;
+
+  @override
+  State<_StaffMonthlySheet> createState() => _StaffMonthlySheetState();
+}
+
+class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
+  DateTime _selectedMonth = DateTime.now();
+  Map<String, dynamic>? _summary;
+  bool _loading = false;
+
+  String get _monthStr =>
+      '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMonthly();
+  }
+
+  void _prevMonth() {
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+    });
+    _loadMonthly();
+  }
+
+  void _nextMonth() {
+    final now = DateTime.now();
+    if (_selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month) {
+      return;
+    }
+    setState(() {
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+    });
+    _loadMonthly();
+  }
+
+  Future<void> _loadMonthly() async {
+    setState(() => _loading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http
+          .get(
+            Uri.parse(
+                '$API_URL/attendance/monthly-summary?person_id=${widget.personId}&month=$_monthStr'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        setState(() {
+          _summary = jsonDecode(res.body) as Map<String, dynamic>;
+          _loading = false;
+        });
+      } else {
+        setState(() {
+          _summary = null;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _summary = null;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrentMonth = _selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month;
+    final note = _summary?['note'] as String? ??
+        '参考値です。労働時間・賃金の最終確定は貴社の責任で行ってください';
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.55,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      builder: (_, controller) => Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 8, bottom: 4),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: JsColors.divider,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                widget.name,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          Container(
+            color: JsColors.gunmetal,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                  onPressed: _prevMonth,
+                  visualDensity: VisualDensity.compact,
+                ),
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      '${_selectedMonth.year}年${_selectedMonth.month}月',
+                      style: const TextStyle(
+                          color: JsColors.gold,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.chevron_right,
+                    color: isCurrentMonth
+                        ? JsColors.divider
+                        : JsColors.gold,
+                  ),
+                  onPressed: isCurrentMonth ? null : _nextMonth,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: JsColors.gold))
+                : _summary == null
+                    ? const Center(
+                        child: Text('データなし',
+                            style: TextStyle(
+                                color: JsColors.silver, fontSize: 13)))
+                    : ListView(
+                        controller: controller,
+                        padding:
+                            const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        children: [
+                          Row(
+                            children: [
+                              JsStatChip(
+                                '出勤日数',
+                                (_summary!['days_worked'] as num?)
+                                        ?.toInt() ??
+                                    0,
+                                JsColors.silver,
+                              ),
+                              const SizedBox(width: 4),
+                              _StaffStatChip(
+                                '実働',
+                                () {
+                                  final mins =
+                                      (_summary!['total_net_minutes']
+                                                  as num?)
+                                              ?.toDouble() ??
+                                          0;
+                                  return '${(mins / 60).toStringAsFixed(1)}h';
+                                }(),
+                                JsColors.gold,
+                              ),
+                              const SizedBox(width: 4),
+                              JsStatChip(
+                                '残業',
+                                ((_summary!['overtime']
+                                            as Map<String, dynamic>?)?[
+                                        'total_min'] as num?)
+                                    ?.toInt() ??
+                                    0,
+                                JsColors.warning,
+                              ),
+                              const SizedBox(width: 4),
+                              JsStatChip(
+                                '休日出勤',
+                                (_summary!['holiday_work_days'] as num?)
+                                        ?.toInt() ??
+                                    0,
+                                JsColors.error,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+          ),
+          // note は summary の有無にかかわらず常時表示（法務の盾3層目）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Text(
+              note,
+              style:
+                  const TextStyle(color: JsColors.silver, fontSize: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// JsStatChip の String値版（実働時間 h表記用）
+class _StaffStatChip extends StatelessWidget {
+  const _StaffStatChip(this.label, this.value, this.color);
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Column(children: [
+            Text(value,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold)),
+            Text(label, style: TextStyle(color: color, fontSize: 11)),
+          ]),
+        ),
+      );
 }
 
 // ─────────────────────────────────────────────
