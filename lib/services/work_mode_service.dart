@@ -117,4 +117,68 @@ class WorkModeService {
       debugPrint('attendance $type 送信失敗: $e');
     }
   }
+
+  Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut})?> fetchToday() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) return null;
+      final res = await http.get(
+        Uri.parse('$_apiBase/attendance/today'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (
+          record:    body['record'] as Map<String, dynamic>?,
+          punchedIn:  body['punched_in']  as bool? ?? false,
+          punchedOut: body['punched_out'] as bool? ?? false,
+        );
+      }
+      return null;
+    } catch (e) {
+      debugPrint('attendance/today 取得失敗: $e');
+      return null;
+    }
+  }
+
+  Future<({bool ok, Map<String, dynamic>? record, int statusCode, String? errorCode, String? errorMessage})>
+      punch(String type, {double? lat, double? lng, String? addr}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
+      }
+      final payload = <String, dynamic>{'type': type};
+      if (lat  != null) payload['lat']  = lat;
+      if (lng  != null) payload['lng']  = lng;
+      if (addr != null) payload['addr'] = addr;
+      final res = await http.post(
+        Uri.parse('$_apiBase/attendance/punch'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 10));
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200) {
+        return (
+          ok:           true,
+          record:       body['record'] as Map<String, dynamic>?,
+          statusCode:   res.statusCode,
+          errorCode:    null,
+          errorMessage: null,
+        );
+      }
+      return (
+        ok:           false,
+        record:       null,
+        statusCode:   res.statusCode,
+        errorCode:    body['code']  as String?,
+        errorMessage: body['error'] as String?,
+      );
+    } catch (e) {
+      debugPrint('attendance/punch 送信失敗: $e');
+      return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
+    }
+  }
 }
