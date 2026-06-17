@@ -34,6 +34,7 @@ import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
+import 'punch_screen.dart';
 import '../services/auth_service.dart';
 import '../services/company_service.dart';
 import '../services/fcm_service.dart';
@@ -995,6 +996,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
     // IndexedStack の children リスト
     final tabChildren = <Widget>[
+      const PunchScreen(),
       _buildHomeTabContent(),
       const MonthlyHistoryBody(),
       if (widget.isForeman) const _ForemanManagementBody(),
@@ -1163,25 +1165,32 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       padding: EdgeInsets.zero,
       child: Row(children: [
         _BottomTabItem(
-          icon: Icons.home_outlined,
-          label: '日報',
+          icon: Icons.punch_clock,
+          label: '打刻',
           active: _tabIndex == 0,
           onTap: () => _setTab(0),
         ),
         divider,
         _BottomTabItem(
-          icon: Icons.calendar_month,
-          label: '月間履歴',
+          icon: Icons.home_outlined,
+          label: '日報',
           active: _tabIndex == 1,
           onTap: () => _setTab(1),
+        ),
+        divider,
+        _BottomTabItem(
+          icon: Icons.calendar_month,
+          label: '月間履歴',
+          active: _tabIndex == 2,
+          onTap: () => _setTab(2),
         ),
         divider,
         if (widget.isForeman)
           _BottomTabItem(
             icon: Icons.bar_chart,
             label: '管理・集計',
-            active: _tabIndex == 2,
-            onTap: () => _setTab(2),
+            active: _tabIndex == 3,
+            onTap: () => _setTab(3),
           )
         else
           _BottomTabItem(
