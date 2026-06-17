@@ -20,7 +20,7 @@ class WorkModeSettings {
     this.mode = WorkModeType.deemed,
     this.deemedStart = '08:00',
     this.deemedEnd = '17:00',
-    this.breakMinutes = 60,
+    this.breakMinutes = 120,
   });
   static WorkModeSettings fromJson(Map<String, dynamic> j) => WorkModeSettings(
     mode: j['work_mode'] == 'actual' || j['mode'] == 'actual'
@@ -118,7 +118,8 @@ class WorkModeService {
     }
   }
 
-  Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut})?> fetchToday() async {
+  Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut,
+            int? standardBreakMin, int legalBreak6h, int legalBreak8h})?> fetchToday() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
@@ -130,9 +131,12 @@ class WorkModeService {
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         return (
-          record:    body['record'] as Map<String, dynamic>?,
-          punchedIn:  body['punched_in']  as bool? ?? false,
-          punchedOut: body['punched_out'] as bool? ?? false,
+          record:           body['record']           as Map<String, dynamic>?,
+          punchedIn:        body['punched_in']        as bool? ?? false,
+          punchedOut:       body['punched_out']       as bool? ?? false,
+          standardBreakMin: body['standard_break_min'] as int?,
+          legalBreak6h:    (body['legal_break_6h_min'] as int?) ?? 45,
+          legalBreak8h:    (body['legal_break_8h_min'] as int?) ?? 60,
         );
       }
       return null;
@@ -179,6 +183,40 @@ class WorkModeService {
     } catch (e) {
       debugPrint('attendance/punch 送信失敗: $e');
       return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
+    }
+  }
+
+  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
+      breakRequest({required int breakMinutes, required String reason, String? workDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
+      }
+      final payload = <String, dynamic>{
+        'break_minutes': breakMinutes,
+        'reason':        reason,
+        if (workDate != null) 'work_date': workDate,
+      };
+      final res = await http.post(
+        Uri.parse('$_apiBase/attendance/break-request'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 10));
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200) {
+        return (ok: true, statusCode: res.statusCode, errorCode: null, errorMessage: null);
+      }
+      return (
+        ok:           false,
+        statusCode:   res.statusCode,
+        errorCode:    body['code']  as String?,
+        errorMessage: body['error'] as String?,
+      );
+    } catch (e) {
+      debugPrint('attendance/break-request 送信失敗: $e');
+      return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
     }
   }
 }
