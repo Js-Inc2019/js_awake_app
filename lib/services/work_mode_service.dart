@@ -93,7 +93,7 @@ class WorkModeService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final settings = WorkModeSettings.fromJson(
-            data['settings'] as Map<String, dynamic>? ?? data);
+            (data['setting'] ?? data['settings']) as Map<String, dynamic>? ?? data);
         await save(settings);
         return settings;
       }

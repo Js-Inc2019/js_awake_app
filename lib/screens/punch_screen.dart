@@ -56,7 +56,7 @@ class _PunchScreenState extends State<PunchScreen> {
 
   Future<void> _init() async {
     final (settings, today) = await (
-      WorkModeService.instance.load(),
+      WorkModeService.instance.fetchFromServer(),
       WorkModeService.instance.fetchToday(),
     ).wait;
     if (!mounted) return;
