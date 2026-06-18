@@ -21,6 +21,8 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   List<Map<String, dynamic>> _reports = [];
   DateTime _selectedMonth = DateTime.now();
   String? _error;
+  // null = 全件, 'approved' / 'rejected' / 'pending' = 絞り込み中
+  String? _filterStatus;
 
   @override
   void initState() {
@@ -75,15 +77,25 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   }
 
   void _prevMonth() {
-    setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
+    setState(() {
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+      _filterStatus = null;
+    });
     _load();
   }
 
   void _nextMonth() {
     final now = DateTime.now();
     if (_selectedMonth.year == now.year && _selectedMonth.month == now.month) return;
-    setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1));
+    setState(() {
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+      _filterStatus = null;
+    });
     _load();
+  }
+
+  void _toggleFilter(String? status) {
+    setState(() => _filterStatus = (_filterStatus == status) ? null : status);
   }
 
   @override
@@ -94,6 +106,9 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
     final pending  = total - approved - rejected;
     final now      = DateTime.now();
     final isCurrentMonth = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
+    final displayed = _filterStatus == null
+        ? _reports
+        : _reports.where((r) => r['status'] == _filterStatus).toList();
 
     return Column(
       children: [
@@ -132,13 +147,21 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(children: [
-              JsStatChip('合計', total, JsColors.silver),
+              JsStatChip('合計', total, JsColors.silver,
+                  selected: _filterStatus == null,
+                  onTap: () => setState(() => _filterStatus = null)),
               const SizedBox(width: 8),
-              JsStatChip('承認', approved, JsColors.success),
+              JsStatChip('承認', approved, JsColors.success,
+                  selected: _filterStatus == 'approved',
+                  onTap: () => _toggleFilter('approved')),
               const SizedBox(width: 8),
-              JsStatChip('差戻', rejected, JsColors.error),
+              JsStatChip('差戻', rejected, JsColors.error,
+                  selected: _filterStatus == 'rejected',
+                  onTap: () => _toggleFilter('rejected')),
               const SizedBox(width: 8),
-              JsStatChip('未承認', pending, JsColors.warning),
+              JsStatChip('未承認', pending, JsColors.warning,
+                  selected: _filterStatus == 'pending',
+                  onTap: () => _toggleFilter('pending')),
             ]),
           ),
         // リスト
@@ -151,11 +174,15 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
                       ? const Center(
                           child: Text('この月の記録はありません',
                               style: TextStyle(color: JsColors.silver)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                          itemCount: _reports.length,
-                          itemBuilder: (ctx, i) => JsReportTile(report: _reports[i]),
-                        ),
+                      : displayed.isEmpty
+                          ? const Center(
+                              child: Text('該当する記録はありません',
+                                  style: TextStyle(color: JsColors.silver)))
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                              itemCount: displayed.length,
+                              itemBuilder: (ctx, i) => JsReportTile(report: displayed[i]),
+                            ),
         ),
       ],
     );
@@ -188,25 +215,38 @@ class MonthlyHistoryScreen extends StatelessWidget {
 // Sub-widgets
 // ─────────────────────────────────────────────
 class JsStatChip extends StatelessWidget {
-  const JsStatChip(this.label, this.count, this.color, {super.key});
+  const JsStatChip(this.label, this.count, this.color, {
+    super.key,
+    this.selected = false,
+    this.onTap,
+  });
   final String label;
   final int count;
   final Color color;
+  final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+    child: GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.22) : color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color : color.withValues(alpha: 0.4),
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(children: [
+          Text('$count',
+              style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: color, fontSize: 11)),
+        ]),
       ),
-      child: Column(children: [
-        Text('$count',
-            style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: TextStyle(color: color, fontSize: 11)),
-      ]),
     ),
   );
 }

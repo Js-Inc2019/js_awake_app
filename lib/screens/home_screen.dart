@@ -963,6 +963,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     return '${n.year}/${n.month.toString().padLeft(2, '0')}/${n.day.toString().padLeft(2, '0')}（$w）';
   }
 
+  // ─── ページタイトル ───
+  String get _pageTitle {
+    switch (_tabIndex) {
+      case 0: return '打刻';
+      case 1: return '日報';
+      case 2: return '月間履歴';
+      case 3: return widget.isForeman ? '管理・集計' : '是正依頼';
+      default: return '打刻';
+    }
+  }
+
   // ─────────────────────── BUILD ───────────────────────
   @override
   Widget build(BuildContext context) {
@@ -1012,9 +1023,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       titleSpacing: 12,
       title: Row(
         children: [
-          const Text(
-            '日報報告',
-            style: TextStyle(
+          Text(
+            _pageTitle,
+            style: const TextStyle(
                 color: JsColors.gold, fontSize: 17, fontWeight: FontWeight.bold),
           ),
           const Spacer(),
@@ -1157,13 +1168,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           label: '打刻',
           active: _tabIndex == 0,
           onTap: () => _setTab(0),
-        ),
-        divider,
-        _BottomTabItem(
-          icon: Icons.home_outlined,
-          label: '日報',
-          active: _tabIndex == 1,
-          onTap: () => _setTab(1),
         ),
         divider,
         _BottomTabItem(
@@ -3558,7 +3562,6 @@ class _CalendarTabState extends State<_CalendarTab> {
   List<Map<String, dynamic>> _dayReports = [];
   Set<String> _submittedDates = {};
   bool _monthLoading = false;
-  Map<String, dynamic> _summary = {};
   String _myCompanyId = '';
   bool _isWorkerView = false;
 
@@ -3570,7 +3573,6 @@ class _CalendarTabState extends State<_CalendarTab> {
     super.initState();
     _initCompanyId();
     _loadMonth();
-    _loadSummary();
   }
 
   Future<void> _initCompanyId() async {
@@ -3587,7 +3589,6 @@ class _CalendarTabState extends State<_CalendarTab> {
       _isWorkerView = false;
     });
     _loadMonth();
-    _loadSummary();
   }
 
   void _nextMonth() {
@@ -3604,7 +3605,6 @@ class _CalendarTabState extends State<_CalendarTab> {
       _isWorkerView = false;
     });
     _loadMonth();
-    _loadSummary();
   }
 
   Future<void> _loadMonth() async {
@@ -3652,24 +3652,6 @@ class _CalendarTabState extends State<_CalendarTab> {
     } catch (_) {
       if (mounted) setState(() => _monthLoading = false);
     }
-  }
-
-  Future<void> _loadSummary() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http
-          .get(
-            Uri.parse('$API_URL/reports/summary?month=$_monthStr'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
-      if (res.statusCode == 200) {
-        setState(
-            () => _summary = jsonDecode(res.body) as Map<String, dynamic>);
-      }
-    } catch (_) {}
   }
 
   void _filterDay(DateTime date) {
@@ -3921,17 +3903,12 @@ class _CalendarTabState extends State<_CalendarTab> {
               IconButton(
                 icon: const Icon(Icons.refresh,
                     color: JsColors.silver, size: 18),
-                onPressed: () {
-                  _loadMonth();
-                  _loadSummary();
-                },
+                onPressed: _loadMonth,
                 visualDensity: VisualDensity.compact,
               ),
             ],
           ),
         ),
-        // ② 集計バー
-        if (!_monthLoading && _summary.isNotEmpty) _buildSummaryBar(),
         // ③ カレンダーグリッド
         _monthLoading
             ? const Padding(
@@ -3945,25 +3922,6 @@ class _CalendarTabState extends State<_CalendarTab> {
           child: _selectedDate == null ? _buildHint() : _buildDayDetail(),
         ),
       ],
-    );
-  }
-
-  Widget _buildSummaryBar() {
-    final total    = _summary['totalReports'] as int? ?? 0;
-    final pending  = _summary['pendingCount']  as int? ?? 0;
-    final revision = _summary['revisionCount'] as int? ?? 0;
-    final approved = (total - pending - revision).clamp(0, total);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-      child: Row(children: [
-        JsStatChip('合計',   total,    JsColors.silver),
-        const SizedBox(width: 6),
-        JsStatChip('承認済', approved, JsColors.success),
-        const SizedBox(width: 6),
-        JsStatChip('差戻中', revision, JsColors.error),
-        const SizedBox(width: 6),
-        JsStatChip('未確認', pending,  JsColors.warning),
-      ]),
     );
   }
 

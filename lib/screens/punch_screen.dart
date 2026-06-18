@@ -208,16 +208,6 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: _bg,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: _bg,
-        foregroundColor: _text,
-        elevation: 0,
-        title: const Text(
-          '打刻',
-          style: TextStyle(color: _text, fontWeight: FontWeight.bold, fontSize: 17),
-        ),
-      ),
       body: SafeArea(
         child: Column(
           children: [
