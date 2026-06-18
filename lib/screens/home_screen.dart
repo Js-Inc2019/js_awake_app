@@ -35,47 +35,12 @@ import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsRepo
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
+import '../widgets/slide_to_confirm.dart';
 import '../services/auth_service.dart';
 import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
 import '../services/profile_service.dart';
-
-// ─────────────────────────────────────────────
-// 今日の一言リスト（日付ベースローテーション）
-// ─────────────────────────────────────────────
-const _dailyMessages = [
-  '今日も現場で輝こう。太陽には負けるけど。',
-  '段取りは大事。弁当を忘れても段取りは忘れるな。',
-  'ヘルメットは頭を守る。悩みは守れない。',
-  '職人の朝は早い。でも鳥よりは遅い。',
-  '安全帯を締めよう。気持ちも引き締めて。',
-  '今日のミスは明日の笑い話になる予定。',
-  '道具を大切に。特に昼飯後の道具は優しく。',
-  '確認は何度でも。でもトイレの確認は一回でいい。',
-  '体が資本。だから今日も飯をしっかり食え。',
-  '雨の日は雨の仕事がある。傘を持ってきても使えないけど。',
-  '職人の技は積み重ね。腰痛も積み重なる。',
-  '仲間に声をかけよう。弁当の話でもいい。',
-  '今日も全員で家に帰ろう。夕飯が待ってる。',
-  '整理整頓は安全の基本。机の上は知らない。',
-  '失敗しても大丈夫。同じ失敗じゃなければ。',
-  '職人の仕事は街に残る。それってすごいこと。',
-  '暑い日は無理せず休もう。涼しくなってから頑張る。',
-  'ヒヤリハットは報告しよう。小さなことでいい。',
-  '今日も誰かの暮らしを支えている。それが職人。',
-  '寝不足は判断力を落とす。早く寝ろ昨日の自分。',
-  '道具の手入れは自分の手入れと同じ大切さ。',
-  '現場を去る時は来た時より少しだけ綺麗に。',
-  '今日の丁寧が、10年後の信頼になる。',
-  '朝礼は眠くても大事。特に安全の話は。',
-  '職人に休日は必要。体も心もリセットしよう。',
-  '危ないと思ったら止まれ。勇気ある一歩。',
-  '技術は盗むもの。でも道具は盗むな。',
-  'お疲れ様でした。また明日も頼むよ。',
-  '今日も無事に終わった。それが一番の成果。',
-  '仕事の後のご飯は格別。今日も頑張った証拠。',
-];
 
 // ─────────────────────────────────────────────
 // 季節注意喚起（6〜9月）
@@ -100,12 +65,14 @@ class _WeatherData {
   final double tempC;
   final int precipPct;
   final int humidity;
+  final double? windSpeed; // m/s
   const _WeatherData({
     required this.icon,
     required this.desc,
     required this.tempC,
     required this.precipPct,
     this.humidity = 60,
+    this.windSpeed,
   });
 }
 
@@ -186,16 +153,18 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) as
     final weatherArr = curJ['weather'] as List;
     final owmId = (weatherArr.first as Map<String, dynamic>)['id'] as int? ?? 800;
     final desc = (weatherArr.first as Map<String, dynamic>)['description'] as String? ?? '';
-    final temp = ((curJ['main'] as Map)['temp'] as num).toDouble();
-    final rainPop = ((curJ['clouds'] as Map?)?['all'] as int? ?? 0).clamp(0, 100);
-    final humidity = ((curJ['main'] as Map)['humidity'] as int?) ?? 60;
+    final temp      = ((curJ['main'] as Map)['temp'] as num).toDouble();
+    final rainPop   = ((curJ['clouds'] as Map?)?['all'] as int? ?? 0).clamp(0, 100);
+    final humidity  = ((curJ['main'] as Map)['humidity'] as int?) ?? 60;
+    final windSpeed = ((curJ['wind'] as Map<String, dynamic>?)?['speed'] as num?)?.toDouble();
 
     final current = _WeatherData(
-      icon: _owmIdToIcon(owmId),
-      desc: desc,
-      tempC: temp,
+      icon:      _owmIdToIcon(owmId),
+      desc:      desc,
+      tempC:     temp,
       precipPct: rainPop,
-      humidity: humidity,
+      humidity:  humidity,
+      windSpeed: windSpeed,
     );
 
     final forecast = <_ForecastDay>[];
@@ -256,16 +225,20 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWttr() async {
     final rawDesc =
         ((cur['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ??
             '';
-    final precip = int.tryParse(cur['precipMM'] as String? ?? '0') ?? 0;
+    final precip   = int.tryParse(cur['precipMM'] as String? ?? '0') ?? 0;
     final humidity = int.tryParse(cur['humidity'] as String? ?? '60') ?? 60;
+    final windKmh  = double.tryParse(cur['windspeedKmph'] as String? ?? '');
+    final windMs   = windKmh != null
+        ? double.parse((windKmh / 3.6).toStringAsFixed(1)) : null;
     final (icon, desc) = _mapDescStr(rawDesc);
 
     final current = _WeatherData(
-      icon: icon,
-      desc: desc,
-      tempC: tempC,
+      icon:      icon,
+      desc:      desc,
+      tempC:     tempC,
       precipPct: precip.clamp(0, 100),
-      humidity: humidity,
+      humidity:  humidity,
+      windSpeed: windMs,
     );
 
     const weekJa = ['月', '火', '水', '木', '金', '土', '日'];
@@ -380,9 +353,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   List<_ForecastDay> _forecast = [];
   bool _weatherLoading = false;
 
-  // ─── 季節・一言 ───
+  // ─── 季節 ───
   String? _seasonWarning;
-  String _dailyMessage = '';
   DateTime? _healthCheckDate;
 
   // ─── 起点 ───
@@ -551,6 +523,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final wDesc      = prefs.getString('cache_weather_desc') ?? '';
     final wPrecip    = prefs.getInt('cache_weather_precip') ?? 0;
     final wHumidity  = prefs.getInt('cache_weather_humidity') ?? 60;
+    final wWindSpeed = prefs.getDouble('cache_weather_wind');
 
     if (mounted) {
       setState(() {
@@ -562,7 +535,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         if (wIcon != null && wTempC != null) {
           _weather = _WeatherData(
             icon: wIcon, desc: wDesc, tempC: wTempC,
-            precipPct: wPrecip, humidity: wHumidity);
+            precipPct: wPrecip, humidity: wHumidity,
+            windSpeed: wWindSpeed);
         }
         _initialLoading = false;
       });
@@ -628,15 +602,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         p.setString('cache_weather_desc',     data.desc);
         p.setInt('cache_weather_precip',      data.precipPct);
         p.setInt('cache_weather_humidity',    data.humidity);
+        if (data.windSpeed != null) p.setDouble('cache_weather_wind', data.windSpeed!);
       });
     }
   }
 
   void _initSeasonAndDaily() {
-    final now = DateTime.now();
-    _seasonWarning = _getSeasonWarning(now);
-    final dayOfYear = now.difference(DateTime(now.year)).inDays;
-    _dailyMessage = _dailyMessages[dayOfYear % _dailyMessages.length];
+    _seasonWarning = _getSeasonWarning(DateTime.now());
   }
 
   String? _buildHealthBannerMsg() {
@@ -861,7 +833,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           ? '[その他:${_otherCtrl.text.trim()}] '
           : '';
       await WorkerNameStore.instance.add(name);
-      await ReportStore.instance.addReport(WorkerReportItem(
+      final sent = await ReportStore.instance.addReport(WorkerReportItem(
         name: name,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
@@ -876,7 +848,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
       if (!mounted) return;
-      showJsSnackbar(context, '✅ 報告を送信しました');
+      showJsSnackbar(
+        context,
+        sent ? '✅ 報告を送信しました' : '📋 報告を保存しました（再送待ち）',
+        isWarning: !sent,
+      );
       _carpoolCtrl.clear();
       _transportMemoCtrl.clear();
       setState(() {
@@ -923,14 +899,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 workerName: name,
                 gpsAddress: gpsAddr,
                 onSubmit: (start, end, overtime) async {
-                  await ReportStore.instance.addReport(WorkerReportItem(
+                  final sentOt = await ReportStore.instance.addReport(WorkerReportItem(
                     name: name,
                     transport: TransportType.other,
                     workContent: '【残業】$start〜$end $overtime',
                     gpsAddress: gpsAddr,
                   ));
                   if (ctx.mounted) Navigator.pop(ctx);
-                  if (mounted) showJsSnackbar(context, '✅ 残業報告を送信しました');
+                  if (mounted) showJsSnackbar(
+                    context,
+                    sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
+                    isWarning: !sentOt,
+                  );
                 },
               ),
             );
@@ -996,7 +976,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
     // IndexedStack の children リスト
     final tabChildren = <Widget>[
-      const PunchScreen(),
+      PunchScreen(
+        onNavigateToReport: () => _setTab(1),
+        weatherPanel: _PunchWeatherPanel(
+          weather:       _weather,
+          forecast:      _forecast,
+          loading:       _weatherLoading,
+          seasonWarning: _seasonWarning,
+        ),
+      ),
       _buildHomeTabContent(),
       const MonthlyHistoryBody(),
       if (widget.isForeman) const _ForemanManagementBody(),
@@ -1248,23 +1236,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 4),
 
-                // ② 天気（左）+ 熱中症指数（右）
-                _WeatherHeatRow(
-                  weather: _weather,
-                  loading: _weatherLoading,
-                  seasonWarning: _seasonWarning,
-                  onForecastTap: () => _showForecastSheet(context),
-                ),
-
                 // 健康診断警告
                 if (_buildHealthBannerMsg() != null) ...[
                   const SizedBox(height: 4),
                   _HealthCheckBanner(message: _buildHealthBannerMsg()!),
                 ],
-                const SizedBox(height: 4),
-
-                // ③ AIの一言メッセージ
-                _DailyMessageRow(message: _dailyMessage),
                 const SizedBox(height: 4),
 
                 // ④ 移動手段 4択（1タップ排他・ダブルタップで複数追加）→ 車種別/相乗り → ルート情報
@@ -1607,40 +1583,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         Container(
           color: JsColors.black,
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              child: _submitting
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.black))
-                  : const Text('報告を送信する',
-                      style: TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold)),
-            ),
+          child: SlideToConfirm(
+            label:     'スライドで送信',
+            icon:      Icons.send,
+            filled:    true,
+            busy:      _submitting,
+            onConfirm: _submit,
           ),
         ),
       ],
     );
   }
 
-  void _showForecastSheet(BuildContext context) {
-    if (_forecast.isEmpty) {
-      showJsSnackbar(context, '週間予報データがありません');
-      return;
-    }
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: JsColors.gunmetal,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (_) => _ForecastSheet(forecast: _forecast),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────
@@ -1772,289 +1726,275 @@ class _GpsBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// ② 天気（左）+ 熱中症指数（右）2列
+// 打刻タブ 天気パネル（JsMainShell → PunchScreen へ渡す Widget）
 // ─────────────────────────────────────────────
-class _WeatherHeatRow extends StatelessWidget {
-  const _WeatherHeatRow({
+class _PunchWeatherPanel extends StatefulWidget {
+  const _PunchWeatherPanel({
     required this.weather,
+    required this.forecast,
     required this.loading,
     required this.seasonWarning,
-    required this.onForecastTap,
+  });
+  final _WeatherData? weather;
+  final List<_ForecastDay> forecast;
+  final bool loading;
+  final String? seasonWarning;
+
+  @override
+  State<_PunchWeatherPanel> createState() => _PunchWeatherPanelState();
+}
+
+class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
+  bool _showForecast = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF0C0C0A),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PunchWeatherRow(
+            weather:      widget.weather,
+            loading:      widget.loading,
+            expanded:     _showForecast,
+            onToggle:     () => setState(() => _showForecast = !_showForecast),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve:    Curves.easeInOut,
+            child: _showForecast && widget.forecast.isNotEmpty
+                ? _PunchForecastStrip(forecast: widget.forecast)
+                : const SizedBox.shrink(),
+          ),
+          if (widget.weather != null) ...[
+            const SizedBox(height: 4),
+            _PunchWbgtRow(
+              weather:       widget.weather!,
+              seasonWarning: widget.seasonWarning,
+            ),
+          ],
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+}
+
+class _PunchWeatherRow extends StatelessWidget {
+  const _PunchWeatherRow({
+    required this.weather,
+    required this.loading,
+    required this.expanded,
+    required this.onToggle,
   });
   final _WeatherData? weather;
   final bool loading;
-  final String? seasonWarning;
-  final VoidCallback onForecastTap;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 90,
-      child: Row(
-        children: [
-          // 左: 天気（タップで週間予報）
-          Expanded(
-            flex: 54,
-            child: GestureDetector(
-              onTap: onForecastTap,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: JsColors.gunmetal,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: JsColors.divider),
-                ),
-                child: loading
-                    ? const Center(
-                        child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: JsColors.gold)))
-                    : weather == null
-                        ? const Center(
-                            child: Text('--',
-                                style: TextStyle(
-                                    color: JsColors.silver, fontSize: 12)))
-                        : _WeatherContent(weather: weather!),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // 右: 熱中症指数 + 危険度 + 季節注意
-          Expanded(
-            flex: 46,
-            child: Container(
-              decoration: BoxDecoration(
-                color: JsColors.gunmetal,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: JsColors.divider),
-              ),
-              child: weather == null
-                  ? const Center(
-                      child: Text('--',
-                          style: TextStyle(
-                              color: JsColors.silver, fontSize: 12)))
-                  : _HeatIndexContent(
-                      weather: weather!, seasonWarning: seasonWarning),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeatherContent extends StatelessWidget {
-  const _WeatherContent({required this.weather});
-  final _WeatherData weather;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(weather.icon, style: const TextStyle(fontSize: 28)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  weather.desc,
-                  style: const TextStyle(
-                      color: JsColors.silver, fontSize: 10),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  '${weather.tempC.round()}°C',
-                  style: const TextStyle(
-                      color: JsColors.offWhite,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold),
-                ),
-                Row(children: [
-                  const Text('💧', style: TextStyle(fontSize: 10)),
-                  const SizedBox(width: 2),
-                  Text('${weather.humidity}%',
-                      style: const TextStyle(
-                          color: JsColors.silver, fontSize: 11)),
-                  const SizedBox(width: 6),
-                  const Text('☂', style: TextStyle(fontSize: 10)),
-                  const SizedBox(width: 2),
-                  Text('${weather.precipPct}%',
-                      style: TextStyle(
-                          color: weather.precipPct >= 50
+    return GestureDetector(
+      onTap: onToggle,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JsColors.divider),
+        ),
+        child: loading
+            ? const Center(
+                child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: JsColors.gold)))
+            : weather == null
+                ? const Center(
+                    child: Text('天気データ取得中...',
+                        style: TextStyle(color: JsColors.silver, fontSize: 12)))
+                : Row(
+                    children: [
+                      _PunchWeatherItem(
+                          label: '気温',
+                          value: '${weather!.tempC.round()}°C'),
+                      _PunchVd(),
+                      _PunchWeatherItem(
+                          label: '降水',
+                          value: '${weather!.precipPct}%',
+                          valueColor: weather!.precipPct >= 50
                               ? const Color(0xFF64B5F6)
-                              : JsColors.silver,
-                          fontSize: 11)),
-                ]),
-              ],
-            ),
-          ),
-        ],
+                              : null),
+                      _PunchVd(),
+                      _PunchWeatherItem(
+                          label: '風速',
+                          value: weather!.windSpeed != null
+                              ? '${weather!.windSpeed!.toStringAsFixed(1)}m/s'
+                              : '--'),
+                      _PunchVd(),
+                      _PunchWeatherItem(
+                          label: '天気',
+                          value: weather!.icon,
+                          isEmoji: true),
+                      const SizedBox(width: 4),
+                      Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
+                        color: JsColors.silver,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ),
       ),
     );
   }
 }
 
-class _HeatIndexContent extends StatelessWidget {
-  const _HeatIndexContent({
-    required this.weather,
-    required this.seasonWarning,
+class _PunchWeatherItem extends StatelessWidget {
+  const _PunchWeatherItem({
+    required this.label,
+    required this.value,
+    this.valueColor,
+    this.isEmoji = false,
   });
-  final _WeatherData weather;
-  final String? seasonWarning;
+  final String label;
+  final String value;
+  final Color? valueColor;
+  final bool isEmoji;
 
   @override
   Widget build(BuildContext context) {
-    final wbgt = _calcWBGT(weather.tempC, weather.humidity);
-    final level = _wbgtLevel(wbgt);
-    final color = _wbgtColor(wbgt);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Text('⚠️', style: TextStyle(fontSize: 11)),
-            const SizedBox(width: 4),
-            Text(
-              '熱中症指数 ${wbgt.round()}',
-              style: const TextStyle(
-                  color: JsColors.offWhite,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600),
-            ),
-          ]),
-          const SizedBox(height: 5),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: color.withValues(alpha: 0.7)),
-            ),
-            child: Text(level,
-                style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
-          ),
-          if (seasonWarning != null) ...[
-            const SizedBox(height: 5),
-            Text(
-              seasonWarning!,
-              style: const TextStyle(
-                  color: Color(0xFFFFCC80), fontSize: 9, height: 1.3),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+          Text(label,
+              style: const TextStyle(color: JsColors.silver, fontSize: 9)),
+          const SizedBox(height: 2),
+          isEmoji
+              ? Text(value, style: const TextStyle(fontSize: 18))
+              : Text(value,
+                  style: TextStyle(
+                      color: valueColor ?? JsColors.offWhite,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// 週間予報 BottomSheet
-// ─────────────────────────────────────────────
-class _ForecastSheet extends StatelessWidget {
-  const _ForecastSheet({required this.forecast});
+class _PunchVd extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 28,
+        color: JsColors.divider,
+      );
+}
+
+class _PunchForecastStrip extends StatelessWidget {
+  const _PunchForecastStrip({required this.forecast});
   final List<_ForecastDay> forecast;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            const Icon(Icons.wb_sunny_outlined,
-                color: JsColors.gold, size: 18),
-            const SizedBox(width: 8),
-            const Text('週間天気予報',
-                style: TextStyle(
-                    color: JsColors.gold,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
-            const Spacer(),
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close,
-                  color: JsColors.silver, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Row(
+        children: forecast.map((day) {
+          return Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(day.weekday,
+                    style: const TextStyle(
+                        color: JsColors.silver,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(day.icon, style: const TextStyle(fontSize: 16)),
+                const SizedBox(height: 2),
+                Text('${day.maxC.round()}°',
+                    style: const TextStyle(
+                        color: Color(0xFFEF9A9A),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold)),
+                Text('${day.minC.round()}°',
+                    style: const TextStyle(
+                        color: Color(0xFF90CAF9), fontSize: 11)),
+                if (day.precipPct > 0)
+                  Text('${day.precipPct}%',
+                      style: TextStyle(
+                          color: day.precipPct >= 50
+                              ? const Color(0xFF64B5F6)
+                              : JsColors.silver,
+                          fontSize: 9)),
+              ],
             ),
-          ]),
-          const SizedBox(height: 12),
-          const Divider(color: JsColors.divider, height: 1),
-          const SizedBox(height: 12),
-          ...forecast.map((day) => _ForecastRow(day: day)),
-        ],
+          );
+        }).toList(),
       ),
     );
   }
 }
 
-class _ForecastRow extends StatelessWidget {
-  const _ForecastRow({required this.day});
-  final _ForecastDay day;
+class _PunchWbgtRow extends StatelessWidget {
+  const _PunchWbgtRow({
+    required this.weather,
+    required this.seasonWarning,
+  });
+  final _WeatherData weather;
+  final String? seasonWarning;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(children: [
-        SizedBox(
-          width: 28,
-          child: Text(day.weekday,
-              style: const TextStyle(
-                  color: JsColors.silver,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600)),
-        ),
-        Text(day.icon, style: const TextStyle(fontSize: 20)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Row(children: [
-            Text('${day.maxC.round()}°',
-                style: const TextStyle(
-                    color: Color(0xFFEF9A9A),
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold)),
-            const Text(' / ',
-                style: TextStyle(color: JsColors.silver, fontSize: 13)),
-            Text('${day.minC.round()}°',
-                style: const TextStyle(
-                    color: Color(0xFF90CAF9),
-                    fontSize: 14,
+    final wbgt  = _calcWBGT(weather.tempC, weather.humidity);
+    final level = _wbgtLevel(wbgt);
+    final color = _wbgtColor(wbgt);
+
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: color.withValues(alpha: 0.6)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('⚠️ WBGT ${wbgt.round()}',
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 11)),
+            const SizedBox(width: 6),
+            Text(level,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold)),
           ]),
         ),
-        Row(children: [
-          const Text('☂️', style: TextStyle(fontSize: 13)),
-          const SizedBox(width: 3),
-          Text('${day.precipPct}%',
-              style: TextStyle(
-                  color: day.precipPct >= 50
-                      ? const Color(0xFF64B5F6)
-                      : JsColors.silver,
-                  fontSize: 13,
-                  fontWeight: day.precipPct >= 50
-                      ? FontWeight.bold
-                      : FontWeight.normal)),
-        ]),
-      ]),
+        if (seasonWarning != null) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(seasonWarning!,
+                style: const TextStyle(
+                    color: Color(0xFFFFCC80), fontSize: 10),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -2164,34 +2104,6 @@ class _HealthCheckBanner extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─────────────────────────────────────────────
-// ③ AIの一言メッセージ
-// ─────────────────────────────────────────────
-class _DailyMessageRow extends StatelessWidget {
-  const _DailyMessageRow({required this.message});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
-      color: JsColors.gold.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: JsColors.gold.withValues(alpha: 0.25)),
-    ),
-    child: Row(children: [
-      const Icon(Icons.auto_awesome, color: JsColors.gold, size: 14),
-      const SizedBox(width: 6),
-      Expanded(
-        child: Text(message,
-            style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis),
-      ),
-    ]),
-  );
 }
 
 // ─────────────────────────────────────────────
