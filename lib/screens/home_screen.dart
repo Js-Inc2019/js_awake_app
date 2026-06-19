@@ -31,7 +31,8 @@ import '../main.dart'
         API_URL;
 import 'revision_inbox_screen.dart';
 import 'company_link_screen.dart';
-import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
+import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip;
+import 'day_reports_screen.dart';
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
@@ -3557,13 +3558,10 @@ class _CalendarTab extends StatefulWidget {
 
 class _CalendarTabState extends State<_CalendarTab> {
   DateTime _selectedMonth = DateTime.now();
-  DateTime? _selectedDate;
   List<Map<String, dynamic>> _monthReports = [];
-  List<Map<String, dynamic>> _dayReports = [];
   Set<String> _submittedDates = {};
   bool _monthLoading = false;
   String _myCompanyId = '';
-  bool _isWorkerView = false;
 
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
@@ -3584,9 +3582,6 @@ class _CalendarTabState extends State<_CalendarTab> {
     setState(() {
       _selectedMonth =
           DateTime(_selectedMonth.year, _selectedMonth.month - 1);
-      _selectedDate = null;
-      _dayReports = [];
-      _isWorkerView = false;
     });
     _loadMonth();
   }
@@ -3600,9 +3595,6 @@ class _CalendarTabState extends State<_CalendarTab> {
     setState(() {
       _selectedMonth =
           DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-      _selectedDate = null;
-      _dayReports = [];
-      _isWorkerView = false;
     });
     _loadMonth();
   }
@@ -3643,225 +3635,12 @@ class _CalendarTabState extends State<_CalendarTab> {
           _submittedDates = dates;
           _monthLoading = false;
         });
-        if (_selectedDate != null) {
-            _filterDay(_selectedDate!);
-          }
       } else {
         setState(() => _monthLoading = false);
       }
     } catch (_) {
       if (mounted) setState(() => _monthLoading = false);
     }
-  }
-
-  void _filterDay(DateTime date) {
-    final ds =
-        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    setState(() {
-      _selectedDate = date;
-      _dayReports =
-          _monthReports.where((r) => r['report_date'] == ds).toList();
-    });
-  }
-
-  Map<String, List<Map<String, dynamic>>> _groupBySite(
-      List<Map<String, dynamic>> reps) {
-    final Map<String, List<Map<String, dynamic>>> g = {};
-    for (final r in reps) {
-      final key = (r['site_id'] as String?) ??
-          (r['gps_address'] as String?) ??
-          '住所未取得';
-      g.putIfAbsent(key, () => []).add(r);
-    }
-    return g;
-  }
-
-  String _siteLabel(List<Map<String, dynamic>> reps) {
-    final r = reps.first;
-    final name = r['site_name'] as String?;
-    if (name != null && name.isNotEmpty) return name;
-    final addr = r['gps_address'] as String?;
-    if (addr != null && addr.isNotEmpty) return addr;
-    return '住所未取得';
-  }
-
-  // B-1: null安全 駐車料金合計（int）
-  int _sumParkingFee(List<Map<String, dynamic>> reps) {
-    double total = 0;
-    for (final r in reps) {
-      final raw = r['parking_fee'];
-      if (raw != null) {
-        total += double.tryParse(raw.toString()) ?? 0;
-      }
-    }
-    return total.toInt();
-  }
-
-  // B-3: 協力会社グループ化（company_idキー）
-  Map<String, List<Map<String, dynamic>>> _groupByCompany(
-      List<Map<String, dynamic>> reps) {
-    final Map<String, List<Map<String, dynamic>>> g = {};
-    for (final r in reps) {
-      final key = r['company_id'] as String? ?? '不明';
-      g.putIfAbsent(key, () => []).add(r);
-    }
-    return g;
-  }
-
-  // B-4: 人軸グループ化（user_idキー）
-  Map<String, List<Map<String, dynamic>>> _groupByWorker(
-      List<Map<String, dynamic>> reps) {
-    final Map<String, List<Map<String, dynamic>>> g = {};
-    for (final r in reps) {
-      final key = r['user_id'] as String? ??
-          r['worker_name'] as String? ?? '不明';
-      g.putIfAbsent(key, () => []).add(r);
-    }
-    return g;
-  }
-
-  String _workerLabel(List<Map<String, dynamic>> reps) =>
-      reps.first['worker_name'] as String? ?? '不明';
-
-  String _companyLabel(List<Map<String, dynamic>> reps) =>
-      reps.first['worker_company'] as String? ?? '協力会社';
-
-  // 粒度①: 個人タイル直下のコンパクト駐車チップ（fee>0のみ）
-  Widget _parkingChip(Map<String, dynamic> r) {
-    final raw = r['parking_fee'];
-    if (raw == null) {
-      return const SizedBox.shrink();
-    }
-    final fee = (double.tryParse(raw.toString()) ?? 0).toInt();
-    if (fee <= 0) {
-      return const SizedBox.shrink();
-    }
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 10, bottom: 4),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-          decoration: BoxDecoration(
-            color: JsColors.gold.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-                color: JsColors.gold.withValues(alpha: 0.5), width: 0.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.local_parking, color: JsColors.gold, size: 9),
-              const SizedBox(width: 2),
-              Text('¥$fee',
-                  style: const TextStyle(
-                      color: JsColors.gold, fontSize: 10)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 粒度③: 現場/会社フッター（右揃え合計）
-  Widget _feeFooter(int fee, {String prefix = '計'}) => Align(
-        alignment: Alignment.centerRight,
-        child: Padding(
-          padding: const EdgeInsets.only(right: 10, bottom: 8),
-          child: Text('$prefix ¥$fee',
-              style: const TextStyle(
-                  color: JsColors.silver, fontSize: 11)),
-        ),
-      );
-
-  // 自社ブロック: 現場軸/人軸切替
-  List<Widget> _buildOwnItems(List<Map<String, dynamic>> reps) {
-    final items = <Widget>[];
-    final grouped =
-        _isWorkerView ? _groupByWorker(reps) : _groupBySite(reps);
-    for (final entry in grouped.entries) {
-      final label = _isWorkerView
-          ? _workerLabel(entry.value)
-          : _siteLabel(entry.value);
-      final icon =
-          _isWorkerView ? Icons.person_outline : Icons.location_on;
-      final fee = _sumParkingFee(entry.value);
-      items.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          Icon(icon, color: JsColors.gold, size: 13),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(label,
-                style: const TextStyle(
-                    color: JsColors.gold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          Text('${entry.value.length}件',
-              style: const TextStyle(
-                  color: JsColors.silver, fontSize: 11)),
-        ]),
-      ));
-      for (final r in entry.value) {
-        items.add(JsReportTile(report: r, myCompanyId: _myCompanyId));
-        items.add(_parkingChip(r));
-      }
-      if (fee > 0) {
-        items.add(_feeFooter(fee));
-      }
-    }
-    return items;
-  }
-
-  // 協力ブロック: progressive（B-3）
-  List<Widget> _buildCoopItems(List<Map<String, dynamic>> reps) {
-    final items = <Widget>[];
-    final byCompany = _groupByCompany(reps);
-    for (final entry in byCompany.entries) {
-      final compReps = entry.value;
-      final companyName = _companyLabel(compReps);
-      final workerCount =
-          compReps.map((r) => r['user_id']).toSet().length;
-      final fee = _sumParkingFee(compReps);
-      // 粒度②: 協力会社ヘッダー＋会社合計
-      items.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          const Icon(Icons.business_outlined,
-              color: Color(0xFF4FC3F7), size: 13),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(companyName,
-                style: const TextStyle(
-                    color: Color(0xFF4FC3F7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          Text('${compReps.length}件',
-              style: const TextStyle(
-                  color: JsColors.silver, fontSize: 11)),
-          if (fee > 0) ...[
-            const SizedBox(width: 8),
-            Text('¥$fee',
-                style: const TextStyle(
-                    color: Color(0xFF4FC3F7), fontSize: 11)),
-          ],
-        ]),
-      ));
-      for (final r in compReps) {
-        items.add(JsReportTile(report: r, myCompanyId: _myCompanyId));
-      }
-      // workerCount>1 のみ会社合計フッター表示
-      if (workerCount > 1 && fee > 0) {
-        items.add(_feeFooter(fee, prefix: '$companyName 計'));
-      }
-    }
-    return items;
   }
 
   @override
@@ -3919,7 +3698,7 @@ class _CalendarTabState extends State<_CalendarTab> {
         // ④ 日別詳細
         const Divider(height: 1, color: JsColors.divider),
         Expanded(
-          child: _selectedDate == null ? _buildHint() : _buildDayDetail(),
+          child: _buildHint(),
         ),
       ],
     );
@@ -3971,21 +3750,29 @@ class _CalendarTabState extends State<_CalendarTab> {
                     _selectedMonth.year, _selectedMonth.month, dayNum);
                 final ds =
                     '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-                final isSel = _selectedDate != null &&
-                    _selectedDate!.year == date.year &&
-                    _selectedDate!.month == date.month &&
-                    _selectedDate!.day == date.day;
                 final isToday = date.year == now.year &&
                     date.month == now.month &&
                     date.day == now.day;
+                final dayReps = _monthReports
+                    .where((r) => r['report_date'] == ds)
+                    .toList();
                 return _DayCell(
                   day: dayNum,
                   hasReport: _submittedDates.contains(ds),
-                  isSelected: isSel,
+                  isSelected: false,
                   isToday: isToday,
                   isSaturday: col == 5,
                   isSunday: col == 6,
-                  onTap: () => _filterDay(date),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DayReportsScreen(
+                        date: date,
+                        reports: dayReps,
+                        myCompanyId: _myCompanyId,
+                      ),
+                    ),
+                  ),
                 );
               }),
             ),
@@ -4006,97 +3793,6 @@ class _CalendarTabState extends State<_CalendarTab> {
     ),
   );
 
-  Widget _buildDayDetail() {
-    if (_dayReports.isEmpty) {
-      return const Center(
-        child: Text('この日の日報はありません',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
-      );
-    }
-
-    final d = _selectedDate!;
-    final dateLabel =
-        '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
-
-    // B-2: 自社 / 協力に分離
-    final ownReps = _myCompanyId.isEmpty
-        ? _dayReports
-        : _dayReports
-            .where((r) => r['company_id'] == _myCompanyId)
-            .toList();
-    final coopReps = _myCompanyId.isEmpty
-        ? <Map<String, dynamic>>[]
-        : _dayReports
-            .where((r) => r['company_id'] != _myCompanyId)
-            .toList();
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      children: [
-        // ── ヘッダー行 + B-4 現場/人 トグル ──
-        Row(children: [
-          Expanded(
-            child: Text(
-              '$dateLabel の日報（${_dayReports.length}件）',
-              style: const TextStyle(
-                  color: JsColors.gold,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold),
-            ),
-          ),
-          GestureDetector(
-            onTap: () => setState(() => _isWorkerView = !_isWorkerView),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: JsColors.gold),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _isWorkerView
-                        ? Icons.person_outline
-                        : Icons.location_on,
-                    color: JsColors.gold,
-                    size: 13,
-                  ),
-                  const SizedBox(width: 3),
-                  Text(
-                    _isWorkerView ? '人別' : '現場別',
-                    style: const TextStyle(
-                        color: JsColors.gold, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 8),
-        // ── 自社ブロック ──
-        if (ownReps.isNotEmpty) ..._buildOwnItems(ownReps),
-        // ── 区切り（自社＋協力両方あり） ──
-        if (ownReps.isNotEmpty && coopReps.isNotEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Row(children: [
-              Expanded(child: Divider(color: JsColors.divider)),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Text('協力業者',
-                    style: TextStyle(
-                        color: JsColors.silver, fontSize: 11)),
-              ),
-              Expanded(child: Divider(color: JsColors.divider)),
-            ]),
-          ),
-        // ── 協力ブロック ──
-        if (coopReps.isNotEmpty) ..._buildCoopItems(coopReps),
-      ],
-    );
-  }
 }
 
 // ─────────────────────────────────────────────
