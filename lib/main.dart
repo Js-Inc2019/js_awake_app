@@ -53,6 +53,9 @@ import 'services/fcm_service.dart';
 import 'config/constants.dart';
 const String API_URL = kApiBaseUrl;
 
+// boss PINフォールバック引き継ぎフラグ（インメモリ・ワンショット）
+bool bossPinOk = false;
+
 // ============================================================
 // エントリーポイント
 // ============================================================
@@ -857,6 +860,16 @@ class _GateScreenState extends State<GateScreen> {
     );
   }
   Future<void> _pushBoss(BuildContext context) async {
+    // PIN成功フラグ確認（ワンショット・インメモリ）
+    if (bossPinOk) {
+      bossPinOk = false;
+      if (context.mounted) {
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
+      }
+      return;
+    }
+
     final auth = LocalAuthentication();
     bool ok = false;
     try {
@@ -868,21 +881,20 @@ class _GateScreenState extends State<GateScreen> {
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
       } else {
-        // 生体認証未対応の場合は拒否
         ok = false;
         if (context.mounted) {
-          showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
+          showJsSnackbar(context, '生体認証が使えないためPINで続けます', isError: false);
         }
       }
     } catch (e) {
       debugPrint('生体認証エラー: $e');
       ok = false;
     }
-    if (ok && context.mounted) {
+    if (ok) {
+      if (!context.mounted) return;
       Navigator.pushReplacement(context,
           MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
     } else if (!ok && context.mounted) {
-      // 認証失敗・キャンセル時はログイン画面に戻す（エラーフラグを渡す）
       Navigator.pushReplacementNamed(
         context, '/login',
         arguments: {'biometricFailed': true},

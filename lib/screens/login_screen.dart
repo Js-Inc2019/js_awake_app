@@ -14,6 +14,7 @@ import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import 'register_screen.dart';
 import '../config/constants.dart';
+import '../main.dart' show bossPinOk;
 
 const String _apiBase = kApiBaseUrl;
 
@@ -38,6 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _ownCompanyCtrl     = TextEditingController();
 
   bool _biometricFailed = false;
+  bool _fromBiometricFail = false;
   final _landingInviteCtrl = TextEditingController();
   bool _showSelfReg = false;
 
@@ -69,6 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map && args['biometricFailed'] == true) {
         _biometricErrorShown = true;
+        _fromBiometricFail = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -197,6 +200,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
     }
 
+    // 生体認証失敗から戻った場合はPINログインへ直行（/gate無限ループを断つ）
+    if (_fromBiometricFail) {
+      if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
+      return;
+    }
+
     final cachedToken = prefs.getString('auth_token') ?? '';
     if (cachedToken.isNotEmpty) {
       try {
@@ -273,8 +282,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _biometricThenLogin() async {
-    setState(() { _isLoading = true; _biometricFailed = false; _showPinLogin = false; _errorMessage = null; });
+  Future<void> _biometricThenLogin({bool resetPinState = false}) async {
+    setState(() {
+      _isLoading = true;
+      _biometricFailed = false;
+      if (resetPinState) _showPinLogin = false;
+      _errorMessage = null;
+    });
     final ok = await _doBiometric();
     if (!ok) {
       if (!_showPinLogin) {
@@ -395,6 +409,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ).timeout(const Duration(seconds: 10));
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
+        final role = data['role'] as String? ?? 'worker';
+        if (role == 'boss') {
+          bossPinOk = true;
+        }
         await _saveAndNavigate(data);
       } else {
         setState(() { _isLoading = false; _errorMessage = data['error'] ?? 'PINが違います'; });
@@ -576,6 +594,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => setState(() {
+                  _biometricFailed = false;
+                  _showPinLogin = true;
+                }),
+                icon: const Icon(Icons.lock_outline, color: Color(0xFFA89868)),
+                label: const Text('PIN入力',
+                    style: TextStyle(color: Color(0xFFA89868))),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFA89868)),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                ),
+              ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () async {
@@ -626,7 +658,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _biometricThenLogin,
+                      onPressed: () => _biometricThenLogin(resetPinState: true),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: _goldColor,
                         padding: const EdgeInsets.symmetric(vertical: 14),
