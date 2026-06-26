@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
+import '../widgets/slide_to_confirm.dart';
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
 const _bg     = Color(0xFF080806);
@@ -30,12 +31,18 @@ String _elapsed(String? punchInIso) {
 
 // ── PunchScreen ───────────────────────────────────────────────────────────────
 class PunchScreen extends StatefulWidget {
-  const PunchScreen({super.key});
+  const PunchScreen({
+    super.key,
+    this.onNavigateToReport,
+    this.weatherPanel,
+  });
+  final VoidCallback? onNavigateToReport;
+  final Widget? weatherPanel;
   @override
   State<PunchScreen> createState() => _PunchScreenState();
 }
 
-class _PunchScreenState extends State<PunchScreen> {
+class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   bool _loading = true;
   WorkModeSettings _settings = WorkModeSettings.defaults;
   Map<String, dynamic>? _record;
@@ -51,7 +58,13 @@ class _PunchScreenState extends State<PunchScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _init();
   }
 
   Future<void> _init() async {
@@ -87,6 +100,7 @@ class _PunchScreenState extends State<PunchScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
@@ -194,18 +208,10 @@ class _PunchScreenState extends State<PunchScreen> {
 
     return Scaffold(
       backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bg,
-        foregroundColor: _text,
-        elevation: 0,
-        title: const Text(
-          '打刻',
-          style: TextStyle(color: _text, fontWeight: FontWeight.bold, fontSize: 17),
-        ),
-      ),
       body: SafeArea(
         child: Column(
           children: [
+            if (widget.weatherPanel != null) widget.weatherPanel!,
             // ── 情報エリア（スクロール） ───────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
@@ -257,11 +263,12 @@ class _PunchScreenState extends State<PunchScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: _OperationZone(
-                isActual:   isActual,
-                punchedIn:  _punchedIn,
-                punchedOut: _punchedOut,
-                busy:       _busy,
-                onPunch:    _doPunch,
+                isActual:          isActual,
+                punchedIn:         _punchedIn,
+                punchedOut:        _punchedOut,
+                busy:              _busy,
+                onPunch:           _doPunch,
+                onNavigateToReport: widget.onNavigateToReport,
               ),
             ),
           ],
@@ -430,6 +437,7 @@ class _OperationZone extends StatelessWidget {
     required this.punchedOut,
     required this.busy,
     required this.onPunch,
+    this.onNavigateToReport,
   });
 
   final bool isActual;
@@ -437,6 +445,7 @@ class _OperationZone extends StatelessWidget {
   final bool punchedOut;
   final bool busy;
   final Future<void> Function(String) onPunch;
+  final VoidCallback? onNavigateToReport;
 
   @override
   Widget build(BuildContext context) {
@@ -445,9 +454,7 @@ class _OperationZone extends StatelessWidget {
         width: double.infinity,
         height: 56,
         child: OutlinedButton(
-          onPressed: () {
-            // TODO: 日報報告画面へ遷移
-          },
+          onPressed: onNavigateToReport,
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: _gold),
             foregroundColor: _gold,
@@ -466,9 +473,7 @@ class _OperationZone extends StatelessWidget {
         width: double.infinity,
         height: 56,
         child: TextButton(
-          onPressed: () {
-            // TODO: 追加日報提出フロー
-          },
+          onPressed: onNavigateToReport,
           style: TextButton.styleFrom(
             foregroundColor: _label,
             shape: RoundedRectangleBorder(
@@ -482,8 +487,9 @@ class _OperationZone extends StatelessWidget {
     }
 
     final isCheckin = !punchedIn;
-    return _SlideToConfirm(
-      isCheckin: isCheckin,
+    return SlideToConfirm(
+      filled:    isCheckin,
+      icon:      isCheckin ? Icons.login : Icons.logout,
       label:     isCheckin ? 'スライドで出勤' : 'スライドで退勤',
       busy:      busy,
       onConfirm: () => onPunch(isCheckin ? 'in' : 'out'),
@@ -673,136 +679,3 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
   }
 }
 
-// ── _SlideToConfirm ───────────────────────────────────────────────────────────
-class _SlideToConfirm extends StatefulWidget {
-  const _SlideToConfirm({
-    required this.isCheckin,
-    required this.label,
-    required this.busy,
-    required this.onConfirm,
-  });
-
-  final bool     isCheckin;
-  final String   label;
-  final bool     busy;
-  final Future<void> Function() onConfirm;
-
-  @override
-  State<_SlideToConfirm> createState() => _SlideToConfirmState();
-}
-
-class _SlideToConfirmState extends State<_SlideToConfirm>
-    with SingleTickerProviderStateMixin {
-  double _dragX = 0;
-  late final AnimationController _ctrl;
-  Animation<double>? _anim;
-
-  static const _handleSz  = 64.0;
-  static const _handleH   = 72.0;
-  static const _threshold = 0.70;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 350),
-    )..addListener(_tick);
-  }
-
-  void _tick() {
-    final v = _anim?.value;
-    if (v != null && mounted) setState(() => _dragX = v);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _snap() {
-    _anim = Tween<double>(begin: _dragX, end: 0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut),
-    );
-    _ctrl.forward(from: 0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final maxDrag = constraints.maxWidth - _handleSz - 8.0;
-      final cx      = _dragX.clamp(0.0, maxDrag);
-
-      return GestureDetector(
-        onHorizontalDragStart: widget.busy ? null : (_) => _ctrl.stop(),
-        onHorizontalDragUpdate: widget.busy
-            ? null
-            : (d) => setState(
-                () => _dragX = (_dragX + d.delta.dx).clamp(0.0, maxDrag)),
-        onHorizontalDragEnd: widget.busy
-            ? null
-            : (_) {
-                if (cx / maxDrag >= _threshold) widget.onConfirm().ignore();
-                _snap();
-              },
-        child: Container(
-          width: double.infinity,
-          height: 88,
-          decoration: BoxDecoration(
-            color: widget.isCheckin
-                ? _gold.withValues(alpha: 0.10)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _gold, width: 1.5),
-          ),
-          child: Stack(
-            alignment: Alignment.centerLeft,
-            children: [
-              // ヒントテキスト（中央）
-              Center(
-                child: Text(
-                  '→ ${widget.label}',
-                  style: TextStyle(
-                    color: _gold.withValues(alpha: 0.45),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              // ドラッグハンドル
-              Positioned(
-                left: cx + 4,
-                top:  (88 - _handleH) / 2,
-                child: Container(
-                  width:  _handleSz,
-                  height: _handleH,
-                  decoration: BoxDecoration(
-                    color: widget.isCheckin ? _gold : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    border: widget.isCheckin
-                        ? null
-                        : Border.all(color: _gold, width: 2),
-                  ),
-                  child: widget.busy
-                      ? const Center(
-                          child: SizedBox(
-                            width: 22, height: 22,
-                            child: CircularProgressIndicator(
-                              color: _gold, strokeWidth: 2.5),
-                          ),
-                        )
-                      : Icon(
-                          widget.isCheckin ? Icons.login : Icons.logout,
-                          color: widget.isCheckin ? _bg : _gold,
-                          size: 28,
-                        ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    });
-  }
-}

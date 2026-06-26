@@ -17,8 +17,6 @@ import 'screens/inbox_screen.dart';
 import 'screens/revision_inbox_screen.dart';
 import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
-import 'services/work_mode_service.dart';
-import 'screens/work_mode_screen.dart';
 import 'screens/after_report_screen.dart';
 import 'services/profile_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -54,6 +52,9 @@ import 'services/fcm_service.dart';
 
 import 'config/constants.dart';
 const String API_URL = kApiBaseUrl;
+
+// boss PINフォールバック引き継ぎフラグ（インメモリ・ワンショット）
+bool bossPinOk = false;
 
 // ============================================================
 // エントリーポイント
@@ -248,14 +249,14 @@ class ReportStore {
     await prefs.setString(_K.reports, jsonEncode(items.map((e) => e.toJson()).toList()));
   }
 
-  Future<void> addReport(WorkerReportItem item) async {
+  Future<bool> addReport(WorkerReportItem item) async {
     final all = await loadAll();
     all.add(item);
     await saveAll(all);
-    await _sendToAPI([item]);
+    return await _sendToAPI([item]);
   }
 
-  Future<void> _sendToAPI(List<WorkerReportItem> items) async {
+  Future<bool> _sendToAPI(List<WorkerReportItem> items) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token') ?? '';
     final failed = <WorkerReportItem>[];
@@ -304,6 +305,7 @@ class ReportStore {
       }
     }
     if (failed.isNotEmpty) await _savePending(failed);
+    return failed.isEmpty;
   }
 
   Future<void> _savePending(List<WorkerReportItem> items) async {
@@ -802,23 +804,6 @@ class _GateScreenState extends State<GateScreen> {
     backgroundColor: Color(0xFF1A1A1A),
     body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
   Future<void> _pushWorker(BuildContext context) async {
-    final settings = await WorkModeService.instance.fetchFromServer();
-    if (!context.mounted) return;
-    if (settings.mode == WorkModeType.actual) {
-      final checkedIn = await WorkModeService.instance.isCheckedIn();
-      if (!context.mounted) return;
-      if (!checkedIn) {
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => WorkModeScreen(
-            screenTitle: '職人用 — 出勤',
-            isBossMode: false,
-            onCheckedIn: () => Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const HomeScreen())),
-          ),
-        ));
-        return;
-      }
-    }
     if (!context.mounted) return;
 
     // 当日の作業状態を確認して復元
@@ -875,6 +860,16 @@ class _GateScreenState extends State<GateScreen> {
     );
   }
   Future<void> _pushBoss(BuildContext context) async {
+    // PIN成功フラグ確認（ワンショット・インメモリ）
+    if (bossPinOk) {
+      bossPinOk = false;
+      if (context.mounted) {
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
+      }
+      return;
+    }
+
     final auth = LocalAuthentication();
     bool ok = false;
     try {
@@ -886,22 +881,20 @@ class _GateScreenState extends State<GateScreen> {
           options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
         );
       } else {
-        // 生体認証未対応の場合は拒否
         ok = false;
         if (context.mounted) {
-          showJsSnackbar(context, '生体認証が必要です。FaceIDを設定してください', isError: true);
+          showJsSnackbar(context, '生体認証が使えないためPINで続けます', isError: false);
         }
       }
     } catch (e) {
       debugPrint('生体認証エラー: $e');
       ok = false;
     }
-    if (ok && context.mounted) {
-      Navigator.push(context, MaterialPageRoute(
-          builder: (_) => const SharedWorkerForm(
-            screenTitle: '職長・管理者用 — 日報管理', isBossMode: true)));
+    if (ok) {
+      if (!context.mounted) return;
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const ForemanHomeScreen()));
     } else if (!ok && context.mounted) {
-      // 認証失敗・キャンセル時はログイン画面に戻す（エラーフラグを渡す）
       Navigator.pushReplacementNamed(
         context, '/login',
         arguments: {'biometricFailed': true},

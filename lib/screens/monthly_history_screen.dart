@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, API_URL;
+import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 
 // ─────────────────────────────────────────────
@@ -21,6 +22,8 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   List<Map<String, dynamic>> _reports = [];
   DateTime _selectedMonth = DateTime.now();
   String? _error;
+  // null = 全件, 'approved' / 'rejected' / 'pending' = 絞り込み中
+  String? _filterStatus;
 
   @override
   void initState() {
@@ -75,15 +78,25 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   }
 
   void _prevMonth() {
-    setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
+    setState(() {
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+      _filterStatus = null;
+    });
     _load();
   }
 
   void _nextMonth() {
     final now = DateTime.now();
     if (_selectedMonth.year == now.year && _selectedMonth.month == now.month) return;
-    setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1));
+    setState(() {
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+      _filterStatus = null;
+    });
     _load();
+  }
+
+  void _toggleFilter(String? status) {
+    setState(() => _filterStatus = (_filterStatus == status) ? null : status);
   }
 
   @override
@@ -94,6 +107,17 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
     final pending  = total - approved - rejected;
     final now      = DateTime.now();
     final isCurrentMonth = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
+    final displayed = _filterStatus == null
+        ? _reports
+        : _reports.where((r) => r['status'] == _filterStatus).toList();
+
+    // 日付グループ化（絞る→畳む）新しい順
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final r in displayed) {
+      final key = r['report_date'] as String? ?? '';
+      grouped.putIfAbsent(key, () => []).add(r);
+    }
+    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Column(
       children: [
@@ -132,13 +156,21 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(children: [
-              JsStatChip('合計', total, JsColors.silver),
+              JsStatChip('合計', total, JsColors.silver,
+                  selected: _filterStatus == null,
+                  onTap: () => setState(() => _filterStatus = null)),
               const SizedBox(width: 8),
-              JsStatChip('承認', approved, JsColors.success),
+              JsStatChip('承認', approved, JsColors.success,
+                  selected: _filterStatus == 'approved',
+                  onTap: () => _toggleFilter('approved')),
               const SizedBox(width: 8),
-              JsStatChip('差戻', rejected, JsColors.error),
+              JsStatChip('差戻', rejected, JsColors.error,
+                  selected: _filterStatus == 'rejected',
+                  onTap: () => _toggleFilter('rejected')),
               const SizedBox(width: 8),
-              JsStatChip('未承認', pending, JsColors.warning),
+              JsStatChip('未承認', pending, JsColors.warning,
+                  selected: _filterStatus == 'pending',
+                  onTap: () => _toggleFilter('pending')),
             ]),
           ),
         // リスト
@@ -151,11 +183,40 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
                       ? const Center(
                           child: Text('この月の記録はありません',
                               style: TextStyle(color: JsColors.silver)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                          itemCount: _reports.length,
-                          itemBuilder: (ctx, i) => JsReportTile(report: _reports[i]),
-                        ),
+                      : displayed.isEmpty
+                          ? const Center(
+                              child: Text('該当する記録はありません',
+                                  style: TextStyle(color: JsColors.silver)))
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                              itemCount: sortedDates.length,
+                              itemBuilder: (ctx, i) {
+                                final dateStr = sortedDates[i];
+                                final reps    = grouped[dateStr]!;
+                                final parts   = dateStr.split('-');
+                                final date    = parts.length == 3
+                                    ? DateTime(
+                                        int.tryParse(parts[0]) ?? 0,
+                                        int.tryParse(parts[1]) ?? 0,
+                                        int.tryParse(parts[2]) ?? 0)
+                                    : DateTime.now();
+                                return _DateRow(
+                                  dateStr: dateStr,
+                                  date:    date,
+                                  reports: reps,
+                                  onTap:   () => Navigator.push(
+                                    ctx,
+                                    MaterialPageRoute(
+                                      builder: (_) => DayReportsScreen(
+                                        date:        date,
+                                        reports:     reps,
+                                        myCompanyId: '',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
         ),
       ],
     );
@@ -188,25 +249,38 @@ class MonthlyHistoryScreen extends StatelessWidget {
 // Sub-widgets
 // ─────────────────────────────────────────────
 class JsStatChip extends StatelessWidget {
-  const JsStatChip(this.label, this.count, this.color, {super.key});
+  const JsStatChip(this.label, this.count, this.color, {
+    super.key,
+    this.selected = false,
+    this.onTap,
+  });
   final String label;
   final int count;
   final Color color;
+  final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+    child: GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.22) : color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color : color.withValues(alpha: 0.4),
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(children: [
+          Text('$count',
+              style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: color, fontSize: 11)),
+        ]),
       ),
-      child: Column(children: [
-        Text('$count',
-            style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: TextStyle(color: color, fontSize: 11)),
-      ]),
     ),
   );
 }
@@ -483,6 +557,87 @@ class JsDetailRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// 日付グループ行（月間履歴リスト用）
+// ─────────────────────────────────────────────
+class _DateRow extends StatelessWidget {
+  const _DateRow({
+    required this.dateStr,
+    required this.date,
+    required this.reports,
+    required this.onTap,
+  });
+  final String dateStr;
+  final DateTime date;
+  final List<Map<String, dynamic>> reports;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRejected = reports.any((r) => r['status'] == 'rejected');
+    final allApproved = reports.every((r) => r['status'] == 'approved');
+    final Color sc;
+    final String sl;
+    if (hasRejected) {
+      sc = JsColors.error;   sl = '差戻';
+    } else if (allApproved) {
+      sc = JsColors.success; sl = '承認済';
+    } else {
+      sc = JsColors.warning; sl = '未承認';
+    }
+
+    final parts = dateStr.split('-');
+    final label = parts.length == 3
+        ? '${int.tryParse(parts[1]) ?? 0}月${int.tryParse(parts[2]) ?? 0}日'
+        : dateStr;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: hasRejected ? JsColors.error : JsColors.divider),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        color: JsColors.gold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text('${reports.length}件',
+                    style: const TextStyle(
+                        color: JsColors.silver, fontSize: 12)),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: sc.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: sc),
+            ),
+            child: Text(sl,
+                style: TextStyle(
+                    color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+        ]),
       ),
     );
   }
