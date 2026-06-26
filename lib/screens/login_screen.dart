@@ -857,31 +857,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ─── ランディングページ ボタンウィジェット ──────────────────
-  Widget _loginButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return SizedBox(
-      height: 54,
-      child: OutlinedButton.icon(
-        onPressed: onTap,
-        icon: Icon(icon, color: _goldColor),
-        label: Text(
-          label,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        style: OutlinedButton.styleFrom(
-          backgroundColor: _navyColor,
-          side: const BorderSide(color: _silverColor),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      ),
-    );
-  }
-
   Widget _regField({
     required TextEditingController controller,
     required String label,

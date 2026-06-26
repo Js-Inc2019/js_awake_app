@@ -2383,50 +2383,6 @@ class _SmallMediaButton extends StatelessWidget {
   );
 }
 
-class _MediaButton extends StatelessWidget {
-  const _MediaButton({
-    required this.icon,
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: active
-            ? JsColors.gold.withValues(alpha: 0.18)
-            : JsColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: active ? JsColors.gold : JsColors.divider),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon,
-              size: 16,
-              color: active ? JsColors.gold : JsColors.silver),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                  color: active ? JsColors.gold : JsColors.silver,
-                  fontSize: 12,
-                  fontWeight:
-                      active ? FontWeight.bold : FontWeight.normal)),
-        ],
-      ),
-    ),
-  );
-}
-
 // ─────────────────────────────────────────────
 // ⑥ 残業セクション（タップで時計入力）
 // ─────────────────────────────────────────────
