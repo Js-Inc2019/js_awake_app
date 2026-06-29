@@ -1028,14 +1028,12 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) return;
       final res = await http.get(
-        Uri.parse('$API_URL/revisions/mine'),
+        Uri.parse('$API_URL/reports?revision_requested=true'),
         headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200 && mounted) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final count = (data['revisions'] as List? ?? [])
-            .where((r) => (r as Map<String, dynamic>)['status'] == 'pending')
-            .length;
+        final count = (data['reports'] as List?)?.length ?? 0;
         setState(() => _revisionCount = count);
       }
     } catch (_) {}

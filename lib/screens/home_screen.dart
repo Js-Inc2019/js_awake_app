@@ -657,14 +657,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final token = p.getString('auth_token') ?? '';
       final res = await _withRetry(
         () => http.get(
-          Uri.parse('$API_URL/revisions/unread-count'),
+          Uri.parse('$API_URL/reports?revision_requested=true'),
           headers: {'Authorization': 'Bearer $token'},
         ),
         firstTimeout: const Duration(seconds: 60),
       );
       if (res.statusCode == 200 && mounted) {
         final j = jsonDecode(res.body) as Map<String, dynamic>;
-        final count = (j['count'] as int?) ?? 0;
+        final count = (j['reports'] as List?)?.length ?? 0;
         p.setInt('cache_revision_count', count);
         setState(() => _revisionCount = count);
       }
