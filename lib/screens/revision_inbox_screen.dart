@@ -34,14 +34,14 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
     setState(() { _loading = true; _hasError = false; });
     try {
       final res = await http.get(
-        Uri.parse('$_apiUrl/revisions/mine'),
+        Uri.parse('$_apiUrl/reports?revision_requested=true'),
         headers: await _headers,
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (mounted) {
           setState(() {
-            _revisions = (data['revisions'] as List? ?? [])
+            _revisions = (data['reports'] as List? ?? [])
                 .map((e) => e as Map<String, dynamic>).toList();
             _loading = false;
           });
@@ -81,7 +81,7 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
                     itemCount: _revisions.length,
                     itemBuilder: (ctx, i) => _RevisionCard(
                       revision: _revisions[i],
-                      onResubmit: () => _showResubmitSheet(_revisions[i]),
+                      onResubmit: () => showJsSnackbar(context, '編集画面は準備中です'),
                     ),
                   ),
                 ),
@@ -198,105 +198,71 @@ class _RevisionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status   = revision['status'] as String? ?? 'pending';
-    final overdue  = revision['is_overdue'] == true;
-    final reasons  = (revision['reasons'] as List? ?? []).cast<String>();
-    final deadline = revision['deadline'] as String?;
-    final reportDate = revision['report_date'] as String? ?? '';
-    final comment  = revision['comment'] as String? ?? '';
-
-    Color statusColor;
-    String statusLabel;
-    switch (status) {
-      case 'approved':    statusColor = JsColors.success; statusLabel = '承認済'; break;
-      case 'rejected':    statusColor = JsColors.error;   statusLabel = '却下';   break;
-      case 'resubmitted': statusColor = JsColors.warning; statusLabel = '再提出済'; break;
-      default:            statusColor = overdue ? JsColors.error : JsColors.gold; statusLabel = overdue ? '期限超過' : '対応待ち';
-    }
+    final reportDate  = revision['report_date'] as String? ?? '';
+    final workContent = revision['work_content'] as String? ?? '';
+    final bossNote    = revision['boss_note'] as String? ?? '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: JsColors.gunmetal,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: overdue && status == 'pending' ? JsColors.error : JsColors.divider,
-        ),
+        border: Border.all(color: JsColors.divider),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('日報: $reportDate',
-                    style: const TextStyle(color: JsColors.offWhite, fontWeight: FontWeight.bold)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor),
-                  ),
-                  child: Text(statusLabel,
-                      style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-            if (reasons.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: reasons.map((r) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: JsColors.warning.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: JsColors.warning.withValues(alpha: 0.5)),
-                  ),
-                  child: Text(r, style: const TextStyle(color: JsColors.warning, fontSize: 11)),
-                )).toList(),
+            Text('日報: $reportDate',
+                style: const TextStyle(color: JsColors.offWhite, fontWeight: FontWeight.bold)),
+            if (workContent.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                workContent,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: JsColors.silver, fontSize: 12),
               ),
             ],
-            if (comment.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(comment, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
-            ],
-            if (deadline != null) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                Icon(Icons.schedule,
-                    size: 13,
-                    color: overdue ? JsColors.error : JsColors.silver),
-                const SizedBox(width: 4),
-                Text(
-                  '期限: ${deadline.substring(0, 10)}',
-                  style: TextStyle(
-                    color: overdue ? JsColors.error : JsColors.silver,
-                    fontSize: 11,
-                  ),
-                ),
-              ]),
-            ],
-            if (status == 'pending' || status == 'resubmitted') ...[
+            if (bossNote.isNotEmpty) ...[
               const SizedBox(height: 12),
-              SizedBox(
+              Container(
                 width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onResubmit,
-                  icon: const Icon(Icons.send, size: 16),
-                  label: const Text('修正して再提出'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: JsColors.gold,
-                    side: const BorderSide(color: JsColors.gold),
-                    minimumSize: const Size(0, 40),
-                  ),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: JsColors.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(children: [
+                      Icon(Icons.comment_outlined, size: 14, color: JsColors.gold),
+                      SizedBox(width: 6),
+                      Text('差戻し理由',
+                          style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(bossNote, style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
+                  ],
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onResubmit,
+                icon: const Icon(Icons.send, size: 16),
+                label: const Text('直して再提出'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: JsColors.gold,
+                  side: const BorderSide(color: JsColors.gold),
+                  minimumSize: const Size(0, 40),
+                ),
+              ),
+            ),
           ],
         ),
       ),
