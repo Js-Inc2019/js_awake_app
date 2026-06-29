@@ -222,7 +222,7 @@ class _RevisionCard extends StatelessWidget {
                 workContent,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: JsColors.silver, fontSize: 12),
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
               ),
             ],
             if (bossNote.isNotEmpty) ...[
