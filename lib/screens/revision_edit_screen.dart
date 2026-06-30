@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../main.dart' show JsColors;
+import '../main.dart' show JsColors, TransportType;
 
 /// 差戻しされた日報を職人が修正する専用画面（バッチ2）。
 /// Step4a：差戻し理由(boss_note)＋作業内容の編集（接頭辞を剥がした本文をTextField化）。
@@ -18,6 +18,69 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   final _carpoolCtrl = TextEditingController();
   final _otherCtrl = TextEditingController();
   final _parkingCtrl = TextEditingController();
+
+  final Set<TransportType> _transports = {};
+  String _carType = 'own'; // 'own' | 'carpool'
+
+  static const Map<TransportType, String> _transportLabels = {
+    TransportType.car: '車',
+    TransportType.train: '電車',
+    TransportType.bus: 'バス',
+    TransportType.other: 'その他',
+  };
+
+  void _toggleTransport(TransportType t) {
+    setState(() {
+      if (_transports.contains(t)) {
+        _transports.remove(t);
+      } else {
+        _transports.add(t);
+      }
+    });
+  }
+
+  Widget _sectionLabel(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+      );
+
+  InputDecoration _fieldDeco(String hint) => InputDecoration(
+        filled: true,
+        fillColor: JsColors.gunmetal,
+        hintText: hint,
+        hintStyle: const TextStyle(color: JsColors.silver),
+        isDense: true,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: JsColors.divider),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: JsColors.gold),
+        ),
+      );
+
+  Widget _carTypeChip(String value, String label) {
+    final sel = _carType == value;
+    return GestureDetector(
+      onTap: () => setState(() => _carType = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: sel ? JsColors.gold.withValues(alpha: 0.15) : JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              color: sel ? JsColors.gold : JsColors.offWhite,
+              fontSize: 13,
+              fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+            )),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -41,6 +104,15 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     final r = widget.revision;
     var content = (r['work_content'] as String?)?.trim() ?? '';
     final transports = _transportNames(r);
+
+    for (final n in transports) {
+      final t = TransportType.values
+          .firstWhere((e) => e.name == n, orElse: () => TransportType.none);
+      if (t != TransportType.none) _transports.add(t);
+    }
+    if (transports.contains('car')) {
+      _carType = RegExp(r'^\[相乗り:').hasMatch(content) ? 'carpool' : 'own';
+    }
 
     // 1) 末尾の残業接尾辞は退避(編集対象外・送信時に原文から再付与)
     content = content.replaceFirst(RegExp(r'\s*【残業[^】]*】\s*$'), '').trimRight();
@@ -169,6 +241,68 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 20),
+          _sectionLabel('移動手段'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _transportLabels.entries.map((e) {
+              final sel = _transports.contains(e.key);
+              return GestureDetector(
+                onTap: () => _toggleTransport(e.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: sel ? JsColors.gold : JsColors.gunmetal,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+                  ),
+                  child: Text(e.value,
+                      style: TextStyle(
+                        color: sel ? Colors.black : JsColors.offWhite,
+                        fontSize: 14,
+                        fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                      )),
+                ),
+              );
+            }).toList(),
+          ),
+          if (_transports.contains(TransportType.car)) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(child: _carTypeChip('own', '自分で運転')),
+                const SizedBox(width: 8),
+                Expanded(child: _carTypeChip('carpool', '相乗り')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_carType == 'own') ...[
+              _sectionLabel('駐車料金（円）'),
+              TextField(
+                controller: _parkingCtrl,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+                decoration: _fieldDeco('例: 500'),
+              ),
+            ] else ...[
+              _sectionLabel('相乗り相手（任意）'),
+              TextField(
+                controller: _carpoolCtrl,
+                style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+                decoration: _fieldDeco('誰の相乗りか'),
+              ),
+            ],
+          ],
+          if (_transports.contains(TransportType.other)) ...[
+            const SizedBox(height: 16),
+            _sectionLabel('その他の手段'),
+            TextField(
+              controller: _otherCtrl,
+              style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+              decoration: _fieldDeco('例: タクシー'),
+            ),
+          ],
           const SizedBox(height: 24),
           Container(
             width: double.infinity,
@@ -183,7 +317,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                 Icon(Icons.construction, color: JsColors.silver, size: 16),
                 SizedBox(width: 8),
                 Expanded(
-                  child: Text('移動手段・写真の編集と再提出は次の更新で追加されます。',
+                  child: Text('写真の修正と再提出は次の更新で追加されます。',
                       style: TextStyle(color: JsColors.silver, fontSize: 12)),
                 ),
               ],
