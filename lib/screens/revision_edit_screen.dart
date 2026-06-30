@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../main.dart' show JsColors, TransportType;
 
 /// 差戻しされた日報を職人が修正する専用画面（バッチ2）。
-/// Step4a：差戻し理由(boss_note)＋作業内容の編集（接頭辞を剥がした本文をTextField化）。
-/// 移動手段・写真の編集、PUT/resubmit送信は後続ステップで追加する。
+/// Step5a：作業内容＋移動手段＋写真(既存URL表示・撮り直し)＋備考の編集。
+/// 再提出(PUT→resubmit)送信は Step5b で追加する。
 class RevisionEditScreen extends StatefulWidget {
   const RevisionEditScreen({super.key, required this.revision});
   final Map<String, dynamic> revision;
@@ -18,9 +20,14 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   final _carpoolCtrl = TextEditingController();
   final _otherCtrl = TextEditingController();
   final _parkingCtrl = TextEditingController();
+  final _noteCtrl = TextEditingController();
+
+  final _picker = ImagePicker();
+  String? _workPhotoPath;
+  String? _parkingPhotoPath;
 
   final Set<TransportType> _transports = {};
-  String _carType = 'own'; // 'own' | 'carpool'
+  String _carType = 'own';
 
   static const Map<TransportType, String> _transportLabels = {
     TransportType.car: '車',
@@ -28,6 +35,87 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     TransportType.bus: 'バス',
     TransportType.other: 'その他',
   };
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreFromRevision();
+  }
+
+  @override
+  void dispose() {
+    _workCtrl.dispose();
+    _carpoolCtrl.dispose();
+    _otherCtrl.dispose();
+    _parkingCtrl.dispose();
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  void _restoreFromRevision() {
+    final r = widget.revision;
+    var content = (r['work_content'] as String?)?.trim() ?? '';
+    final names = _transportNames(r);
+
+    for (final n in names) {
+      final t = TransportType.values
+          .firstWhere((e) => e.name == n, orElse: () => TransportType.none);
+      if (t != TransportType.none) _transports.add(t);
+    }
+
+    content = content.replaceFirst(RegExp(r'\s*【残業[^】]*】\s*$'), '').trimRight();
+
+    if (names.contains('car')) {
+      final carpool = RegExp(r'^\[相乗り:([^\]]*)\]\s*').firstMatch(content);
+      if (carpool != null) {
+        _carType = 'carpool';
+        _carpoolCtrl.text = carpool.group(1)!.trim();
+        content = content.substring(carpool.end);
+      } else {
+        _carType = 'own';
+        content = content.replaceFirst(RegExp(r'^\[駐車料金:[^\]]*\]\s*'), '');
+        final fee = r['parking_fee'];
+        if (fee != null) {
+          _parkingCtrl.text =
+              (fee is num) ? fee.toInt().toString() : fee.toString().trim();
+        }
+      }
+    }
+
+    if (names.contains('other')) {
+      final other = RegExp(r'^\[その他:([^\]]*)\]\s*').firstMatch(content);
+      if (other != null) {
+        _otherCtrl.text = other.group(1)!.trim();
+        content = content.substring(other.end);
+      }
+    }
+
+    _workCtrl.text = content.trim();
+  }
+
+  Set<String> _transportNames(Map<String, dynamic> r) {
+    final names = <String>{};
+    final raw = r['transport_types_json'];
+    if (raw is List) {
+      for (final e in raw) {
+        names.add(e.toString());
+      }
+    } else if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final e in decoded) {
+            names.add(e.toString());
+          }
+        }
+      } catch (_) {}
+    }
+    if (names.isEmpty) {
+      final single = (r['transport_type'] as String?)?.trim() ?? '';
+      if (single.isNotEmpty) names.add(single);
+    }
+    return names;
+  }
 
   void _toggleTransport(TransportType t) {
     setState(() {
@@ -37,6 +125,16 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         _transports.add(t);
       }
     });
+  }
+
+  Future<void> _takeWorkPhoto() async {
+    final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (f != null && mounted) setState(() => _workPhotoPath = f.path);
+  }
+
+  Future<void> _takeParkingPhoto() async {
+    final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (f != null && mounted) setState(() => _parkingPhotoPath = f.path);
   }
 
   Widget _sectionLabel(String text) => Padding(
@@ -82,93 +180,68 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _restoreFromRevision();
-  }
-
-  @override
-  void dispose() {
-    _workCtrl.dispose();
-    _carpoolCtrl.dispose();
-    _otherCtrl.dispose();
-    _parkingCtrl.dispose();
-    super.dispose();
-  }
-
-  // 保存済み work_content から接頭辞/接尾辞を剥がし各入力欄へ復元する。
-  // 方針: parking_fee と残業は「列が真実」。相乗り/その他は列に無いので regex 抽出。
-  //       transport_types_json(無ければ transport_type)で在るはずの接頭辞を絞り狙い撃ちで剥がす。
-  void _restoreFromRevision() {
-    final r = widget.revision;
-    var content = (r['work_content'] as String?)?.trim() ?? '';
-    final transports = _transportNames(r);
-
-    for (final n in transports) {
-      final t = TransportType.values
-          .firstWhere((e) => e.name == n, orElse: () => TransportType.none);
-      if (t != TransportType.none) _transports.add(t);
+  // 写真: ローカル撮り直し優先→既存URL→なし。既存は消せない(撮り直しのみ)。
+  Widget _photoBlock({
+    required String label,
+    required String? localPath,
+    required String existingUrl,
+    required VoidCallback onRetake,
+  }) {
+    Widget preview;
+    if (localPath != null) {
+      preview = ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(File(localPath),
+            height: 140, width: double.infinity, fit: BoxFit.cover),
+      );
+    } else if (existingUrl.isNotEmpty) {
+      preview = ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(existingUrl,
+            height: 140, width: double.infinity, fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+                  height: 140,
+                  width: double.infinity,
+                  color: Colors.black26,
+                  alignment: Alignment.center,
+                  child: const Text('写真を読み込めません',
+                      style: TextStyle(color: JsColors.silver, fontSize: 11)),
+                )),
+      );
+    } else {
+      preview = Container(
+        height: 80,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: JsColors.divider),
+        ),
+        alignment: Alignment.center,
+        child: const Text('写真なし',
+            style: TextStyle(color: JsColors.silver, fontSize: 12)),
+      );
     }
-    if (transports.contains('car')) {
-      _carType = RegExp(r'^\[相乗り:').hasMatch(content) ? 'carpool' : 'own';
-    }
-
-    // 1) 末尾の残業接尾辞は退避(編集対象外・送信時に原文から再付与)
-    content = content.replaceFirst(RegExp(r'\s*【残業[^】]*】\s*$'), '').trimRight();
-
-    // 2) car 系(相乗り or 駐車料金)を先頭から剥がす(car選択時のみ)
-    if (transports.contains('car')) {
-      final carpool = RegExp(r'^\[相乗り:([^\]]*)\]\s*').firstMatch(content);
-      if (carpool != null) {
-        _carpoolCtrl.text = carpool.group(1)!.trim();
-        content = content.substring(carpool.end);
-      } else {
-        // 駐車料金は parking_fee 列が真実。接頭辞は捨てる。
-        content = content.replaceFirst(RegExp(r'^\[駐車料金:[^\]]*\]\s*'), '');
-        final fee = r['parking_fee'];
-        if (fee != null) {
-          _parkingCtrl.text = (fee is num) ? fee.toInt().toString() : fee.toString().trim();
-        }
-      }
-    }
-
-    // 3) その他を先頭から剥がす(other選択時のみ)
-    if (transports.contains('other')) {
-      final other = RegExp(r'^\[その他:([^\]]*)\]\s*').firstMatch(content);
-      if (other != null) {
-        _otherCtrl.text = other.group(1)!.trim();
-        content = content.substring(other.end);
-      }
-    }
-
-    // 4) 残り＝本文
-    _workCtrl.text = content.trim();
-  }
-
-  // transport_types_json(List or JSON文字列) か transport_type から手段名集合を得る。
-  Set<String> _transportNames(Map<String, dynamic> r) {
-    final names = <String>{};
-    final raw = r['transport_types_json'];
-    if (raw is List) {
-      for (final e in raw) {
-        names.add(e.toString());
-      }
-    } else if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            names.add(e.toString());
-          }
-        }
-      } catch (_) {}
-    }
-    if (names.isEmpty) {
-      final single = (r['transport_type'] as String?)?.trim() ?? '';
-      if (single.isNotEmpty) names.add(single);
-    }
-    return names;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel(label),
+        preview,
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            onPressed: onRetake,
+            icon: const Icon(Icons.camera_alt, size: 16),
+            label: Text(localPath != null ? '撮り直す（変更済）' : '撮り直す'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: JsColors.gold,
+              side: const BorderSide(color: JsColors.gold),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -176,6 +249,10 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     final r = widget.revision;
     final reportDate = (r['report_date'] as String?)?.trim() ?? '';
     final bossNote = (r['boss_note'] as String?)?.trim() ?? '';
+    final siteUrl = (r['site_photo_url'] as String?) ?? '';
+    final parkingUrl = (r['parking_photo_url'] as String?) ?? '';
+    final isCar = _transports.contains(TransportType.car);
+    final isOther = _transports.contains(TransportType.other);
 
     return Scaffold(
       appBar: AppBar(
@@ -214,32 +291,24 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             ),
           const SizedBox(height: 16),
           if (reportDate.isNotEmpty) ...[
-            const Text('対象日', style: TextStyle(color: JsColors.silver, fontSize: 12)),
-            const SizedBox(height: 4),
+            _sectionLabel('対象日'),
             Text(reportDate, style: const TextStyle(color: JsColors.offWhite, fontSize: 15)),
             const SizedBox(height: 16),
           ],
-          const Text('作業内容', style: TextStyle(color: JsColors.silver, fontSize: 12)),
-          const SizedBox(height: 4),
+          _sectionLabel('作業内容'),
           TextField(
             controller: _workCtrl,
             maxLines: null,
             minLines: 3,
             style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: JsColors.gunmetal,
-              hintText: '作業内容を入力',
-              hintStyle: const TextStyle(color: JsColors.silver),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: JsColors.divider),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: JsColors.gold),
-              ),
-            ),
+            decoration: _fieldDeco('作業内容を入力'),
+          ),
+          const SizedBox(height: 16),
+          _photoBlock(
+            label: '作業写真',
+            localPath: _workPhotoPath,
+            existingUrl: siteUrl,
+            onRetake: _takeWorkPhoto,
           ),
           const SizedBox(height: 20),
           _sectionLabel('移動手段'),
@@ -267,7 +336,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               );
             }).toList(),
           ),
-          if (_transports.contains(TransportType.car)) ...[
+          if (isCar) ...[
             const SizedBox(height: 16),
             Row(
               children: [
@@ -294,7 +363,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               ),
             ],
           ],
-          if (_transports.contains(TransportType.other)) ...[
+          if (isOther) ...[
             const SizedBox(height: 16),
             _sectionLabel('その他の手段'),
             TextField(
@@ -303,6 +372,24 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               decoration: _fieldDeco('例: タクシー'),
             ),
           ],
+          if (isCar || isOther) ...[
+            const SizedBox(height: 16),
+            _photoBlock(
+              label: '看板/領収書（任意）',
+              localPath: _parkingPhotoPath,
+              existingUrl: parkingUrl,
+              onRetake: _takeParkingPhoto,
+            ),
+          ],
+          const SizedBox(height: 20),
+          _sectionLabel('事務への申し送り（任意）'),
+          TextField(
+            controller: _noteCtrl,
+            maxLines: null,
+            minLines: 2,
+            style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+            decoration: _fieldDeco('指定外で気づいた点などがあれば記入'),
+          ),
           const SizedBox(height: 24),
           Container(
             width: double.infinity,
@@ -317,7 +404,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                 Icon(Icons.construction, color: JsColors.silver, size: 16),
                 SizedBox(width: 8),
                 Expanded(
-                  child: Text('写真の修正と再提出は次の更新で追加されます。',
+                  child: Text('再提出ボタンは次の更新で追加されます。',
                       style: TextStyle(color: JsColors.silver, fontSize: 12)),
                 ),
               ],
