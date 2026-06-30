@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, showJsSnackbar;
 import '../config/constants.dart';
+import 'revision_edit_screen.dart';
 
 const String _apiUrl = kApiBaseUrl;
 
@@ -81,7 +82,12 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
                     itemCount: _revisions.length,
                     itemBuilder: (ctx, i) => _RevisionCard(
                       revision: _revisions[i],
-                      onResubmit: () => showJsSnackbar(context, '編集画面は準備中です'),
+                      onResubmit: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RevisionEditScreen(revision: _revisions[i]),
+                        ),
+                      ),
                     ),
                   ),
                 ),
