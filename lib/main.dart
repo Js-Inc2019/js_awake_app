@@ -1007,6 +1007,19 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     }
   }
 
+  // work_content を接頭辞込みで組み立てる（_submit と編集送信で共有）
+  String _composeWorkContent() {
+    final body = _workContentCtrl.text.trim();
+    if (_transport == TransportType.other) {
+      return '[その他:${_otherCtrl.text.trim()}] $body';
+    }
+    if (_transport == TransportType.car && _carType == 'carpool') {
+      final who = _carpoolCtrl.text.trim().isEmpty ? '未記入' : _carpoolCtrl.text.trim();
+      return '[相乗り:$who] $body';
+    }
+    return body;
+  }
+
   Future<void> _loadOriginPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
@@ -1192,11 +1205,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       originType:       _originType,
       parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
       parkingPhotoPath: _photoPath,
-      workContent:      _transport == TransportType.other
-          ? '[その他:${_otherCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
-          : (_transport == TransportType.car && _carType == 'carpool')
-          ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] ${_workContentCtrl.text.trim()}'
-          : _workContentCtrl.text.trim(),
+      workContent:      _composeWorkContent(),
       workPhotoPath:    _workPhotoPath,
       gpsAddress:       _gpsAddress,
     ));
