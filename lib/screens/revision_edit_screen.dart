@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import '../main.dart' show JsColors, TransportType;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../main.dart' show JsColors, TransportType, showJsSnackbar;
+import '../config/constants.dart';
 
-/// 差戻しされた日報を職人が修正する専用画面（バッチ2）。
-/// Step5a：作業内容＋移動手段＋写真(既存URL表示・撮り直し)＋備考の編集。
-/// 再提出(PUT→resubmit)送信は Step5b で追加する。
+/// 差戻しされた日報を職人が修正する専用画面（バッチ2 完成）。
+/// 作業内容/移動手段/写真/備考を編集し、PUT→resubmit の2段で再提出する。
 class RevisionEditScreen extends StatefulWidget {
   const RevisionEditScreen({super.key, required this.revision});
   final Map<String, dynamic> revision;
@@ -28,6 +30,8 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
   final Set<TransportType> _transports = {};
   String _carType = 'own';
+  String _overtimeSuffix = ''; // 残業接尾辞(編集対象外・退避→再付与)
+  bool _submitting = false;
 
   static const Map<TransportType, String> _transportLabels = {
     TransportType.car: '車',
@@ -63,7 +67,12 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
       if (t != TransportType.none) _transports.add(t);
     }
 
-    content = content.replaceFirst(RegExp(r'\s*【残業[^】]*】\s*$'), '').trimRight();
+    // 残業接尾辞は退避(送信時に末尾へ再付与)
+    final ot = RegExp(r'\s*【残業[^】]*】\s*$').firstMatch(content);
+    if (ot != null) {
+      _overtimeSuffix = ot.group(0)!.replaceFirst(RegExp(r'^\s*'), ' ').trimRight();
+      content = content.substring(0, ot.start).trimRight();
+    }
 
     if (names.contains('car')) {
       final carpool = RegExp(r'^\[相乗り:([^\]]*)\]\s*').firstMatch(content);
@@ -117,6 +126,27 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     return names;
   }
 
+  // 保存形式に合わせ work_content を組み立て直す(home_screen と同じ接頭辞順)。
+  String _composeWorkContent() {
+    final body = _workCtrl.text.trim();
+    final hasCar = _transports.contains(TransportType.car);
+    final hasOther = _transports.contains(TransportType.other);
+    var carpoolPrefix = '';
+    var parkingPrefix = '';
+    if (hasCar && _carType == 'carpool') {
+      final who = _carpoolCtrl.text.trim().isEmpty ? '未記入' : _carpoolCtrl.text.trim();
+      carpoolPrefix = '[相乗り:$who] ';
+    }
+    if (hasCar && _carType == 'own' && _parkingCtrl.text.trim().isNotEmpty) {
+      parkingPrefix = '[駐車料金:${_parkingCtrl.text.trim()}円] ';
+    }
+    final otherPrefix = (hasOther && _otherCtrl.text.trim().isNotEmpty)
+        ? '[その他:${_otherCtrl.text.trim()}] '
+        : '';
+    final suffix = _overtimeSuffix.isEmpty ? '' : ' ${_overtimeSuffix.trim()}';
+    return '$carpoolPrefix$parkingPrefix$otherPrefix$body$suffix';
+  }
+
   void _toggleTransport(TransportType t) {
     setState(() {
       if (_transports.contains(t)) {
@@ -135,6 +165,86 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   Future<void> _takeParkingPhoto() async {
     final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (f != null && mounted) setState(() => _parkingPhotoPath = f.path);
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    if (_workCtrl.text.trim().isEmpty) {
+      showJsSnackbar(context, '作業内容を入力してください', isError: true);
+      return;
+    }
+    setState(() => _submitting = true);
+
+    final reportId = widget.revision['report_id'] as String?;
+    if (reportId == null) {
+      setState(() => _submitting = false);
+      showJsSnackbar(context, '対象の日報が特定できません', isError: true);
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final body = <String, dynamic>{
+        'edit_reason': '差戻し対応',
+        'work_content': _composeWorkContent(),
+        'transport_type':
+            _transports.isNotEmpty ? _transports.first.name : null,
+        'transport_types_json': _transports.map((t) => t.name).toList(),
+        'parking_fee': (_transports.contains(TransportType.car) &&
+                _carType == 'own' &&
+                _parkingCtrl.text.trim().isNotEmpty)
+            ? double.tryParse(_parkingCtrl.text.trim())
+            : null,
+      };
+      // 写真は撮り直した時だけ送る(送らなければBE側COALESCEで温存)
+      if (_workPhotoPath != null) {
+        body['site_photo_base64'] =
+            base64Encode(await File(_workPhotoPath!).readAsBytes());
+      }
+      if (_parkingPhotoPath != null) {
+        body['parking_photo_base64'] =
+            base64Encode(await File(_parkingPhotoPath!).readAsBytes());
+      }
+
+      final putRes = await http
+          .put(Uri.parse('$kApiBaseUrl/reports/$reportId'),
+              headers: headers, body: jsonEncode(body))
+          .timeout(const Duration(seconds: 30));
+
+      if (putRes.statusCode != 200) {
+        if (!mounted) return;
+        setState(() => _submitting = false);
+        showJsSnackbar(context, '保存に失敗しました（${putRes.statusCode}）', isError: true);
+        return;
+      }
+
+      final resubmitRes = await http
+          .post(Uri.parse('$kApiBaseUrl/reports/$reportId/resubmit'),
+              headers: headers,
+              body: jsonEncode({'worker_revision_note': _noteCtrl.text.trim()}))
+          .timeout(const Duration(seconds: 30));
+
+      if (!mounted) return;
+      if (resubmitRes.statusCode >= 200 && resubmitRes.statusCode < 300) {
+        showJsSnackbar(context, '✅ 修正して再提出しました');
+        Navigator.pop(context, true);
+      } else {
+        setState(() => _submitting = false);
+        showJsSnackbar(context,
+            '保存はできましたが再提出に失敗しました。もう一度「再提出」を押してください（${resubmitRes.statusCode}）',
+            isError: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      showJsSnackbar(context, '通信エラーが発生しました', isError: true);
+    }
   }
 
   Widget _sectionLabel(String text) => Padding(
@@ -180,7 +290,6 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     );
   }
 
-  // 写真: ローカル撮り直し優先→既存URL→なし。既存は消せない(撮り直しのみ)。
   Widget _photoBlock({
     required String label,
     required String? localPath,
@@ -391,25 +500,25 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             decoration: _fieldDeco('指定外で気づいた点などがあれば記入'),
           ),
           const SizedBox(height: 24),
-          Container(
+          SizedBox(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: JsColors.gunmetal,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: JsColors.divider),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.construction, color: JsColors.silver, size: 16),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text('再提出ボタンは次の更新で追加されます。',
-                      style: TextStyle(color: JsColors.silver, fontSize: 12)),
-                ),
-              ],
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: JsColors.gold,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: _submitting
+                  ? const SizedBox(
+                      width: 22, height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
+                  : const Text('修正して再提出する',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ),
           ),
+          const SizedBox(height: 32),
         ],
       ),
     );
