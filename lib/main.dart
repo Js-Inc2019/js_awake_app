@@ -1759,29 +1759,13 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                       _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
                     ]),
 
-                    if (_workPhotoPath != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Stack(
-                          alignment: Alignment.topRight,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(_workPhotoPath!),
-                                  height: 120, width: double.infinity, fit: BoxFit.cover),
-                            ),
-                            GestureDetector(
-                              onTap: () => setState(() => _workPhotoPath = null),
-                              child: Container(
-                                margin: const EdgeInsets.all(6),
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                                child: const Icon(Icons.close, color: Colors.white, size: 16),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    _FormPhotoPreview(
+                      localPath: _workPhotoPath,
+                      existingUrl: null,
+                      onClear: () => setState(() => _workPhotoPath = null),
+                      height: 120,
+                      topPadding: 8,
+                    ),
                   ],
                 ),
               ),
@@ -1948,39 +1932,14 @@ class _ParkingSection extends StatelessWidget {
         const SizedBox(width: 10),
         _CameraBtn(hasPhoto: photoPath != null, onTap: onTakePhoto),
       ]),
-      if (photoPath != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Stack(
-            alignment: Alignment.topRight,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.file(File(photoPath!),
-                    height: 100, width: double.infinity, fit: BoxFit.cover),
-              ),
-              GestureDetector(
-                onTap: onClearPhoto,
-                child: Container(
-                  margin: const EdgeInsets.all(6),
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                  child: const Icon(Icons.close, color: Colors.white, size: 16),
-                ),
-              ),
-            ],
-          ),
-        ),
-      if (photoPath == null)
-        const Padding(
-          padding: EdgeInsets.only(top: 6),
-          child: Row(children: [
-            Icon(Icons.info_outline, color: JsColors.silver, size: 14),
-            SizedBox(width: 4),
-            Text('領収書の写真も撮影することを推奨します',
-                style: TextStyle(color: JsColors.silver, fontSize: 11)),
-          ]),
-        ),
+      _FormPhotoPreview(
+        localPath: photoPath,
+        existingUrl: null,
+        onClear: onClearPhoto,
+        height: 100,
+        topPadding: 10,
+        hint: '領収書の写真も撮影することを推奨します',
+      ),
     ],
   );
 }
@@ -3107,3 +3066,78 @@ class _Badge extends StatelessWidget {
 // ============================================================
 // END OF FILE — J's Awake App v1.1.1
 // ============================================================
+
+
+class _FormPhotoPreview extends StatelessWidget {
+  const _FormPhotoPreview({
+    required this.localPath,
+    this.existingUrl,
+    required this.onClear,
+    required this.height,
+    this.topPadding = 10,
+    this.hint,
+  });
+  final String? localPath;
+  final String? existingUrl;
+  final VoidCallback onClear;
+  final double height;
+  final double topPadding;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    if (localPath != null) {
+      return Padding(
+        padding: EdgeInsets.only(top: topPadding),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(File(localPath!),
+                  height: height, width: double.infinity, fit: BoxFit.cover),
+            ),
+            GestureDetector(
+              onTap: onClear,
+              child: Container(
+                margin: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                child: const Icon(Icons.close, color: Colors.white, size: 16),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (existingUrl != null) {
+      return Padding(
+        padding: EdgeInsets.only(top: topPadding),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.network(existingUrl!,
+              height: height, width: double.infinity, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                    height: height,
+                    width: double.infinity,
+                    color: Colors.black26,
+                    alignment: Alignment.center,
+                    child: const Text('写真を読み込めません',
+                        style: TextStyle(color: JsColors.silver, fontSize: 11)),
+                  )),
+        ),
+      );
+    }
+    if (hint != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(children: [
+          const Icon(Icons.info_outline, color: JsColors.silver, size: 14),
+          const SizedBox(width: 4),
+          Text(hint!, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+        ]),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+}
