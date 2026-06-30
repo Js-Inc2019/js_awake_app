@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, TransportType, showJsSnackbar;
 import '../config/constants.dart';
+import '../utils/revision_parser.dart';
 
 /// 差戻しされた日報を職人が修正する専用画面（バッチ2 完成）。
 /// 作業内容/移動手段/写真/備考を編集し、PUT→resubmit の2段で再提出する。
@@ -57,74 +58,20 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   }
 
   void _restoreFromRevision() {
-    final r = widget.revision;
-    var content = (r['work_content'] as String?)?.trim() ?? '';
-    final names = _transportNames(r);
-
-    for (final n in names) {
+    final p = parseRevision(widget.revision);
+    for (final n in p.transportNames) {
       final t = TransportType.values
           .firstWhere((e) => e.name == n, orElse: () => TransportType.none);
       if (t != TransportType.none) _transports.add(t);
     }
-
-    // 残業接尾辞は退避(送信時に末尾へ再付与)
-    final ot = RegExp(r'\s*【残業[^】]*】\s*$').firstMatch(content);
-    if (ot != null) {
-      _overtimeSuffix = ot.group(0)!.replaceFirst(RegExp(r'^\s*'), ' ').trimRight();
-      content = content.substring(0, ot.start).trimRight();
-    }
-
-    if (names.contains('car')) {
-      final carpool = RegExp(r'^\[相乗り:([^\]]*)\]\s*').firstMatch(content);
-      if (carpool != null) {
-        _carType = 'carpool';
-        _carpoolCtrl.text = carpool.group(1)!.trim();
-        content = content.substring(carpool.end);
-      } else {
-        _carType = 'own';
-        content = content.replaceFirst(RegExp(r'^\[駐車料金:[^\]]*\]\s*'), '');
-        final fee = r['parking_fee'];
-        if (fee != null) {
-          _parkingCtrl.text =
-              (fee is num) ? fee.toInt().toString() : fee.toString().trim();
-        }
-      }
-    }
-
-    if (names.contains('other')) {
-      final other = RegExp(r'^\[その他:([^\]]*)\]\s*').firstMatch(content);
-      if (other != null) {
-        _otherCtrl.text = other.group(1)!.trim();
-        content = content.substring(other.end);
-      }
-    }
-
-    _workCtrl.text = content.trim();
+    _carType = p.carType;
+    _overtimeSuffix = p.overtimeSuffix;
+    _workCtrl.text = p.workContent;
+    _carpoolCtrl.text = p.carpoolText;
+    _parkingCtrl.text = p.parkingText;
+    _otherCtrl.text = p.otherText;
   }
 
-  Set<String> _transportNames(Map<String, dynamic> r) {
-    final names = <String>{};
-    final raw = r['transport_types_json'];
-    if (raw is List) {
-      for (final e in raw) {
-        names.add(e.toString());
-      }
-    } else if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            names.add(e.toString());
-          }
-        }
-      } catch (_) {}
-    }
-    if (names.isEmpty) {
-      final single = (r['transport_type'] as String?)?.trim() ?? '';
-      if (single.isNotEmpty) names.add(single);
-    }
-    return names;
-  }
 
   // 保存形式に合わせ work_content を組み立て直す(home_screen と同じ接頭辞順)。
   String _composeWorkContent() {
