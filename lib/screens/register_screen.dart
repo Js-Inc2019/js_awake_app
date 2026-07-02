@@ -1,12 +1,12 @@
 // lib/screens/register_screen.dart - 招待コード登録フロー
 import 'dart:convert';
 import 'dart:io';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import '../utils/device_id.dart';
 
 const String _apiUrl = kApiBaseUrl;
 
@@ -46,13 +46,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<String> _deviceId() async {
-    final info = DeviceInfoPlugin();
-    if (Platform.isAndroid) return (await info.androidInfo).id;
-    if (Platform.isIOS) return (await info.iosInfo).identifierForVendor ?? 'ios-unknown';
-    return 'unknown-device';
-  }
-
   void _nextStep() {
     final code = _inviteCtrl.text.trim().toUpperCase();
     if (code.length < 4) {
@@ -77,7 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     setState(() { _isLoading = true; _error = null; });
     try {
-      final deviceId = await _deviceId();
+      final deviceId = await getDeviceId();
       final res = await http.post(
         Uri.parse('$_apiUrl/workers/activate'),
         headers: {'Content-Type': 'application/json'},

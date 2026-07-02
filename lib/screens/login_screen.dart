@@ -4,7 +4,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -14,6 +13,7 @@ import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import 'register_screen.dart';
 import '../config/constants.dart';
+import '../utils/device_id.dart';
 import '../main.dart' show bossPinOk;
 
 const String _apiBase = kApiBaseUrl;
@@ -131,21 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<String> _getDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? deviceId = prefs.getString('device_id');
-    if (deviceId != null) return deviceId;
-    final info = DeviceInfoPlugin();
-    if (Platform.isAndroid) {
-      final androidInfo = await info.androidInfo;
-      deviceId = androidInfo.id;
-    } else if (Platform.isIOS) {
-      final iosInfo = await info.iosInfo;
-      deviceId = iosInfo.identifierForVendor ?? 'ios-unknown';
-    } else {
-      deviceId = 'unknown-device';
-    }
-    await prefs.setString('device_id', deviceId);
-    return deviceId;
+    return getDeviceId();
   }
 
   Future<bool> _doBiometric() async {
