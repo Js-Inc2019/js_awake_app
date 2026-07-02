@@ -82,12 +82,15 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
                     itemCount: _revisions.length,
                     itemBuilder: (ctx, i) => _RevisionCard(
                       revision: _revisions[i],
-                      onResubmit: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => RevisionEditScreen(revision: _revisions[i]),
-                        ),
-                      ),
+                      onResubmit: () async {
+                        final result = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RevisionEditScreen(revision: _revisions[i]),
+                          ),
+                        );
+                        if (result == true) _load();
+                      },
                     ),
                   ),
                 ),
