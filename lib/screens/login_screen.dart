@@ -898,7 +898,11 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Column(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(Icons.lock_outline, color: Color(0xFFA89868), size: 64),
@@ -998,6 +1002,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
