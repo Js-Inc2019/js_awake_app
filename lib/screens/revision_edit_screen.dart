@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show JsColors, TransportType, showJsSnackbar;
 import '../config/constants.dart';
 import '../utils/revision_parser.dart';
+import '../widgets/photo_strip_field.dart';
 
 /// 差戻しされた日報を職人が修正する専用画面（バッチ2 完成）。
 /// 作業内容/移動手段/写真/備考を編集し、PUT→resubmit の2段で再提出する。
@@ -25,9 +25,18 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   final _parkingCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
 
-  final _picker = ImagePicker();
-  String? _workPhotoPath;
-  String? _parkingPhotoPath;
+  // 撮り直しで新規撮影したローカルパス（種別ごと・複数枚）。
+  final List<String> _workPhotoPaths = <String>[];
+  final List<String> _parkingPhotoPaths = <String>[];
+  // 撮り直しモード（ON=PhotoStripFieldで撮影 / OFF=既存写真を表示）。
+  bool _retakeWork = false;
+  bool _retakeParking = false;
+
+  // GET /reports/:id で取得した既存active写真URL（種別ごと・複数枚）。
+  // 失敗/空なら build 側で旧単数URL(site_photo_url/parking_photo_url)へフォールバック。
+  List<String> _existingSiteUrls = <String>[];
+  List<String> _existingParkingUrls = <String>[];
+  bool _photosLoaded = false;
 
   final Set<TransportType> _transports = {};
   String _carType = 'own';
@@ -45,6 +54,66 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   void initState() {
     super.initState();
     _restoreFromRevision();
+    _loadExistingPhotos();
+  }
+
+  // 既存写真(フォールバック込み): GET結果があればそれ、無ければ旧単数URLを1要素に。
+  List<String> get _effectiveExistingSiteUrls {
+    if (_existingSiteUrls.isNotEmpty) return _existingSiteUrls;
+    final u = ((widget.revision['site_photo_url'] as String?) ?? '').trim();
+    return u.isEmpty ? const <String>[] : <String>[u];
+  }
+
+  List<String> get _effectiveExistingParkingUrls {
+    if (_existingParkingUrls.isNotEmpty) return _existingParkingUrls;
+    final u = ((widget.revision['parking_photo_url'] as String?) ?? '').trim();
+    return u.isEmpty ? const <String>[] : <String>[u];
+  }
+
+  // GET /reports/:id はトップレベルに photos:[{photo_type,photo_url,...}] を返す
+  // （一覧LISTは互換カラムのみで photos[] 無し）。種別ごとにURLを集める。失敗時は build 側でフォールバック。
+  Future<void> _loadExistingPhotos() async {
+    final reportId = widget.revision['report_id'] as String?;
+    if (reportId == null) {
+      if (mounted) setState(() => _photosLoaded = true);
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/reports/$reportId'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (data['photos'] as List?) ?? const [];
+        final site = <String>[];
+        final parking = <String>[];
+        for (final p in list) {
+          if (p is! Map) continue;
+          final type = p['photo_type']?.toString();
+          final url = (p['photo_url']?.toString() ?? '').trim();
+          if (url.isEmpty) continue;
+          if (type == 'site') {
+            site.add(url);
+          } else if (type == 'parking') {
+            parking.add(url);
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _existingSiteUrls = site;
+            _existingParkingUrls = parking;
+            _photosLoaded = true;
+          });
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('既存写真の取得に失敗: $e');
+    }
+    if (mounted) setState(() => _photosLoaded = true);
   }
 
   @override
@@ -104,30 +173,50 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     });
   }
 
-  Future<void> _takeWorkPhoto() async {
-    final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) setState(() => _workPhotoPath = f.path);
-  }
-
-  Future<void> _takeParkingPhoto() async {
-    final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) setState(() => _parkingPhotoPath = f.path);
-  }
-
   Future<void> _submit() async {
     if (_submitting) return;
     if (_workCtrl.text.trim().isEmpty) {
       showJsSnackbar(context, '作業内容を入力してください', isError: true);
       return;
     }
-    setState(() => _submitting = true);
 
     final reportId = widget.revision['report_id'] as String?;
     if (reportId == null) {
-      setState(() => _submitting = false);
       showJsSnackbar(context, '対象の日報が特定できません', isError: true);
       return;
     }
+
+    // 未添付ダイアログ: 車/その他 かつ 駐車写真が実質ゼロ
+    //（撮り直しON→新規0枚 / 撮り直しOFF→既存(フォールバック込み)なし）。
+    // home_screen と同文言・同構造。
+    final hasCarOrOther = _transports.contains(TransportType.car) ||
+        _transports.contains(TransportType.other);
+    final parkingEmpty = _retakeParking
+        ? _parkingPhotoPaths.isEmpty
+        : _effectiveExistingParkingUrls.isEmpty;
+    if (hasCarOrOther && parkingEmpty) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('写真が添付されていません'),
+          content: const Text(
+              '駐車場の看板または領収書の写真が添付されていません。このまま送信しますか？\n\n※戻ったら、駐車場写真の「撮り直す」→「＋撮影」から撮影できます。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('戻って撮影する'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('このまま送信'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return; // 「戻って撮影する」→送信中断
+    }
+
+    setState(() => _submitting = true);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -149,15 +238,35 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             ? double.tryParse(_parkingCtrl.text.trim())
             : null,
       };
-      // 写真は撮り直した時だけ送る(送らなければBE側COALESCEで温存)
-      if (_workPhotoPath != null) {
-        body['site_photo_base64'] =
-            base64Encode(await File(_workPhotoPath!).readAsBytes());
+      // 写真は「撮り直しON かつ 新規1枚以上」の種別だけ photos[] で送る。
+      // 通常提出(main.dart)と同一構造 [{photo_type,base64}]。BE側で該当種別の既存を
+      // 無効化→新規追記(置換)。未送信種別は温存。
+      final photos = <Map<String, dynamic>>[];
+      if (_retakeWork) {
+        for (final p in _workPhotoPaths) {
+          try {
+            photos.add({
+              'photo_type': 'site',
+              'base64': base64Encode(await File(p).readAsBytes()),
+            });
+          } catch (e) {
+            debugPrint('作業写真エンコード失敗: $e');
+          }
+        }
       }
-      if (_parkingPhotoPath != null) {
-        body['parking_photo_base64'] =
-            base64Encode(await File(_parkingPhotoPath!).readAsBytes());
+      if (_retakeParking) {
+        for (final p in _parkingPhotoPaths) {
+          try {
+            photos.add({
+              'photo_type': 'parking',
+              'base64': base64Encode(await File(p).readAsBytes()),
+            });
+          } catch (e) {
+            debugPrint('駐車写真エンコード失敗: $e');
+          }
+        }
       }
+      if (photos.isNotEmpty) body['photos'] = photos;
 
       final putRes = await http
           .put(Uri.parse('$kApiBaseUrl/reports/$reportId'),
@@ -237,59 +346,74 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     );
   }
 
-  Widget _photoBlock({
+  // 種別ごとの写真ブロック。撮り直しOFF=既存写真(複数)を表示、ON=複数撮影の帯へ切替。
+  Widget _photoSection({
     required String label,
-    required String? localPath,
-    required String existingUrl,
-    required VoidCallback onRetake,
+    required List<String> existingUrls,
+    required List<String> newPaths,
+    required bool retake,
+    required VoidCallback onRetakeStart,
+    required VoidCallback onRestoreExisting,
+    required ValueChanged<List<String>> onChanged,
   }) {
-    Widget preview;
-    if (localPath != null) {
-      preview = ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.file(File(localPath),
-            height: 140, width: double.infinity, fit: BoxFit.cover),
-      );
-    } else if (existingUrl.isNotEmpty) {
-      preview = ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.network(existingUrl,
-            height: 140, width: double.infinity, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-                  height: 140,
-                  width: double.infinity,
-                  color: Colors.black26,
-                  alignment: Alignment.center,
-                  child: const Text('写真を読み込めません',
-                      style: TextStyle(color: JsColors.silver, fontSize: 11)),
-                )),
-      );
-    } else {
-      preview = Container(
-        height: 80,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: JsColors.gunmetal,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: JsColors.divider),
-        ),
-        alignment: Alignment.center,
-        child: const Text('写真なし',
-            style: TextStyle(color: JsColors.silver, fontSize: 12)),
+    if (retake) {
+      // 撮り直しモード: 既存widget(PhotoStripField・上限5)を再利用。「既存に戻す」で袋小路防止。
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PhotoStripField(
+            label: label,
+            paths: newPaths,
+            onChanged: onChanged,
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onRestoreExisting,
+              icon: const Icon(Icons.undo, size: 16),
+              label: const Text('既存に戻す'),
+              style: TextButton.styleFrom(foregroundColor: JsColors.silver),
+            ),
+          ),
+        ],
       );
     }
+    // 既存表示モード
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionLabel(label),
-        preview,
+        _sectionLabel('$label（既存）'),
+        if (existingUrls.isEmpty)
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: JsColors.gunmetal,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: JsColors.divider),
+            ),
+            alignment: Alignment.center,
+            child: Text(_photosLoaded ? '写真なし' : '読み込み中…',
+                style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+          )
+        else
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: existingUrls.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => _existingThumb(existingUrls[i]),
+            ),
+          ),
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerRight,
           child: OutlinedButton.icon(
-            onPressed: onRetake,
+            onPressed: onRetakeStart,
             icon: const Icon(Icons.camera_alt, size: 16),
-            label: Text(localPath != null ? '撮り直す（変更済）' : '撮り直す'),
+            label: const Text('撮り直す'),
             style: OutlinedButton.styleFrom(
               foregroundColor: JsColors.gold,
               side: const BorderSide(color: JsColors.gold),
@@ -300,13 +424,54 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     );
   }
 
+  Widget _existingThumb(String url) {
+    return GestureDetector(
+      onTap: () => _previewNetwork(url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          url,
+          width: 88,
+          height: 88,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            width: 88,
+            height: 88,
+            color: Colors.black26,
+            alignment: Alignment.center,
+            child: const Text('読込不可',
+                style: TextStyle(color: JsColors.silver, fontSize: 10)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _previewNetwork(String url) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(child: Image.network(url, fit: BoxFit.contain)),
+            IconButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              icon: const Icon(Icons.close, color: JsColors.offWhite),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = widget.revision;
     final reportDate = (r['report_date'] as String?)?.trim() ?? '';
     final bossNote = (r['boss_note'] as String?)?.trim() ?? '';
-    final siteUrl = (r['site_photo_url'] as String?) ?? '';
-    final parkingUrl = (r['parking_photo_url'] as String?) ?? '';
     final isCar = _transports.contains(TransportType.car);
     final isOther = _transports.contains(TransportType.other);
 
@@ -360,11 +525,24 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             decoration: _fieldDeco('作業内容を入力'),
           ),
           const SizedBox(height: 16),
-          _photoBlock(
+          _photoSection(
             label: '作業写真',
-            localPath: _workPhotoPath,
-            existingUrl: siteUrl,
-            onRetake: _takeWorkPhoto,
+            existingUrls: _effectiveExistingSiteUrls,
+            newPaths: _workPhotoPaths,
+            retake: _retakeWork,
+            onRetakeStart: () => setState(() {
+              _retakeWork = true;
+              _workPhotoPaths.clear();
+            }),
+            onRestoreExisting: () => setState(() {
+              _retakeWork = false;
+              _workPhotoPaths.clear();
+            }),
+            onChanged: (v) => setState(() {
+              _workPhotoPaths
+                ..clear()
+                ..addAll(v);
+            }),
           ),
           const SizedBox(height: 20),
           _sectionLabel('移動手段'),
@@ -430,11 +608,24 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
           ],
           if (isCar || isOther) ...[
             const SizedBox(height: 16),
-            _photoBlock(
+            _photoSection(
               label: '看板/領収書（任意）',
-              localPath: _parkingPhotoPath,
-              existingUrl: parkingUrl,
-              onRetake: _takeParkingPhoto,
+              existingUrls: _effectiveExistingParkingUrls,
+              newPaths: _parkingPhotoPaths,
+              retake: _retakeParking,
+              onRetakeStart: () => setState(() {
+                _retakeParking = true;
+                _parkingPhotoPaths.clear();
+              }),
+              onRestoreExisting: () => setState(() {
+                _retakeParking = false;
+                _parkingPhotoPaths.clear();
+              }),
+              onChanged: (v) => setState(() {
+                _parkingPhotoPaths
+                  ..clear()
+                  ..addAll(v);
+              }),
             ),
           ],
           const SizedBox(height: 20),
