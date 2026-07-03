@@ -3,17 +3,16 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/constants.dart';
+import '../widgets/photo_strip_field.dart';
 
 import '../main.dart'
     show
@@ -375,11 +374,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   final _workCtrl    = TextEditingController();
   final _otherCtrl   = TextEditingController();
   final _parkingCtrl = TextEditingController();
-  String? _workPhotoPath;
-  String? _parkingPhotoPath;
+  List<String> _workPhotoPaths = [];
+  List<String> _parkingPhotoPaths = [];
   bool _isListening = false;
   final _speechMgr = SpeechManager();
-  final _imagePicker = ImagePicker();
 
   // ─── 残業 ───
   bool _overtimeExpanded = false;
@@ -765,24 +763,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     setState(() => _isListening = false);
   }
 
-  Future<void> _takeWorkPhoto() async {
-    final f = await _imagePicker.pickImage(
-        source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) {
-      setState(() => _workPhotoPath = f.path);
-      showJsSnackbar(context, '✅ 作業写真を撮影しました');
-    }
-  }
-
-  Future<void> _takeParkingPhoto() async {
-    final f = await _imagePicker.pickImage(
-        source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) {
-      setState(() => _parkingPhotoPath = f.path);
-      showJsSnackbar(context, '✅ 駐車場の写真を撮影しました');
-    }
-  }
-
   Future<void> _submit() async {
     if (_submitting) return;
     if (_userName.isEmpty) {
@@ -794,16 +774,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return;
     }
     setState(() => _submitting = true);
-    if ((_transports.contains(TransportType.car) || _transports.contains(TransportType.other)) && _parkingPhotoPath == null) {
+    if ((_transports.contains(TransportType.car) || _transports.contains(TransportType.other)) && _parkingPhotoPaths.isEmpty) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('写真が添付されていません'),
-          content: const Text('駐車場の看板または領収書の写真が添付されていません。このまま送信しますか？'),
+          content: const Text('駐車場の看板または領収書の写真が添付されていません。このまま送信しますか？\n\n※戻ると、駐車場写真の帯にある「＋撮影」から撮影できます。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('写真を撮る'),
+              child: const Text('戻って撮影する'),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
@@ -814,8 +794,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       );
       if (proceed != true) {
         if (mounted) setState(() => _submitting = false);
-        await _takeParkingPhoto();
-        return;
+        return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
       }
     }
     final name = _userName;
@@ -839,8 +818,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
         workContent: carpoolPrefix + parkingPrefix + otherPrefix + _workCtrl.text.trim() + overtimeNote,
-        workPhotoPath: _workPhotoPath,
-        parkingPhotoPath: _parkingPhotoPath,
+        workPhotoPaths: _workPhotoPaths,
+        parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
         originType: _originType,
       ));
@@ -862,8 +841,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _workCtrl.clear();
         _otherCtrl.clear();
         _parkingCtrl.clear();
-        _workPhotoPath = null;
-        _parkingPhotoPath = null;
+        _workPhotoPaths = [];
+        _parkingPhotoPaths = [];
         _overtimeExpanded = false;
         _overtimeHours = 0;
         _overtimeMinutes = 0;
@@ -883,8 +862,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               _transports = {};
               _carType = 'own';
               _routeComparisons = {};
-              _workPhotoPath = null;
-              _parkingPhotoPath = null;
+              _workPhotoPaths = [];
+              _parkingPhotoPaths = [];
             });
             _fetchGps();
           },
@@ -1261,7 +1240,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     }
                     if (!newSet.contains(TransportType.car)) {
                       _parkingCtrl.clear();
-                      _parkingPhotoPath = null;
+                      _parkingPhotoPaths = [];
                     }
                     setState(() => _transports = newSet);
                     _saveWorkStatus('moving');
@@ -1282,7 +1261,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       }
                       if (!newSet.contains(TransportType.car)) {
                         _parkingCtrl.clear();
-                        if (mounted) setState(() => _parkingPhotoPath = null);
+                        if (mounted) setState(() => _parkingPhotoPaths = []);
                       }
                       if (mounted) setState(() => _transports = newSet);
                       _saveWorkStatus('moving');
@@ -1319,7 +1298,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         onTap: () => setState(() {
                           _carType = 'carpool';
                           _parkingCtrl.clear();
-                          _parkingPhotoPath = null;
+                          _parkingPhotoPaths = [];
                         }),
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1397,46 +1376,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    GestureDetector(
-                      onTap: _takeParkingPhoto,
-                      child: Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: JsColors.gunmetal,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _parkingPhotoPath != null
-                                ? JsColors.gold
-                                : JsColors.gold.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                              color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
-                                style: TextStyle(
-                                  color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            if (_parkingPhotoPath != null)
-                              GestureDetector(
-                                onTap: () => setState(() => _parkingPhotoPath = null),
-                                child: const Icon(Icons.close, color: JsColors.silver, size: 16),
-                              ),
-                          ],
-                        ),
-                      ),
+                    const SizedBox(height: 8),
+                    // 駐車場写真（複数・横スクロール帯）
+                    PhotoStripField(
+                      label: '駐車場写真（看板・領収書）',
+                      paths: _parkingPhotoPaths,
+                      onChanged: (v) => setState(() => _parkingPhotoPaths = v),
                     ),
                   ],
                 ],
@@ -1472,46 +1417,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  GestureDetector(
-                    onTap: _takeParkingPhoto,
-                    child: Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: JsColors.gunmetal,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _parkingPhotoPath != null
-                              ? JsColors.gold
-                              : JsColors.gold.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _parkingPhotoPath != null ? Icons.check_circle : Icons.camera_alt,
-                            color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _parkingPhotoPath != null ? '📷 看板/領収書（撮影済）' : '📷 看板/領収書（任意）',
-                              style: TextStyle(
-                                color: _parkingPhotoPath != null ? JsColors.gold : JsColors.silver,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          if (_parkingPhotoPath != null)
-                            GestureDetector(
-                              onTap: () => setState(() => _parkingPhotoPath = null),
-                              child: const Icon(Icons.close, color: JsColors.silver, size: 16),
-                            ),
-                        ],
-                      ),
-                    ),
+                  const SizedBox(height: 8),
+                  // 駐車場写真（複数・横スクロール帯）
+                  PhotoStripField(
+                    label: '駐車場写真（看板・領収書）',
+                    paths: _parkingPhotoPaths,
+                    onChanged: (v) => setState(() => _parkingPhotoPaths = v),
                   ),
                 ],
                 // 補足テキスト（その他 or 複数選択時）
@@ -1551,15 +1462,19 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 4),
 
-                // ⑤ 作業内容テキスト
+                // ⑤ 作業内容テキスト（音声入力）
                 _WorkContentSection(
                   controller: _workCtrl,
-                  photoPath: _workPhotoPath,
-                  onClearPhoto: () => setState(() => _workPhotoPath = null),
                   showMediaButtons: true,
                   isListening: _isListening,
                   onMicTap: _startVoice,
-                  onCameraTap: _takeWorkPhoto,
+                ),
+                const SizedBox(height: 8),
+                // 作業写真（複数・横スクロール帯）
+                PhotoStripField(
+                  label: '作業写真',
+                  paths: _workPhotoPaths,
+                  onChanged: (v) => setState(() => _workPhotoPaths = v),
                 ),
                 const SizedBox(height: 4),
 
@@ -2228,20 +2143,14 @@ class _TransportRow extends StatelessWidget {
 class _WorkContentSection extends StatelessWidget {
   const _WorkContentSection({
     required this.controller,
-    required this.photoPath,
-    required this.onClearPhoto,
     this.showMediaButtons = false,
     this.isListening = false,
     this.onMicTap,
-    this.onCameraTap,
   });
   final TextEditingController controller;
-  final String? photoPath;
-  final VoidCallback onClearPhoto;
   final bool showMediaButtons;
   final bool isListening;
   final VoidCallback? onMicTap;
-  final VoidCallback? onCameraTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2271,19 +2180,11 @@ class _WorkContentSection extends StatelessWidget {
                           fontWeight: FontWeight.bold)),
                 ]),
                 if (showMediaButtons)
-                  Row(children: [
-                    _SmallMediaButton(
-                      icon: isListening ? Icons.mic : Icons.mic_none,
-                      active: isListening,
-                      onTap: onMicTap,
-                    ),
-                    const SizedBox(width: 8),
-                    _SmallMediaButton(
-                      icon: photoPath != null ? Icons.check_circle : Icons.camera_alt,
-                      active: photoPath != null,
-                      onTap: onCameraTap,
-                    ),
-                  ]),
+                  _SmallMediaButton(
+                    icon: isListening ? Icons.mic : Icons.mic_none,
+                    active: isListening,
+                    onTap: onMicTap,
+                  ),
               ],
             ),
           ),
@@ -2310,39 +2211,7 @@ class _WorkContentSection extends StatelessWidget {
               ),
             ),
           ),
-
-          // 写真プレビュー
-          if (photoPath != null) ...[
-            Stack(
-              alignment: Alignment.topRight,
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                  child: Image.file(
-                    File(photoPath!),
-                    height: 72,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: onClearPhoto,
-                  child: Container(
-                    margin: const EdgeInsets.all(5),
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                        color: Colors.black54, shape: BoxShape.circle),
-                    child: const Icon(Icons.close,
-                        color: Colors.white, size: 13),
-                  ),
-                ),
-              ],
-            ),
-          ] else
-            const SizedBox(height: 8),
+          const SizedBox(height: 8),
         ],
       ),
     );

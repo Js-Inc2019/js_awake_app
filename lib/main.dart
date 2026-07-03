@@ -19,11 +19,11 @@ import 'screens/share_screen.dart';
 import 'services/routes_service.dart';
 import 'screens/after_report_screen.dart';
 import 'services/profile_service.dart';
+import 'widgets/photo_strip_field.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,16 +147,18 @@ class WorkerReportItem {
     required this.transport,
     this.transportTypes,
     this.parkingFee,
-    this.parkingPhotoPath,
+    List<String>? parkingPhotoPaths,
     this.workContent = '',
-    this.workPhotoPath,
+    List<String>? workPhotoPaths,
     this.gpsAddress = '',
     this.originType = 'home',
     DateTime? timestamp,
     this.isActive = true,
     String? id,
     this.apiReportId,
-  }) : timestamp = timestamp ?? DateTime.now(),
+  }) : parkingPhotoPaths = parkingPhotoPaths ?? const [],
+       workPhotoPaths    = workPhotoPaths    ?? const [],
+       timestamp = timestamp ?? DateTime.now(),
        id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
 
   final String id;
@@ -164,14 +166,22 @@ class WorkerReportItem {
   final TransportType transport;
   final List<String>? transportTypes;
   final String? parkingFee;
-  final String? parkingPhotoPath;
+  final List<String> parkingPhotoPaths; // 駐車(parking)：複数
   final String workContent;
-  final String? workPhotoPath;
+  final List<String> workPhotoPaths;    // 作業(site)：複数
   final String gpsAddress;
   final String originType;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
+
+  // 後方互換：表示/エクスポート系は先頭1枚を参照（読み取り専用）
+  String? get parkingPhotoPath => parkingPhotoPaths.isNotEmpty ? parkingPhotoPaths.first : null;
+  String? get workPhotoPath    => workPhotoPaths.isNotEmpty    ? workPhotoPaths.first    : null;
+
+  // 旧形式(単数String)や欠落は読み捨て（クラッシュ防止・袋小路防止）
+  static List<String> _readPaths(dynamic v) =>
+      v is List ? v.whereType<String>().toList() : const [];
 
   String get timeLabel {
     final h = timestamp.hour.toString().padLeft(2, '0');
@@ -185,9 +195,9 @@ class WorkerReportItem {
     'transport':        transport.name,
     'transportTypes':   transportTypes,
     'parkingFee':       parkingFee,
-    'parkingPhotoPath': parkingPhotoPath,
+    'parkingPhotoPaths': parkingPhotoPaths,
     'workContent':      workContent,
-    'workPhotoPath':    workPhotoPath,
+    'workPhotoPaths':   workPhotoPaths,
     'gpsAddress':       gpsAddress,
     'originType':       originType,
     'timestamp':        timestamp.toIso8601String(),
@@ -202,9 +212,9 @@ class WorkerReportItem {
       (t) => t.name == j['transport'], orElse: () => TransportType.train),
     transportTypes:   (j['transportTypes'] as List?)?.cast<String>(),
     parkingFee:       j['parkingFee']       as String?,
-    parkingPhotoPath: j['parkingPhotoPath'] as String?,
+    parkingPhotoPaths: _readPaths(j['parkingPhotoPaths']),
     workContent:      j['workContent']      as String? ?? '',
-    workPhotoPath:    j['workPhotoPath']    as String?,
+    workPhotoPaths:   _readPaths(j['workPhotoPaths']),
     gpsAddress:       j['gpsAddress']       as String? ?? '',
     originType:       j['originType']       as String? ?? 'home',
     timestamp:        j['timestamp'] != null
@@ -274,20 +284,23 @@ class ReportStore {
           'origin_type':         item.originType,
           'work_content':        item.workContent,
         };
-        if (item.parkingPhotoPath != null) {
+        // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
+        final photos = <Map<String, dynamic>>[];
+        for (final p in item.workPhotoPaths) {
           try {
-            body['parking_photo_base64'] = base64Encode(await File(item.parkingPhotoPath!).readAsBytes());
-          } catch (e) {
-            debugPrint('駐車写真エンコード失敗: $e');
-          }
-        }
-        if (item.workPhotoPath != null) {
-          try {
-            body['site_photo_base64'] = base64Encode(await File(item.workPhotoPath!).readAsBytes());
+            photos.add({'photo_type': 'site', 'base64': base64Encode(await File(p).readAsBytes())});
           } catch (e) {
             debugPrint('作業写真エンコード失敗: $e');
           }
         }
+        for (final p in item.parkingPhotoPaths) {
+          try {
+            photos.add({'photo_type': 'parking', 'base64': base64Encode(await File(p).readAsBytes())});
+          } catch (e) {
+            debugPrint('駐車写真エンコード失敗: $e');
+          }
+        }
+        if (photos.isNotEmpty) body['photos'] = photos;
         final response = await http.post(
           Uri.parse('$API_URL/reports'),
           headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
@@ -927,15 +940,13 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
   final _workContentCtrl = TextEditingController();
   final _otherCtrl        = TextEditingController();
   final _speechMgr       = SpeechManager();
-  final _imagePicker     = ImagePicker();
-
   Set<TransportType> _transports = {TransportType.train};
   TransportType get _transport => _transports.isNotEmpty ? _transports.first : TransportType.train;
   String _carType = 'own';
   final _carpoolCtrl = TextEditingController();
   final _transportMemoCtrl = TextEditingController();
-  String?       _photoPath;
-  String?       _workPhotoPath;
+  List<String>  _parkingPhotoPaths = [];
+  List<String>  _workPhotoPaths = [];
   String        _gpsAddress   = '';
   bool          _gpsLoading   = false;
   bool          _isListening  = false;
@@ -1141,24 +1152,6 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     setState(() => _isListening = false);
   }
 
-  Future<void> _takeParkingPhoto() async {
-    final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) {
-      setState(() => _photoPath = f.path);
-      if (!mounted) return;
-      showJsSnackbar(context, '✅ 領収書の写真を撮影しました');
-    }
-  }
-
-  Future<void> _takeWorkPhoto() async {
-    final f = await _imagePicker.pickImage(source: ImageSource.camera, imageQuality: 80);
-    if (f != null && mounted) {
-      setState(() => _workPhotoPath = f.path);
-      if (!mounted) return;
-      showJsSnackbar(context, '✅ 作業写真を撮影しました');
-    }
-  }
-
   Future<bool> _validate() async {
     if (_nameCtrl.text.trim().isEmpty) {
       if (!mounted) return false;
@@ -1167,7 +1160,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
     }
     if (_transport == TransportType.car) {
       final fee      = _feeCtrl.text.trim();
-      final hasPhoto = _photoPath != null;
+      final hasPhoto = _parkingPhotoPaths.isNotEmpty;
       if (fee.isEmpty && !hasPhoto) {
         if (!mounted) return false;
       showJsSnackbar(context, '車の場合は駐車料金または領収書写真が必要です', isError: true);
@@ -1204,9 +1197,9 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
       transport:        _transport,
       originType:       _originType,
       parkingFee:       (_transport == TransportType.car && _carType == 'own') ? _feeCtrl.text.trim() : null,
-      parkingPhotoPath: _photoPath,
+      parkingPhotoPaths: _parkingPhotoPaths,
       workContent:      _composeWorkContent(),
-      workPhotoPath:    _workPhotoPath,
+      workPhotoPaths:   _workPhotoPaths,
       gpsAddress:       _gpsAddress,
     ));
     _refreshPendingCount();
@@ -1224,8 +1217,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
         _submitting    = false;
         _carType       = 'own';
         _transports    = {TransportType.train};
-        _photoPath     = null;
-        _workPhotoPath = null;
+        _parkingPhotoPaths = [];
+        _workPhotoPaths = [];
       });
       if (!mounted) return;
       showJsSnackbar(context, '✅ 報告を送信しました');
@@ -1238,8 +1231,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             setState(() {
               _gpsAddress = '';
               _transports = {TransportType.train};
-              _photoPath = null;
-              _workPhotoPath = null;
+              _parkingPhotoPaths = [];
+              _workPhotoPaths = [];
               _routeComparisons = {};
             });
             _nameCtrl.clear();
@@ -1253,8 +1246,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
             Navigator.pop(context);
             setState(() {
               _transports = {TransportType.train};
-              _photoPath = null;
-              _workPhotoPath = null;
+              _parkingPhotoPaths = [];
+              _workPhotoPaths = [];
               _routeComparisons = {};
             });
             _nameCtrl.clear();
@@ -1536,7 +1529,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                               newSet.remove(t);
                             }
                             if (!newSet.contains(TransportType.car)) {
-                              _feeCtrl.clear(); _photoPath = null;
+                              _feeCtrl.clear(); _parkingPhotoPaths = [];
                             }
                             setState(() => _transports = newSet);
                             await _calculateRoutes();
@@ -1555,7 +1548,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                                 if (!ok) return;
                               }
                               if (!newSet.contains(TransportType.car)) {
-                                _feeCtrl.clear(); _photoPath = null;
+                                _feeCtrl.clear(); _parkingPhotoPaths = [];
                               }
                               setState(() => _transports = newSet);
                               await _calculateRoutes();
@@ -1608,7 +1601,7 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                         const SizedBox(width: 8),
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setState(() { _carType = 'carpool'; _feeCtrl.clear(); _photoPath = null; }),
+                            onTap: () => setState(() { _carType = 'carpool'; _feeCtrl.clear(); _parkingPhotoPaths = []; }),
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
@@ -1641,9 +1634,8 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                       if (_carType == 'own') ...[
                         _ParkingSection(
                           controller: _feeCtrl,
-                          photoPath: _photoPath,
-                          onTakePhoto: _takeParkingPhoto,
-                          onClearPhoto: () => setState(() => _photoPath = null),
+                          photoPaths: _parkingPhotoPaths,
+                          onPhotosChanged: (v) => setState(() => _parkingPhotoPaths = v),
                         ),
                         const SizedBox(height: 10),
                       ],
@@ -1763,17 +1755,11 @@ class _SharedWorkerFormState extends State<SharedWorkerForm> with WidgetsBinding
                       const SizedBox(height: 8),
                     ],
 
-                    // カメラボタン
-                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                      _CameraBtn(hasPhoto: _workPhotoPath != null, onTap: _takeWorkPhoto),
-                    ]),
-
-                    _FormPhotoPreview(
-                      localPath: _workPhotoPath,
-                      existingUrl: null,
-                      onClear: () => setState(() => _workPhotoPath = null),
-                      height: 120,
-                      topPadding: 8,
+                    // 作業写真（複数・横スクロール帯）
+                    PhotoStripField(
+                      label: '作業写真',
+                      paths: _workPhotoPaths,
+                      onChanged: (v) => setState(() => _workPhotoPaths = v),
                     ),
                   ],
                 ),
@@ -1910,13 +1896,13 @@ class _GpsCard extends StatelessWidget {
 
 class _ParkingSection extends StatelessWidget {
   const _ParkingSection({
-    required this.controller, required this.photoPath,
-    required this.onTakePhoto, required this.onClearPhoto,
+    required this.controller,
+    required this.photoPaths,
+    required this.onPhotosChanged,
   });
   final TextEditingController controller;
-  final String? photoPath;
-  final VoidCallback onTakePhoto;
-  final VoidCallback onClearPhoto;
+  final List<String> photoPaths;
+  final ValueChanged<List<String>> onPhotosChanged;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1924,30 +1910,23 @@ class _ParkingSection extends StatelessWidget {
     children: [
       const _Label(text: '駐車料金'),
       const SizedBox(height: 8),
-      Row(children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: '金額（円）',
-              prefixIcon: Icon(Icons.local_parking, color: JsColors.silver),
-              suffixText: '円',
-            ),
-            style: const TextStyle(color: JsColors.offWhite),
-          ),
+      TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: const InputDecoration(
+          labelText: '金額（円）',
+          prefixIcon: Icon(Icons.local_parking, color: JsColors.silver),
+          suffixText: '円',
         ),
-        const SizedBox(width: 10),
-        _CameraBtn(hasPhoto: photoPath != null, onTap: onTakePhoto),
-      ]),
-      _FormPhotoPreview(
-        localPath: photoPath,
-        existingUrl: null,
-        onClear: onClearPhoto,
-        height: 100,
-        topPadding: 10,
-        hint: '領収書の写真も撮影することを推奨します',
+        style: const TextStyle(color: JsColors.offWhite),
+      ),
+      const SizedBox(height: 10),
+      // 駐車場写真（複数・横スクロール帯／領収書も推奨）
+      PhotoStripField(
+        label: '駐車場写真（看板・領収書／推奨）',
+        paths: photoPaths,
+        onChanged: onPhotosChanged,
       ),
     ],
   );
@@ -2115,31 +2094,6 @@ class _CostChip extends StatelessWidget {
 }
 
 
-
-
-class _CameraBtn extends StatelessWidget {
-  const _CameraBtn({required this.hasPhoto, required this.onTap});
-  final bool hasPhoto;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: 56, height: 56,
-      decoration: BoxDecoration(
-        color: hasPhoto ? JsColors.success : JsColors.gunmetal,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: hasPhoto ? JsColors.success : JsColors.divider),
-      ),
-      child: Icon(
-        hasPhoto ? Icons.check_circle : Icons.camera_alt,
-        color: hasPhoto ? Colors.white : JsColors.silver,
-      ),
-    ),
-  );
-}
 
 
 // ============================================================
@@ -3077,76 +3031,3 @@ class _Badge extends StatelessWidget {
 // ============================================================
 
 
-class _FormPhotoPreview extends StatelessWidget {
-  const _FormPhotoPreview({
-    required this.localPath,
-    this.existingUrl,
-    required this.onClear,
-    required this.height,
-    this.topPadding = 10,
-    this.hint,
-  });
-  final String? localPath;
-  final String? existingUrl;
-  final VoidCallback onClear;
-  final double height;
-  final double topPadding;
-  final String? hint;
-
-  @override
-  Widget build(BuildContext context) {
-    if (localPath != null) {
-      return Padding(
-        padding: EdgeInsets.only(top: topPadding),
-        child: Stack(
-          alignment: Alignment.topRight,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.file(File(localPath!),
-                  height: height, width: double.infinity, fit: BoxFit.cover),
-            ),
-            GestureDetector(
-              onTap: onClear,
-              child: Container(
-                margin: const EdgeInsets.all(6),
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                child: const Icon(Icons.close, color: Colors.white, size: 16),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    if (existingUrl != null) {
-      return Padding(
-        padding: EdgeInsets.only(top: topPadding),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.network(existingUrl!,
-              height: height, width: double.infinity, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                    height: height,
-                    width: double.infinity,
-                    color: Colors.black26,
-                    alignment: Alignment.center,
-                    child: const Text('写真を読み込めません',
-                        style: TextStyle(color: JsColors.silver, fontSize: 11)),
-                  )),
-        ),
-      );
-    }
-    if (hint != null) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 6),
-        child: Row(children: [
-          const Icon(Icons.info_outline, color: JsColors.silver, size: 14),
-          const SizedBox(width: 4),
-          Text(hint!, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
-        ]),
-      );
-    }
-    return const SizedBox.shrink();
-  }
-}
