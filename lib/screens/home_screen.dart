@@ -36,6 +36,8 @@ import 'profile_screen.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
 import '../widgets/slide_to_confirm.dart';
+import '../widgets/approval_dialogs.dart';
+import '../widgets/report_photos.dart';
 import '../services/auth_service.dart';
 import '../services/reports_service.dart';
 import '../services/company_service.dart';
@@ -2821,8 +2823,127 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _pending.length,
-      itemBuilder: (context, i) =>
-          JsReportTile(report: _pending[i], myCompanyId: ''),
+      itemBuilder: (context, i) => _pendingCard(context, _pending[i]),
+    );
+  }
+
+  // カード1件: 共有部品 JsReportTile(非改変) に写真とアクション行を合成。
+  Widget _pendingCard(BuildContext context, Map<String, dynamic> r) {
+    final reportId = r['report_id']?.toString() ?? '';
+    bool sending = false;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          JsReportTile(report: r, myCompanyId: ''),
+          const SizedBox(height: 8),
+          ReportPhotos(reportId: reportId, report: r),
+          const SizedBox(height: 8),
+          StatefulBuilder(
+            builder: (context, setSending) => Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: sending
+                        ? null
+                        : () async {
+                            String selectedOrigin =
+                                r['origin_type'] as String? ?? 'home';
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => OriginConfirmDialog(
+                                initialOrigin: selectedOrigin,
+                                onChanged: (v) => selectedOrigin = v,
+                              ),
+                            );
+                            if (confirmed != true || !context.mounted) return;
+                            setSending(() => sending = true);
+                            final result = await ReportsService()
+                                .approveReport(reportId,
+                                    originType: selectedOrigin);
+                            final ok = result['success'] == true;
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(ok
+                                      ? '承認しました'
+                                      : '承認に失敗しました：${result['error']}'),
+                                  backgroundColor:
+                                      ok ? JsColors.success : JsColors.error,
+                                ),
+                              );
+                              if (ok) _loadPending();
+                            }
+                            if (context.mounted) {
+                              setSending(() => sending = false);
+                            }
+                          },
+                    icon: const Icon(Icons.check),
+                    label: const Text('承認'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: JsColors.success,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: sending
+                        ? null
+                        : () async {
+                            final result =
+                                await showDialog<Map<String, dynamic>>(
+                              context: context,
+                              builder: (_) => RevisionReasonDialog(
+                                transportTypes: r['transport_types_json']
+                                    as List<dynamic>?,
+                              ),
+                            );
+                            if (result == null || !context.mounted) return;
+                            final reasons = result['reasons'] as List<String>;
+                            if (reasons.isEmpty) return;
+                            final comment = result['comment'] as String?;
+                            setSending(() => sending = true);
+                            final res = await ReportsService().requestRevision(
+                                reportId, reasons,
+                                reason: comment ?? '');
+                            final ok = res['success'] == true;
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(ok
+                                      ? '修正依頼を送りました'
+                                      : '修正依頼に失敗しました：${res['error']}'),
+                                  backgroundColor:
+                                      ok ? JsColors.warning : JsColors.error,
+                                ),
+                              );
+                              if (ok) _loadPending();
+                            }
+                            if (context.mounted) {
+                              setSending(() => sending = false);
+                            }
+                          },
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('修正依頼'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: JsColors.warning,
+                      foregroundColor: const Color(0xFF3D1E00),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
