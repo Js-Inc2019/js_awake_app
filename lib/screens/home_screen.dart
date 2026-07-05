@@ -30,13 +30,14 @@ import '../main.dart'
         API_URL;
 import 'revision_inbox_screen.dart';
 import 'company_link_screen.dart';
-import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip;
+import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
 import 'day_reports_screen.dart';
 import 'profile_screen.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
 import '../widgets/slide_to_confirm.dart';
 import '../services/auth_service.dart';
+import '../services/reports_service.dart';
 import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
@@ -2733,7 +2734,7 @@ class _ForemanManagementBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Column(
         children: [
           Container(
@@ -2743,6 +2744,7 @@ class _ForemanManagementBody extends StatelessWidget {
                 Tab(text: '📅 カレンダー'),
                 Tab(text: '👥 社員'),
                 Tab(text: '🏢 協力'),
+                Tab(text: '✅ 承認待ち'),
               ],
             ),
           ),
@@ -2752,11 +2754,75 @@ class _ForemanManagementBody extends StatelessWidget {
                 _CalendarTab(),
                 _StaffTab(),
                 _CooperationTab(),
+                _PendingApprovalTab(),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// ④ 承認待ちタブ（P4-2 STEP3a: 一覧表示のみ。承認/差戻し・写真は後続STEP）
+// ─────────────────────────────────────────────
+class _PendingApprovalTab extends StatefulWidget {
+  const _PendingApprovalTab();
+  @override
+  State<_PendingApprovalTab> createState() => _PendingApprovalTabState();
+}
+
+class _PendingApprovalTabState extends State<_PendingApprovalTab> {
+  List<Map<String, dynamic>> _pending = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPending();
+  }
+
+  Future<void> _loadPending() async {
+    setState(() => _loading = true);
+    final result = await ReportsService().getReports(limit: 50);
+    if (!mounted) return;
+    if (result['success'] == true) {
+      final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
+      // 承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない
+      final pending = raw
+          .where((r) =>
+              r['is_sent'] == true &&
+              r['approved'] != true &&
+              r['revision_requested'] != true)
+          .map((r) => {...r, 'status': 'pending'})
+          .toList();
+      setState(() {
+        _pending = pending;
+        _loading = false;
+      });
+    } else {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+          child: CircularProgressIndicator(color: JsColors.gold));
+    }
+    if (_pending.isEmpty) {
+      return const Center(
+        child: Text('承認待ちの日報はありません',
+            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _pending.length,
+      itemBuilder: (context, i) =>
+          JsReportTile(report: _pending[i], myCompanyId: ''),
     );
   }
 }

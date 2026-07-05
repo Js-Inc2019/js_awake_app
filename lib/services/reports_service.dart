@@ -125,4 +125,35 @@ class ReportsService {
       return {'success': false, 'error': e.toString()};
     }
   }
+
+  // ============================================================
+  // 日報一覧取得（会社スコープ・BEは {success, reports:[...]} を返す）
+  // ============================================================
+
+  Future<Map<String, dynamic>> getReports({int limit = 50}) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/reports?limit=$limit'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'reports': (data['reports'] as List?) ?? [],
+        };
+      }
+
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
 }
