@@ -1,6 +1,6 @@
 // lib/screens/consent_view_screen.dart - 同意内容閲覧専用画面
 import 'package:flutter/material.dart';
-import '../main.dart' show JsColors;
+import '../core/theme/js_colors.dart';
 
 class ConsentViewScreen extends StatelessWidget {
   const ConsentViewScreen({super.key});

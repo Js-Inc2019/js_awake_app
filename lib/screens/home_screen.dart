@@ -16,7 +16,6 @@ import '../widgets/photo_strip_field.dart';
 
 import '../main.dart'
     show
-        JsColors,
         TransportType,
         ReportStore,
         WorkerReportItem,
@@ -28,6 +27,7 @@ import '../main.dart'
         NotificationManager,
         OvertimeDialog,
         API_URL;
+import '../core/theme/js_colors.dart';
 import 'revision_inbox_screen.dart';
 import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;

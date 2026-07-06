@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../main.dart' show JsColors, API_URL;
+import '../main.dart' show API_URL;
+import '../core/theme/js_colors.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 

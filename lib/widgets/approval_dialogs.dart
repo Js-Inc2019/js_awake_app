@@ -1,7 +1,7 @@
 // lib/widgets/approval_dialogs.dart - 承認/差戻しダイアログ 共通部品
 // OFFICE(pending_reports_screen.dart)から移植。値を Navigator.pop で返す純UI部品。
 import 'package:flutter/material.dart';
-import '../main.dart' show JsColors;
+import '../core/theme/js_colors.dart';
 
 class RevisionReasonDialog extends StatefulWidget {
   const RevisionReasonDialog({super.key, this.transportTypes});

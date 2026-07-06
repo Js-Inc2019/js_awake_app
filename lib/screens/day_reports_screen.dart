@@ -1,6 +1,6 @@
 // lib/screens/day_reports_screen.dart
 import 'package:flutter/material.dart';
-import '../main.dart' show JsColors;
+import '../core/theme/js_colors.dart';
 import 'monthly_history_screen.dart' show JsReportTile;
 
 class DayReportsScreen extends StatefulWidget {

@@ -1,7 +1,7 @@
 // lib/widgets/report_photos.dart - 日報写真 共通Widget
 import 'package:flutter/material.dart';
 import '../services/reports_service.dart';
-import '../main.dart' show JsColors;
+import '../core/theme/js_colors.dart';
 
 // ─── 日報写真（オンデマンド取得＋サムネ帯＋拡大） ──────────────────────
 // 「写真を見る」タップで GET /reports/:id を叩き photos[] を取得。

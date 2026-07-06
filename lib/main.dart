@@ -31,6 +31,7 @@ import 'package:geocoding/geocoding.dart'
     import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/js_colors.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
@@ -65,23 +66,6 @@ void main() async {
     await NotificationManager.instance.initialize();
   }
   runApp(const JsAwakeApp());
-}
-
-// ============================================================
-// ブランドカラー
-// ============================================================
-
-class JsColors {
-  static const black    = Color(0xFF080806); // Asphalt Dawn 背景メイン
-  static const gunmetal = Color(0xFF181810); // カード背景
-  static const gold     = Color(0xFFA89868); // ゴールド砂埃（アクセント）
-  static const silver   = Color(0xFF484830); // テキスト弱
-  static const offWhite = Color(0xFFEDE8DC); // テキスト強
-  static const surface  = Color(0xFF101008); // 背景サブ
-  static const divider  = Color(0xFF242418); // ボーダー
-  static const success  = Color(0xFF2E7D5E);
-  static const error    = Color(0xFFFF4444);
-  static const warning  = Color(0xFFFFB800);
 }
 
 // ============================================================

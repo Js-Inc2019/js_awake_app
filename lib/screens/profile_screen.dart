@@ -14,7 +14,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../main.dart' show JsColors, API_URL, showJsSnackbar;
+import '../main.dart' show API_URL, showJsSnackbar;
+import '../core/theme/js_colors.dart';
 import '../services/profile_service.dart';
 import '../config/constants.dart';
 import 'consent_view_screen.dart';

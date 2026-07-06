@@ -1,6 +1,6 @@
 // lib/screens/consent_screen.dart
 import 'package:flutter/material.dart';
-import '../main.dart' show JsColors;
+import '../core/theme/js_colors.dart';
 
 class ConsentScreen extends StatefulWidget {
   final VoidCallback onAgreed;
