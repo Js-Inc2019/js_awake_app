@@ -949,7 +949,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ─── ページタイトル ───
   String get _pageTitle {
     switch (_tabIndex) {
-      case 0: return '打刻';
+      case 0: return '日報';
       case 1: return '日報';
       case 2: return '月間履歴';
       case 3: return widget.isForeman ? '管理・集計' : '是正依頼';
@@ -1051,6 +1051,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ),
             ],
           ),
+        // 🧮 TOOL（ARC FLASH）ボタン
+        IconButton(
+          icon: const Icon(Icons.calculate, color: Color(0xFF00E5CC)),
+          tooltip: 'TOOL',
+          onPressed: _launchToolApp,
+        ),
         // 🤝 協力申請ボタン
         Stack(
           alignment: Alignment.center,
@@ -1147,8 +1153,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       padding: EdgeInsets.zero,
       child: Row(children: [
         _BottomTabItem(
-          icon: Icons.punch_clock,
-          label: '打刻',
+          icon: Icons.edit_note,
+          label: '日報',
           active: _tabIndex == 0,
           onTap: () => _setTab(0),
         ),
@@ -1178,13 +1184,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
             ).then((_) => _loadRevisionCount()),
           ),
-        divider,
-        _BottomTabItem(
-          icon: Icons.build,
-          label: 'TOOL',
-          active: false,
-          onTap: _launchToolApp,
-        ),
       ]),
     );
   }
