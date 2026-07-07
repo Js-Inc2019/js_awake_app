@@ -481,7 +481,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 最後のタブを復元（モード別キー）
   Future<void> _restoreTabIndex() async {
     final prefs = await SharedPreferences.getInstance();
-    final key   = widget.isForeman ? 'last_tab_index_foreman' : 'last_tab_index_worker';
+    final key   = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
     final saved = prefs.getInt(key) ?? 0;
     if (mounted) setState(() => _tabIndex = saved);
   }
@@ -490,7 +490,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   void _setTab(int index) {
     setState(() => _tabIndex = index);
     SharedPreferences.getInstance().then((p) {
-      final key = widget.isForeman ? 'last_tab_index_foreman' : 'last_tab_index_worker';
+      final key = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
       p.setInt(key, index);
     });
   }
@@ -952,7 +952,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       case 0: return '日報';
       case 1: return '日報';
       case 2: return '月間履歴';
-      case 3: return widget.isForeman ? '管理・集計' : '是正依頼';
+      case 3: return widget.isForeman ? '承認・是正' : '是正依頼';
+      case 4: return '管理・集計';
       default: return '打刻';
     }
   }
@@ -981,7 +982,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       ),
       _buildHomeTabContent(),
       const MonthlyHistoryBody(),
-      if (widget.isForeman) const _ForemanManagementBody(),
+      if (widget.isForeman) ...[
+        const _ReviewTab(),               // index3: 承認・是正
+        const _ForemanManagementBody(),   // index4: 管理・集計
+      ],
     ];
 
     return Scaffold(
@@ -1020,37 +1024,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ],
       ),
       actions: [
-        // ⚠️ 是正依頼ボタン（foreman/boss のみ）
-        if (widget.isForeman)
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: Icon(Icons.warning_amber_rounded,
-                    color: _revisionCount > 0 ? JsColors.error : JsColors.silver),
-                tooltip: '是正依頼',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
-                ).then((_) => _loadRevisionCount()),
-              ),
-              if (_revisionCount > 0)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                        color: JsColors.error, shape: BoxShape.circle),
-                    child: Text('$_revisionCount',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                ),
-            ],
-          ),
         // 🧮 TOOL（ARC FLASH）ボタン
         IconButton(
           icon: const Icon(Icons.calculate, color: Color(0xFF00E5CC)),
@@ -1159,6 +1132,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           onTap: () => _setTab(0),
         ),
         divider,
+        if (widget.isForeman) ...[
+          _BottomTabItem(
+            icon: Icons.fact_check,
+            label: '承認・是正',
+            active: _tabIndex == 3,
+            onTap: () => _setTab(3),
+          ),
+          divider,
+        ],
         _BottomTabItem(
           icon: Icons.calendar_month,
           label: '月間履歴',
@@ -1170,8 +1152,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           _BottomTabItem(
             icon: Icons.bar_chart,
             label: '管理・集計',
-            active: _tabIndex == 3,
-            onTap: () => _setTab(3),
+            active: _tabIndex == 4,
+            onTap: () => _setTab(4),
           )
         else
           _BottomTabItem(
@@ -2735,7 +2717,7 @@ class _ForemanManagementBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 3,
       child: Column(
         children: [
           Container(
@@ -2745,7 +2727,6 @@ class _ForemanManagementBody extends StatelessWidget {
                 Tab(text: '📅 カレンダー'),
                 Tab(text: '👥 社員'),
                 Tab(text: '🏢 協力'),
-                Tab(text: '✅ 承認待ち'),
               ],
             ),
           ),
@@ -2755,7 +2736,41 @@ class _ForemanManagementBody extends StatelessWidget {
                 _CalendarTab(),
                 _StaffTab(),
                 _CooperationTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// 承認・是正タブ（S2）: [承認待ち / 差戻し] の2サブタブ
+// ─────────────────────────────────────────────
+class _ReviewTab extends StatelessWidget {
+  const _ReviewTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            color: JsColors.gunmetal,
+            child: const TabBar(
+              tabs: [
+                Tab(text: '承認待ち'),
+                Tab(text: '差戻し'),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
                 _PendingApprovalTab(),
+                RevisionInboxBody(),
               ],
             ),
           ),

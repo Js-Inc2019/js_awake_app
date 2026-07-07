@@ -17,12 +17,42 @@ class RevisionInboxScreen extends StatefulWidget {
 }
 
 class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
+  final GlobalKey<RevisionInboxBodyState> _bodyKey =
+      GlobalKey<RevisionInboxBodyState>();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('是正依頼'),
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _bodyKey.currentState?.reload()),
+        ],
+      ),
+      body: RevisionInboxBody(key: _bodyKey),
+    );
+  }
+}
+
+// タブ埋め込み用: Scaffold/AppBar を持たない本体（S2で承認・是正タブに束ねる）
+class RevisionInboxBody extends StatefulWidget {
+  const RevisionInboxBody({super.key});
+  @override
+  State<RevisionInboxBody> createState() => RevisionInboxBodyState();
+}
+
+class RevisionInboxBodyState extends State<RevisionInboxBody> {
   List<Map<String, dynamic>> _revisions = [];
   bool _loading = true;
   bool _hasError = false;
 
   @override
   void initState() { super.initState(); _load(); }
+
+  // 外部（AppBar等）からの再読込用に公開
+  void reload() => _load();
 
   Future<Map<String, String>> get _headers async {
     final prefs = await SharedPreferences.getInstance();
@@ -62,40 +92,32 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('是正依頼'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
-          : _hasError
-              ? _errorView()
-              : _revisions.isEmpty
-                  ? _emptyView()
-                  : RefreshIndicator(
-                  onRefresh: _load,
-                  color: JsColors.gold,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _revisions.length,
-                    itemBuilder: (ctx, i) => _RevisionCard(
-                      revision: _revisions[i],
-                      onResubmit: () async {
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => RevisionEditScreen(revision: _revisions[i]),
-                          ),
-                        );
-                        if (result == true) _load();
-                      },
-                    ),
+    return _loading
+        ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+        : _hasError
+            ? _errorView()
+            : _revisions.isEmpty
+                ? _emptyView()
+                : RefreshIndicator(
+                onRefresh: _load,
+                color: JsColors.gold,
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _revisions.length,
+                  itemBuilder: (ctx, i) => _RevisionCard(
+                    revision: _revisions[i],
+                    onResubmit: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RevisionEditScreen(revision: _revisions[i]),
+                        ),
+                      );
+                      if (result == true) _load();
+                    },
                   ),
                 ),
-    );
+              );
   }
 
   Widget _emptyView() {
