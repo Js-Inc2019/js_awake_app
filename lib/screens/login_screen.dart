@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import 'register_screen.dart';
+import 'recovery_screen.dart';
 import '../config/constants.dart';
 import '../utils/device_id.dart';
 import '../main.dart' show bossPinOk;
@@ -596,12 +597,9 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () async {
-                  final nav = Navigator.of(context);
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('device_id');
-                  nav.pushNamed('/register');
-                },
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const RecoveryScreen()),
+                ),
                 child: const Text('機種変更（新しいデバイスで再登録）',
                     style: TextStyle(color: Color(0xFF484830), fontSize: 12)),
               ),
@@ -675,6 +673,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RecoveryScreen()),
+                  ),
+                  child: const Text('機種変更・再インストールの方はこちら',
+                      style: TextStyle(color: _silverColor, fontSize: 13)),
+                ),
               ),
               const SizedBox(height: 40),
 
