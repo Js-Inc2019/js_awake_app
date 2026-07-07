@@ -51,6 +51,11 @@ class _ProfileData {
   final DateTime? healthCheckDate;
   final String? profileImageUrl;
   final String? workerId;
+  final String? postalCode;
+  final String? emergencyName;
+  final String? emergencyRelation;
+  final String? emergencyPhone;
+  final String? emergencyAddress;
 
   const _ProfileData({
     required this.name,
@@ -63,6 +68,11 @@ class _ProfileData {
     this.healthCheckDate,
     this.profileImageUrl,
     this.workerId,
+    this.postalCode,
+    this.emergencyName,
+    this.emergencyRelation,
+    this.emergencyPhone,
+    this.emergencyAddress,
   });
 
   String get roleLabel {
@@ -80,6 +90,27 @@ class _ProfileData {
     if (role == 'boss') return const Color(0xFF4FC3F7);
     return experienceColor(experienceYears);
   }
+}
+
+// プロフィール写真を data URI(base64) と http(s) URL の両対応で描画
+// （BE v433 は data:image/jpeg;base64,... を返す。将来 http URL へ戻る可能性も残す）
+Widget _profileAvatarImage(String url, {double iconSize = 48}) {
+  final fallback = Icon(Icons.person, color: JsColors.silver, size: iconSize);
+  if (url.startsWith('data:image')) {
+    try {
+      final bytes = Uri.parse(url).data?.contentAsBytes();
+      if (bytes == null || bytes.isEmpty) return fallback;
+      return Image.memory(bytes, fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback);
+    } catch (_) {
+      return fallback;
+    }
+  }
+  if (url.startsWith('http')) {
+    return Image.network(url, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback);
+  }
+  return fallback;
 }
 
 // ─────────────────────────────────────────────
@@ -169,12 +200,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final hcStr      = data['health_check_date'] as String?;
         final hcDate     = hcStr != null ? DateTime.tryParse(hcStr) : null;
 
+        // v433 追加項目
+        final serverWorkerId   = data['worker_id']          as String?;
+        final postalCode       = data['postal_code']        as String?;
+        final emergencyName    = data['emergency_name']     as String?;
+        final emergencyRel     = data['emergency_relation'] as String?;
+        final emergencyPhone   = data['emergency_phone']    as String?;
+        final emergencyAddress = data['emergency_address']  as String?;
+
         // SharedPreferences にキャッシュ
         if (homeAddr.isNotEmpty)  await prefs.setString('home_address', homeAddr);
         if (phone.isNotEmpty)     await prefs.setString('profile_phone', phone);
         if (bloodType.isNotEmpty) await prefs.setString('profile_blood_type', bloodType);
         if (expYears != null)     await prefs.setInt('experience_years', expYears);
         if (hcDate != null)       await prefs.setString('health_check_date_iso', hcStr!);
+        // worker_id はサーバ真実を優先して prefs を上書き（空/nullなら既存値を保持）
+        if (serverWorkerId != null && serverWorkerId.isNotEmpty) {
+          await prefs.setString('worker_id', serverWorkerId);
+        }
 
         setState(() {
           _profile = _ProfileData(
@@ -187,7 +230,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             experienceYears: expYears ?? local.experienceYears,
             healthCheckDate: hcDate,
             profileImageUrl: data['profile_image_url'] as String?,
-            workerId:        local.workerId,
+            workerId:        (serverWorkerId != null && serverWorkerId.isNotEmpty)
+                ? serverWorkerId
+                : local.workerId,
+            postalCode:        postalCode,
+            emergencyName:     emergencyName,
+            emergencyRelation: emergencyRel,
+            emergencyPhone:    emergencyPhone,
+            emergencyAddress:  emergencyAddress,
           );
         });
       }
@@ -230,6 +280,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _buildHeader(p),
                         const SizedBox(height: 24),
                         _buildInfoCard(p),
+                        const SizedBox(height: 16),
+                        _buildEmergencyCard(p),
                         const SizedBox(height: 16),
                         _ToolKeyCard(token: _token),
                         Padding(
@@ -501,14 +553,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           border: Border.all(color: color, width: 2),
         ),
         child: p.profileImageUrl != null
-            ? ClipOval(
-                child: Image.network(
-                  p.profileImageUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.person, color: JsColors.silver, size: 48),
-                ),
-              )
+            ? ClipOval(child: _profileAvatarImage(p.profileImageUrl!))
             : const Icon(Icons.person, color: JsColors.silver, size: 48),
       ),
       const SizedBox(height: 12),
@@ -553,6 +598,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.badge,
           label: '職人ID',
           value: (p.workerId?.isNotEmpty ?? false) ? p.workerId! : '未発行',
+        ),
+        const Divider(height: 1, color: JsColors.divider),
+        _InfoRow(
+          icon: Icons.local_post_office_outlined,
+          label: '郵便番号',
+          value: (p.postalCode?.isNotEmpty ?? false) ? p.postalCode! : '未登録',
         ),
         const Divider(height: 1, color: JsColors.divider),
         _InfoRow(
@@ -605,6 +656,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ]),
+    );
+  }
+
+  // 緊急連絡先（4項目を1カードに集約。DBに emergency 側の郵便番号列は無いため郵便番号は作らない）
+  Widget _buildEmergencyCard(_ProfileData p) {
+    final name  = p.emergencyName     ?? '';
+    final rel   = p.emergencyRelation ?? '';
+    final phone = p.emergencyPhone    ?? '';
+    final addr  = p.emergencyAddress  ?? '';
+    final allEmpty = name.isEmpty && rel.isEmpty && phone.isEmpty && addr.isEmpty;
+    final nameLine = rel.isNotEmpty
+        ? (name.isNotEmpty ? '$name（$rel）' : '（$rel）')
+        : name;
+    return Container(
+      decoration: BoxDecoration(
+        color: JsColors.gunmetal,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JsColors.divider),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.contact_phone_outlined, color: JsColors.gold, size: 18),
+              SizedBox(width: 12),
+              Text('緊急連絡先',
+                  style: TextStyle(color: JsColors.silver, fontSize: 11)),
+            ]),
+            const SizedBox(height: 8),
+            if (allEmpty)
+              const Text('未登録',
+                  style: TextStyle(
+                      color: JsColors.offWhite,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500))
+            else ...[
+              if (nameLine.isNotEmpty)
+                Text(nameLine,
+                    style: const TextStyle(
+                        color: JsColors.offWhite,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+              if (phone.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('☎ $phone',
+                    style: const TextStyle(
+                        color: JsColors.offWhite, fontSize: 13)),
+              ],
+              if (addr.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(addr,
+                    style: const TextStyle(
+                        color: JsColors.silver, fontSize: 12)),
+              ],
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -1004,14 +1115,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                                     File(_localImagePath!), fit: BoxFit.cover))
                             : widget.initial.profileImageUrl != null
                                 ? ClipOval(
-                                    child: Image.network(
-                                      widget.initial.profileImageUrl!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                          Icons.person,
-                                          color: JsColors.silver,
-                                          size: 48),
-                                    ),
+                                    child: _profileAvatarImage(
+                                        widget.initial.profileImageUrl!),
                                   )
                                 : const Icon(Icons.person,
                                     color: JsColors.silver, size: 48),
