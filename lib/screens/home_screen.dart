@@ -343,6 +343,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _companyName = "";
   String _userName = '';
   int _revisionCount = 0;
+  int _pendingApprovalCount = 0;
   int _linkCount     = 0;
 
   // ─── GPS ───
@@ -489,6 +490,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // タブ切り替え＋保存
   void _setTab(int index) {
     setState(() => _tabIndex = index);
+    // 承認・是正タブ(index3)進入時のみバッジ2値を再取得（全index一律はAPI連打になるため回避）
+    if (index == 3) {
+      _loadPendingApprovalCount();
+      _loadRevisionCount();
+    }
     SharedPreferences.getInstance().then((p) {
       final key = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
       p.setInt(key, index);
@@ -553,6 +559,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await Future.wait([
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
+      _loadPendingApprovalCount(),
       _loadLinkCount(),
       _fetchCompanyAddress(),
     ]);
@@ -671,6 +678,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('是正件数取得エラー: $e');
+    }
+  }
+
+  // 承認待ち件数（送信済み・未承認・差戻し中でない）をシェルへ取得
+  Future<void> _loadPendingApprovalCount() async {
+    try {
+      final result = await ReportsService().getReports(limit: 50);
+      if (result['success'] == true && mounted) {
+        final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
+        final count = raw
+            .where((r) =>
+                r['is_sent'] == true &&
+                r['approved'] != true &&
+                r['revision_requested'] != true)
+            .length;
+        setState(() => _pendingApprovalCount = count);
+      }
+    } catch (e) {
+      debugPrint('承認待ち件数取得エラー: $e');
     }
   }
 
@@ -1138,6 +1164,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             label: '承認・是正',
             active: _tabIndex == 3,
             onTap: () => _setTab(3),
+            badge: _pendingApprovalCount,
+            badgeColor: JsColors.success,
+            badge2: _revisionCount,
+            badge2Color: JsColors.warning,
           ),
           divider,
         ],
@@ -1528,12 +1558,29 @@ class _BottomTabItem extends StatelessWidget {
     required this.active,
     required this.onTap,
     this.badge = 0,
+    this.badge2 = 0,
+    this.badgeColor = JsColors.error,
+    this.badge2Color = JsColors.error,
   });
   final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
   final int badge;
+  final int badge2;
+  final Color badgeColor;
+  final Color badge2Color;
+
+  // 数値バッジ（丸）1個を生成
+  Widget _badgeDot(int n, Color c) => Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+        child: Text('$n',
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.bold)),
+      );
 
   @override
   Widget build(BuildContext context) => Expanded(
@@ -1547,19 +1594,17 @@ class _BottomTabItem extends StatelessWidget {
             children: [
               Icon(icon,
                   color: active ? JsColors.gold : JsColors.silver, size: 22),
+              // 1つ目の丸（右上）
               if (badge > 0)
                 Positioned(
                   top: -4, right: -6,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                        color: JsColors.error, shape: BoxShape.circle),
-                    child: Text('$badge',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold)),
-                  ),
+                  child: _badgeDot(badge, badgeColor),
+                ),
+              // 2つ目の丸（1つ目の左隣＝右上領域に横並び）
+              if (badge2 > 0)
+                Positioned(
+                  top: -4, right: badge > 0 ? 12 : -6,
+                  child: _badgeDot(badge2, badge2Color),
                 ),
             ],
           ),
