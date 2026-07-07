@@ -16,14 +16,18 @@ class AfterReportScreen extends StatefulWidget {
   const AfterReportScreen({
     super.key,
     required this.workerName,
+    required this.sent,
     required this.onMoveToNextSite,
     required this.onNightShift,
     required this.onOvertime,
+    this.onRetry,
   });
   final String workerName;
+  final bool sent;                       // 送信APIの成否（正直ゲート用）
   final VoidCallback onMoveToNextSite;
   final VoidCallback onNightShift;
   final Future<void> Function() onOvertime;
+  final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
 
   @override
   State<AfterReportScreen> createState() => _AfterReportScreenState();
@@ -45,21 +49,59 @@ class _AfterReportScreenState extends State<AfterReportScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 const SizedBox(height: 32),
-                Container(
-                  width: 90, height: 90,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _C.success.withValues(alpha: 0.15),
-                    border: Border.all(color: _C.success, width: 2),
+                // ── 頭の表示は送信成否(sent)で正直に出し分け ──
+                if (widget.sent) ...[
+                  Container(
+                    width: 90, height: 90,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _C.success.withValues(alpha: 0.15),
+                      border: Border.all(color: _C.success, width: 2),
+                    ),
+                    child: const Icon(Icons.check, color: _C.success, size: 48),
                   ),
-                  child: const Icon(Icons.check, color: _C.success, size: 48),
-                ),
-                const SizedBox(height: 20),
-                const Text('報告完了！',
-                    style: TextStyle(color: _C.offWhite, fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
-                Text('${widget.workerName}さんの報告を送信しました',
-                    style: const TextStyle(color: _C.silver, fontSize: 13)),
+                  const SizedBox(height: 20),
+                  const Text('報告完了！',
+                      style: TextStyle(color: _C.offWhite, fontSize: 24, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Text('${widget.workerName}さんの報告を送信しました',
+                      style: const TextStyle(color: _C.silver, fontSize: 13)),
+                ] else ...[
+                  Container(
+                    width: 90, height: 90,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _C.warning.withValues(alpha: 0.15),
+                      border: Border.all(color: _C.warning, width: 2),
+                    ),
+                    child: const Icon(Icons.schedule, color: _C.warning, size: 48),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('未送信（再送待ち）',
+                      style: TextStyle(color: _C.offWhite, fontSize: 24, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Text('${widget.workerName}さんの報告は保存されました',
+                      style: const TextStyle(color: _C.silver, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      '通信状況により未送信です。電波の良い場所で自動再送されます。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: _C.warning, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => widget.onRetry?.call(),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('今すぐ再送'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _C.warning,
+                      side: const BorderSide(color: _C.warning),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 40),
                 const Text('次のアクションを選択してください',
                     style: TextStyle(color: _C.silver, fontSize: 13)),

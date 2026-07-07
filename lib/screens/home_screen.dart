@@ -880,6 +880,21 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       await Navigator.push(context, MaterialPageRoute(
         builder: (_) => AfterReportScreen(
           workerName: name,
+          sent: sent,
+          // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
+          onRetry: () async {
+            await ReportStore.instance.retryPending();
+            final remaining = await ReportStore.instance.pendingCount();
+            if (mounted) {
+              showJsSnackbar(
+                context,
+                remaining == 0
+                    ? '✅ 再送しました'
+                    : '📋 まだ未送信です（$remaining件・自動再送を継続します）',
+                isWarning: remaining != 0,
+              );
+            }
+          },
           onMoveToNextSite: () {
             Navigator.pop(context);
             _otherCtrl.clear();

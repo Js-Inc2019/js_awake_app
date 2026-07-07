@@ -821,6 +821,9 @@ class _GateScreenState extends State<GateScreen> {
               }
               return AfterReportScreen(
                 workerName: userName,
+                // [S4-②で要修正] 復元経路: 送信成否がtoday_work_statusに永続化されていないため
+                //  実態不明を暫定でtrue扱い。正しくは状態値に送信成否を含めて判定する(終業フロー設計と一体)
+                sent: true,
                 onMoveToNextSite: goHome,
                 onNightShift: goHome,
                 onOvertime: () async => goHome(),
