@@ -49,6 +49,10 @@ dependencies:
   connectivity_plus: ^6.0.0
   url_launcher: ^6.3.1
   uuid: ^4.5.1
+
+  # 端末ID永続化（再インストール耐性）🔒
+  android_id: ^0.5.2
+  flutter_secure_storage: ^10.3.1
   flutter_dotenv: ^5.1.0
   firebase_core: ^3.13.1
   firebase_messaging: ^15.2.5
