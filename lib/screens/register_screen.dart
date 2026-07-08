@@ -84,6 +84,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       final body = jsonDecode(res.body);
       if (res.statusCode == 200) {
+        // ★role門番: 事務・管理系の招待コードはFIELDでは有効化させない（袋小路を作らない）
+        final role = body['role'] as String? ?? '';
+        if (role == 'admin_office' || role == 'admin_exec') {
+          setState(() {
+            _isLoading = false;
+            _error = 'この招待は事務・管理用です。OFFICEアプリで登録してください';
+          });
+          return;
+        }
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', body['token']      ?? '');
         await prefs.setString('user_id',    body['user_id']    ?? '');
