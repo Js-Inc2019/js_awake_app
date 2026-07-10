@@ -489,6 +489,11 @@ class _LoginScreenState extends State<LoginScreen> {
           await prefs.setString('user_role',  'worker');
           await prefs.setString('device_id',  deviceId);
           await prefs.setBool('is_registered', true);
+          // self-register（主経路）は token と共に worker_id を返す（BE workers.js:353）→ prefs へ保存
+          final wid = body['worker_id'] as String?;
+          if (wid != null && wid.isNotEmpty) {
+            await prefs.setString('worker_id', wid);
+          }
           await _writePersistentRegistered();
         }
         if (!mounted) return;
@@ -534,6 +539,12 @@ class _LoginScreenState extends State<LoginScreen> {
         data['consent_agreed_at'] ?? DateTime.now().toIso8601String());
     await prefs.setString('consent_version', '1.0');
     await prefs.setBool('is_registered', true);
+    // 呼び出し元により worker_id 有無が異なる: verify-pin(BE auth.js:184)/select-membership(:297)は返す、
+    // verify-device(:592)は BE 未返却。含む経路のみ保存されるよう null/空はスキップする。
+    final wid = data['worker_id'] as String?;
+    if (wid != null && wid.isNotEmpty) {
+      await prefs.setString('worker_id', wid);
+    }
     String deviceId = prefs.getString('device_id') ?? '';
     if (deviceId.isEmpty) {
       deviceId = await _getDeviceId();

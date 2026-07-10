@@ -116,6 +116,11 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         data['consent_agreed_at'] ?? DateTime.now().toIso8601String());
     await prefs.setString('consent_version', '1.0');
     await prefs.setBool('is_registered', true);
+    // recover-by-code は単一membership時に worker_id を返す（BE auth.js:908）→ prefs へ保存
+    final wid = data['worker_id'] as String?;
+    if (wid != null && wid.isNotEmpty) {
+      await prefs.setString('worker_id', wid);
+    }
     String did = prefs.getString('device_id') ?? '';
     if (did.isEmpty) {
       did = deviceId;
