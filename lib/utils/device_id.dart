@@ -26,9 +26,14 @@ Future<String> getDeviceId() async {
   String? deviceId;
 
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    // (b) Android → ANDROID_ID
+    // (b) Android → ANDROID_ID にアプリ固有サフィックスを付与
+    //     （同一署名鍵・同一端末でも FIELD/OFFICE の device_id 衝突を防ぐ。SCG32 対策）
+    //     null/空判定は生の ANDROID_ID に対して行い、'null-field' 等を作らない。
     try {
-      deviceId = await const AndroidId().getId();
+      final androidId = await const AndroidId().getId();
+      deviceId = (androidId != null && androidId.isNotEmpty)
+          ? '$androidId-field'
+          : null;
     } catch (_) {
       deviceId = null;
     }
