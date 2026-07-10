@@ -51,7 +51,8 @@ class AuthService {
 
   Future<String?> getRole() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('role');
+    // 二重キー統一: 顔（role）は 'user_role' に一本化
+    return prefs.getString('user_role');
   }
 
   // ============================================================
@@ -129,7 +130,8 @@ class AuthService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token',   token);
           await prefs.setString('user_id',      userId);
-          await prefs.setString('role',         role        ?? 'worker');
+          await prefs.setString('user_role',    role        ?? 'worker'); // 二重キー統一: 'user_role' に一本化
+          await prefs.remove('role'); // 旧 'role' キーの残骸掃除
           await prefs.setString('company_id',   companyId   ?? '');
           await prefs.setString('company_name', companyName ?? '');
           await prefs.setString('user_name',    userName    ?? '');
@@ -168,12 +170,26 @@ class AuthService {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
+    // 単一の顔の掟: 明示ログアウトは端末アンカーを白紙化させる（BEは device_id 受領時に実行）。
+    // 冪等・失敗しても常時200のため、ローカルログアウトは絶対にブロックしない（袋小路禁止）。
+    final deviceId = prefs.getString('device_id') ?? '';
+    if (deviceId.isNotEmpty) {
+      try {
+        await http.post(
+          Uri.parse('$kApiBaseUrl/auth/logout'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'device_id': deviceId}),
+        ).timeout(const Duration(seconds: 5));
+      } catch (_) { /* 通信失敗でもローカルログアウトは継続 */ }
+    }
     await prefs.setBool('logged_out', true);
     await prefs.remove('auth_token');
     await prefs.remove('user_id');
-    await prefs.remove('role');
+    await prefs.remove('user_role'); // 二重キー統一
+    await prefs.remove('role');      // 旧キー残骸掃除
     await prefs.remove('company_id');
     await prefs.remove('user_name');
+    // device_id は削除しない（次回 PIN/生体で正規に再解決させる）
   }
 
   // ============================================================

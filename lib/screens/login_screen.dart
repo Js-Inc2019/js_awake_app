@@ -195,18 +195,40 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final cachedToken = prefs.getString('auth_token') ?? '';
     if (cachedToken.isNotEmpty) {
+      final deviceId = await _getDeviceId();
       try {
+        // 単一の顔の掟: verify-token は body の device_id 必須（未送信は 400 DEVICE_ID_REQUIRED）
         final response = await http.post(
           Uri.parse('$_apiBase/auth/verify-token'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $cachedToken',
           },
+          body: jsonEncode({'device_id': deviceId}),
         ).timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
           try {
             final data = jsonDecode(response.body) as Map<String, dynamic>;
+            // サーバ真実（DBの role/worker_id/user_id）を毎回 prefs へ上書き保存してから /gate へ
+            final user = data['user'];
+            if (user is Map) {
+              final serverRole = user['role'] as String?;
+              if (serverRole != null && serverRole.isNotEmpty) {
+                await prefs.setString('user_role', serverRole);
+              }
+              final serverWorkerId = user['worker_id'] as String?;
+              if (serverWorkerId != null && serverWorkerId.isNotEmpty) {
+                await prefs.setString('worker_id', serverWorkerId);
+              }
+              final serverUserId = user['user_id'] as String?;
+              if (serverUserId != null && serverUserId.isNotEmpty) {
+                await prefs.setString('user_id', serverUserId);
+              }
+            }
+            // 旧 'role' キーの残骸掃除（二重キー統一・ログイン成功時に1回）
+            await prefs.remove('role');
+
             final serverConsentAt = data['consent_agreed_at'];
             if (serverConsentAt != null) {
               await prefs.setString('consent_agreed_at', serverConsentAt.toString());
@@ -229,14 +251,35 @@ class _LoginScreenState extends State<LoginScreen> {
           if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
           return;
         } else if (response.statusCode == 401 || response.statusCode == 403) {
+          // 掟違反系（ANCHOR_MISMATCH / DEVICE_NOT_FOUND / MEMBERSHIP_INVALID /
+          // LEGACY_TOKEN / TOKEN_EXPIRED / INVALID_TOKEN_SCOPE / COOPERATION_PENDING）
+          // → トークン破棄し、必ずログイン手段のある画面へ導く（袋小路禁止）
+          String? errCode;
+          try {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            errCode = (data['code'] ?? data['error']) as String?;
+          } catch (_) {}
           await prefs.remove('auth_token');
-          if (mounted) setState(() => _isLoading = false);
+          // 協業承認待ちのみ承認待ち画面へ（既存導線を流用）
+          if (errCode == 'COOPERATION_PENDING') {
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
+              );
+            }
+            return;
+          }
+          // それ以外は生体ログイン経路へ（生体不可端末は _doBiometric 内で PIN 画面へ）
+          await _biometricThenLogin();
           return;
         }
-        if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
+        // 400 DEVICE_ID_REQUIRED / 503 AUTH_DB_ERROR / その他 →
+        // 一時障害の可能性。auth_token は消さずPIN画面へフォールバック
+        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
         return;
       } catch (e) {
-        if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
+        // タイムアウト・通信例外 → auth_token は消さずPIN画面へフォールバック
+        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
         return;
       }
     }
@@ -531,6 +574,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('auth_token',  data['token']      as String? ?? '');
     await prefs.setString('user_name',   data['name']       as String? ?? '');
     await prefs.setString('user_role',   data['role']       as String? ?? 'worker');
+    await prefs.remove('role'); // 旧 'role' キーの残骸掃除（二重キー統一）
     await prefs.setString('company_id',  data['company_id'] as String? ?? '');
     await prefs.setString('company_name', data['company_name'] as String? ?? '');
     await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');

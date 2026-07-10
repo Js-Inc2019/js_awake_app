@@ -218,6 +218,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (serverWorkerId != null && serverWorkerId.isNotEmpty) {
           await prefs.setString('worker_id', serverWorkerId);
         }
+        // 顔（role）もサーバ真実を prefs('user_role') へ書き戻す（/gate 用キャッシュを最新化・欠落経路の是正）
+        final serverRole = data['role'] as String?;
+        if (serverRole != null && serverRole.isNotEmpty) {
+          await prefs.setString('user_role', serverRole);
+          await prefs.remove('role'); // 旧キー残骸掃除
+        }
 
         setState(() {
           _profile = _ProfileData(
@@ -340,6 +346,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmed != true) return;
 
     final prefs = await SharedPreferences.getInstance();
+    // 単一の顔の掟: 明示ログアウトで端末アンカーを白紙化させる（BEは device_id 受領時に実行・冪等・常時200）。
+    // 通信失敗でもローカルログアウトは絶対にブロックしない（袋小路禁止）。
+    final deviceId = prefs.getString('device_id') ?? '';
+    if (deviceId.isNotEmpty) {
+      try {
+        await http.post(
+          Uri.parse('$API_URL/auth/logout'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'device_id': deviceId}),
+        ).timeout(const Duration(seconds: 5));
+      } catch (_) { /* 通信失敗でもローカルログアウトは継続 */ }
+    }
     await prefs.setBool('logged_out', true);
     await prefs.remove('auth_token');
     await prefs.remove('user_id');

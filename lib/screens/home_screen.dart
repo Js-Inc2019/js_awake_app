@@ -956,7 +956,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
     final userName  = prefs.getString('user_name')   ?? '';
     final companyId = prefs.getString('company_id')  ?? '';
-    final role      = prefs.getString('user_role')   ?? prefs.getString('role') ?? '';
+    final role      = prefs.getString('user_role')   ?? ''; // 二重キー統一: 'user_role' に一本化
     final userId    = prefs.getString('user_id')     ?? '';
 
     final uri = Uri(
