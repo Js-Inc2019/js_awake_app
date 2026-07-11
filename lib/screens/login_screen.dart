@@ -307,6 +307,46 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setBool('is_registered', true);
         setState(() { _isUpdateRecovery = true; _showPinLogin = true; _isLoading = false; });
       } else {
+        // ─── サイレント復帰トライ（B案: 照会先行） ───────────────────
+        // 再インストール後 prefs 空でも device_id は決定論的に復元可能（device_id.dart）。
+        // サーバに端末アンカー(devices.membership_id)が残っていれば verify-device で復帰する。
+        // 失敗・非200・新規ユーザーは何もUIに出さず従来の登録/ランディング画面へ（摩擦ゼロ）。
+        // セキュリティ順序: 照会200では一切保存せず、保存/遷移は生体成功後の _saveAndNavigate に一任。
+        Map<String, dynamic>? recoverData;
+        try {
+          final deviceId = await _getDeviceId(); // 復元トライ（device_id.dart は変更せず流用）
+          if (deviceId.isNotEmpty) {
+            final res = await http.get(
+              Uri.parse('$_apiBase/auth/verify-device?device_id=$deviceId'),
+              headers: {'Content-Type': 'application/json'},
+            ).timeout(const Duration(seconds: 8));
+            if (res.statusCode == 200) {
+              recoverData = jsonDecode(res.body) as Map<String, dynamic>;
+            }
+          }
+        } catch (_) {
+          recoverData = null; // タイムアウト・通信例外 → 従来の登録画面へ
+        }
+        if (!mounted) return;
+        if (recoverData != null) {
+          // 照会200: 生体認証を要求（既存 _doBiometric 流用）。成功時のみ保存/遷移する。
+          final ok = await _doBiometric();
+          if (!mounted) return;
+          if (ok) {
+            // 保存・遷移は既存 _saveAndNavigate に一任（is_registered=true・.js_reg 再作成・
+            // role 等サーバ真実の prefs 保存を含む）。requires_selection 応答も既存 _autoLogin と
+            // 同一扱い（新規分岐は発明しない・membership選択UIは別STEP）。
+            await _saveAndNavigate(recoverData);
+            return;
+          }
+          // 生体失敗/キャンセル → 既存の生体失敗画面（Retry＋PINフォールバック導線・袋小路なし）。
+          // 生体不可端末は _doBiometric 内で _showPinLogin=true 済み → その場合は PIN 画面のまま。
+          if (!_showPinLogin) {
+            setState(() { _isLoading = false; _biometricFailed = true; _errorMessage = '認識に失敗しました。Retryしてください。'; });
+          }
+          return;
+        }
+        // 非200/timeout/例外 → 従来通り登録/ランディング画面（device_id キャッシュは残置）
         setState(() => _isLoading = false);
       }
     }
