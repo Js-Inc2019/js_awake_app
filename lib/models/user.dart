@@ -36,10 +36,10 @@ class User {
       role: json['role'] as String? ?? 'worker',
       isActive: json['is_active'] as bool? ?? true,
       createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
+          ? DateTime.parse(json['created_at'] as String).toLocal()
           : DateTime.now(),
       updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'] as String)
+          ? DateTime.parse(json['updated_at'] as String).toLocal()
           : DateTime.now(),
     );
   }

@@ -44,13 +44,13 @@ class Device {
       isPrimary: json['is_primary'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
       lastUsedAt: json['last_used_at'] != null
-          ? DateTime.parse(json['last_used_at'] as String)
+          ? DateTime.parse(json['last_used_at'] as String).toLocal()
           : null,
       createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
+          ? DateTime.parse(json['created_at'] as String).toLocal()
           : DateTime.now(),
       updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'] as String)
+          ? DateTime.parse(json['updated_at'] as String).toLocal()
           : DateTime.now(),
     );
   }

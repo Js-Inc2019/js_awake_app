@@ -111,7 +111,7 @@ class WorkModeService {
       await http.post(
         Uri.parse('$_apiBase/attendance/$type'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: '{"time":"${time.toIso8601String()}"}',
+        body: '{"time":"${time.toUtc().toIso8601String()}"}',
       ).timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('attendance $type 送信失敗: $e');
