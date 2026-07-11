@@ -178,7 +178,17 @@ class _LoginScreenState extends State<LoginScreen> {
     final prefs = await SharedPreferences.getInstance();
 
     final consentAgreed = prefs.getBool('consent_agreed') ?? false;
-    if (!consentAgreed && mounted) {
+    // 【順序変更】サイレント復帰(F5)が走り得る状態（reinstall 等で prefs 空: auth_token無・
+    // device_id無・is_registered=false）では、ここで同意ゲートを出さず F5 の結果に委ねる:
+    //   復帰成功→サーバ同意証跡から consent_agreed を復元し ConsentScreen をスキップ、
+    //   復帰失敗(新規/非200)→F5 フォールバックで初めて ConsentScreen を出す。
+    // それ以外（token/device/registered が既に在る＝既存状態）では従来どおりここで判定する
+    //   （既存ユーザーは consent_agreed=true のため通常この分岐でも表示されない）。
+    final recoveryEligible =
+        (prefs.getString('auth_token') ?? '').isEmpty
+        && prefs.getString('device_id') == null
+        && !(prefs.getBool('is_registered') ?? false);
+    if (!consentAgreed && !recoveryEligible && mounted) {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ConsentScreen(
           onAgreed: () {
@@ -337,6 +347,14 @@ class _LoginScreenState extends State<LoginScreen> {
         }
         if (!mounted) return;
         if (recoverData != null) {
+          // 【再インストール後の同意画面再表示を防ぐ】サーバが有効な同意証跡を返しているなら
+          // consent_agreed を復元（consent_version が現行と一致する時のみ）。これは UI ゲート用
+          // フラグの復元であり、token/role 等の機密は依然として生体成功後の _saveAndNavigate まで保存しない。
+          final rcAt  = recoverData['consent_agreed_at'] as String?;
+          final rcVer = recoverData['consent_version']   as String?;
+          if (rcAt != null && rcAt.isNotEmpty && rcVer == _kCurrentConsentVersion) {
+            await prefs.setBool('consent_agreed', true);
+          }
           // 照会200: 生体認証を要求（既存 _doBiometric 流用）。成功時のみ保存/遷移する。
           final ok = await _doBiometric();
           if (!mounted) return;
@@ -354,7 +372,23 @@ class _LoginScreenState extends State<LoginScreen> {
           }
           return;
         }
-        // 非200/timeout/例外 → 従来通り登録/ランディング画面（device_id キャッシュは残置）
+        // 非200/timeout/例外 → 新規ユーザー/復帰失敗（＝サイレント復帰不成立）。
+        // 上部ゲートは recoveryEligible でスキップ済みのため、ここで初めて同意ゲートを
+        // 評価する（consent_agreed==false の時だけ ConsentScreen を表示）。
+        if (!(prefs.getBool('consent_agreed') ?? false) && mounted) {
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ConsentScreen(
+              onAgreed: () {
+                prefs.setBool('consent_agreed', true);
+                prefs.setString('consent_version', '1.0');
+                prefs.setString(
+                    'consent_agreed_at', DateTime.now().toIso8601String());
+              },
+            ),
+          ));
+          if (!mounted) return;
+        }
+        // 従来通り登録/ランディング画面（device_id キャッシュは残置）
         setState(() => _isLoading = false);
       }
     }
