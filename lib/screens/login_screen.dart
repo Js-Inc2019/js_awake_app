@@ -19,6 +19,11 @@ import '../main.dart' show bossPinOk;
 
 const String _apiBase = kApiBaseUrl;
 
+// 現行の利用規約バージョン（BE の CURRENT_CONSENT_VERSION と同値）。
+// ※ login_screen は recovery_screen を import するため、公開名の衝突回避で
+//   library-private 定数（先頭 _）にしている。
+const String _kCurrentConsentVersion = '1.0';
+
 // ─── DAWNBREAKパレット（ログイン画面専用）─────────────────
 const _bgColor     = Color(0xFF0A0E14);
 const _goldColor   = Color(0xFFC9A84C);
@@ -177,6 +182,9 @@ class _LoginScreenState extends State<LoginScreen> {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ConsentScreen(
           onAgreed: () {
+            // この時点は未認証のため API を呼べず、ローカルに now() を暫定記録する。
+            // 登録完了後の初ログインで _saveAndNavigate の救済刻印(POST /auth/consent)により
+            // サーバへ正式刻印され、以後はサーバ真実値で上書きされる。
             prefs.setBool('consent_agreed', true);
             prefs.setString('consent_version', '1.0');
             prefs.setString(
@@ -619,10 +627,46 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('company_name', data['company_name'] as String? ?? '');
     await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');
     await prefs.setString('user_id',     data['user_id']    as String? ?? '');
-    await prefs.setString('consent_agreed_at',
-        data['consent_agreed_at'] ?? DateTime.now().toIso8601String());
-    await prefs.setString('consent_version', '1.0');
+    // 同意証跡はサーバ真実に一本化: サーバ値が非null/非空の時だけ保存（毎回 now() 上書きを廃止）。
+    final serverConsentAt  = data['consent_agreed_at'] as String?;
+    final serverConsentVer = data['consent_version']   as String?;
+    if (serverConsentAt != null && serverConsentAt.isNotEmpty) {
+      await prefs.setString('consent_agreed_at', serverConsentAt);
+    }
+    if (serverConsentVer != null && serverConsentVer.isNotEmpty) {
+      await prefs.setString('consent_version', serverConsentVer);
+    }
+    // 規約バージョン不一致（サーバ値が非null かつ現行と不一致）の時だけ次回起動で再同意させる。
+    // それ以外の理由で consent_agreed を false に戻さない（毎回同意の復活防止）。
+    if (serverConsentVer != null && serverConsentVer.isNotEmpty
+        && serverConsentVer != _kCurrentConsentVersion) {
+      await prefs.setBool('consent_agreed', false);
+    }
     await prefs.setBool('is_registered', true);
+    // 既存ユーザー救済刻印: サーバが consent_agreed_at=null を返し、かつローカルで同意済みなら、
+    // 受領した本token で POST /auth/consent を1回呼びサーバに正式刻印する（fail-open・8秒）。
+    final localAgreed = prefs.getBool('consent_agreed') ?? false;
+    final consentToken = data['token'] as String? ?? '';
+    if ((serverConsentAt == null || serverConsentAt.isEmpty)
+        && localAgreed && consentToken.isNotEmpty) {
+      try {
+        final cRes = await http.post(
+          Uri.parse('$_apiBase/auth/consent'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $consentToken',
+          },
+          body: jsonEncode({'consent_version': _kCurrentConsentVersion}),
+        ).timeout(const Duration(seconds: 8));
+        if (cRes.statusCode == 200) {
+          final cd = jsonDecode(cRes.body) as Map<String, dynamic>;
+          final cAt  = cd['consent_agreed_at'] as String?;
+          final cVer = cd['consent_version']   as String?;
+          if (cAt  != null && cAt.isNotEmpty)  await prefs.setString('consent_agreed_at', cAt);
+          if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
+        }
+      } catch (_) { /* fail-open: 失敗は無視（次回ログインで再試行） */ }
+    }
     // 呼び出し元により worker_id 有無が異なる: verify-pin(BE auth.js:184)/select-membership(:297)は返す、
     // verify-device(:592)は BE 未返却。含む経路のみ保存されるよう null/空はスキップする。
     final wid = data['worker_id'] as String?;
