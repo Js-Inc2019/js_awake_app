@@ -13,6 +13,7 @@ import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import 'register_screen.dart';
 import 'recovery_screen.dart';
+import 'membership_select_screen.dart';
 import '../config/constants.dart';
 import '../utils/device_id.dart';
 import '../main.dart' show bossPinOk;
@@ -63,6 +64,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _loginPinCtrl = TextEditingController();
   bool _biometricErrorShown = false;
   bool _obscureLoginPin = true;
+
+  // requires_selection（複数所属）応答の pre_auth_token。
+  // メモリ保持のみ（prefs に保存しない・BE 側 5分で失効するため）。
+  String? _preAuthToken;
 
   @override
   void initState() {
@@ -359,9 +364,13 @@ class _LoginScreenState extends State<LoginScreen> {
           final ok = await _doBiometric();
           if (!mounted) return;
           if (ok) {
+            // 複数所属 → 選択フロー（従来経路は変更なし）
+            if (recoverData['requires_selection'] == true) {
+              await _handleMembershipSelection(recoverData);
+              return;
+            }
             // 保存・遷移は既存 _saveAndNavigate に一任（is_registered=true・.js_reg 再作成・
-            // role 等サーバ真実の prefs 保存を含む）。requires_selection 応答も既存 _autoLogin と
-            // 同一扱い（新規分岐は発明しない・membership選択UIは別STEP）。
+            // role 等サーバ真実の prefs 保存を含む）。
             await _saveAndNavigate(recoverData);
             return;
           }
@@ -422,6 +431,11 @@ class _LoginScreenState extends State<LoginScreen> {
       serverResponded = true;
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        // 複数所属 → 選択フロー（従来経路は変更なし）
+        if (data is Map && data['requires_selection'] == true) {
+          await _handleMembershipSelection(Map<String, dynamic>.from(data));
+          return;
+        }
         await _saveAndNavigate(data);
         return;
       }
@@ -521,6 +535,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ).timeout(const Duration(seconds: 10));
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
+        // 複数所属 → 選択フロー（従来経路は変更なし）
+        if (data is Map && data['requires_selection'] == true) {
+          await _handleMembershipSelection(Map<String, dynamic>.from(data));
+          return;
+        }
         final role = data['role'] as String? ?? 'worker';
         if (role == 'boss') {
           bossPinOk = true;
@@ -649,6 +668,224 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ─── requires_selection（複数所属）対応：A案＝アプリ側フィルタ＋自動昇格 ──
+  //
+  // verify-pin / verify-device が requires_selection:true を返したとき、3経路
+  //（_autoLogin / _doLoginWithPin / F5サイレント復帰）から本関数へ委譲する。
+  // pre_auth_token はメモリ（_preAuthToken）にのみ保持し prefs には保存しない。
+  Future<void> _handleMembershipSelection(Map<String, dynamic> data) async {
+    _preAuthToken = data['pre_auth_token'] as String?;
+
+    // memberships[] を FIELD 用にフィルタ: role が 'worker' または 'boss' のみ残す。
+    final rawList = data['memberships'];
+    final all = (rawList is List) ? rawList.whereType<Map>() : const <Map>[];
+    final field = all
+        .where((m) {
+          final role = m['role'] as String?;
+          return role == 'worker' || role == 'boss';
+        })
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+
+    // pre_auth_token が無い異常応答 → 袋小路回避でログイン画面へ（prefs は触らない）。
+    if (_preAuthToken == null || _preAuthToken!.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _showPinLogin = false;
+          _biometricFailed = false;
+          _errorMessage = 'ログインに失敗しました。もう一度お試しください';
+        });
+      }
+      return;
+    }
+
+    // フィルタ後 0件 → OFFICE 案内ダイアログ → 閉じたらログイン画面に留まる（prefs 保存なし）。
+    if (field.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _showPinLogin = false;
+        _biometricFailed = false;
+      });
+      await _showOfficeOnlyDialog();
+      _preAuthToken = null;
+      return;
+    }
+
+    // フィルタ後 1件 → 選択画面を出さず自動で select-membership（自動昇格）。
+    if (field.length == 1) {
+      final id = field.first['membership_id'] as String?;
+      if (id == null || id.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _showPinLogin = false;
+            _biometricFailed = false;
+            _errorMessage = '所属情報が不正です。もう一度お試しください';
+          });
+        }
+        _preAuthToken = null;
+        return;
+      }
+      await _autoSelectMembership(id);
+      return;
+    }
+
+    // フィルタ後 2件以上 → 選択画面へ遷移。
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      _showPinLogin = false;
+      _biometricFailed = false;
+    });
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (_) => MembershipSelectScreen(
+          preAuthToken: _preAuthToken!,
+          memberships: field,
+        ),
+      ),
+    );
+    // 選択画面が full-login 応答を返したら保存＆/gate。null（戻る/失効/失敗）ならログインに留まる。
+    if (result != null) {
+      await _finishMembershipLogin(result);
+    } else {
+      _preAuthToken = null;
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // 自動昇格（フィルタ後1件）専用の select-membership 呼び出し。選択画面は表示しない。
+  Future<void> _autoSelectMembership(String membershipId) async {
+    final token = _preAuthToken;
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _showPinLogin = false;
+          _errorMessage = 'ログインに失敗しました。もう一度お試しください';
+        });
+      }
+      return;
+    }
+    if (mounted) setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      final res = await http.post(
+        Uri.parse('$_apiBase/auth/select-membership'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'pre_auth_token': token,
+          'membership_id': membershipId,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        await _finishMembershipLogin(data);
+        return;
+      }
+
+      _preAuthToken = null; // 失敗時は失効扱いで破棄
+      if (res.statusCode == 401) {
+        // pre_auth 失効（TOKEN_EXPIRED / BE auth.js:255）→ 時間切れ案内 → ログインへ戻す。
+        if (!mounted) return;
+        setState(() { _isLoading = false; _showPinLogin = false; });
+        await _showMembershipTimeoutDialog();
+        return;
+      }
+      // その他（400/403/500 等）→ エラー表示＋ログイン画面へ（袋小路なし）。
+      String msg = '所属の選択に失敗しました。もう一度お試しください';
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final serverMsg = body['error'] as String?;
+        if (serverMsg != null && serverMsg.isNotEmpty) msg = serverMsg;
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _showPinLogin = false;
+          _errorMessage = msg;
+        });
+      }
+    } catch (e) {
+      _preAuthToken = null;
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _showPinLogin = false;
+          _errorMessage = 'ネットワークエラー: $e';
+        });
+      }
+    }
+  }
+
+  // select-membership 成功応答（full-login）を保存し /gate へ。
+  // 保存は既存 _saveAndNavigate を再利用（同意束の救済刻印・version 判定を重複実装しない）。
+  Future<void> _finishMembershipLogin(Map<String, dynamic> data) async {
+    _preAuthToken = null; // 用済み・メモリからも破棄
+    // boss は _doLoginWithPin と同じく bossPinOk を立てる（ゲート整合）。
+    final role = data['role'] as String? ?? 'worker';
+    if (role == 'boss') {
+      bossPinOk = true;
+    }
+    await _saveAndNavigate(data);
+  }
+
+  // pre_auth 失効時（自動昇格経路）の案内ダイアログ。閉じたらログイン画面に留まる。
+  Future<void> _showMembershipTimeoutDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _navyColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('時間切れです',
+            style: TextStyle(color: _goldColor, fontSize: 16)),
+        content: const Text('もう一度ログインしてください',
+            style: TextStyle(color: Colors.white, height: 1.7)),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // フィルタ後 0件（FIELD 用の役割なし）→ OFFICE アプリへ案内。閉じたらログイン画面に留まる。
+  Future<void> _showOfficeOnlyDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _navyColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('ご案内',
+            style: TextStyle(color: _goldColor, fontSize: 16)),
+        content: const Text('この端末の役割はOFFICEアプリをご利用ください',
+            style: TextStyle(color: Colors.white, height: 1.7)),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
