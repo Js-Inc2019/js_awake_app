@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
 import '../utils/device_id.dart';
+import 'consent_screen.dart';
 
 // 現行の利用規約バージョン（BE の CURRENT_CONSENT_VERSION と同値・当ファイル内 private 定数）。
 const String _kCurrentConsentVersion = '1.0';
@@ -78,6 +79,34 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
       if (!mounted) return;
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200) {
+        // 【旧時代ユーザー救済・角ケース】recover-by-code 成功でも、サーバの consent_agreed_at が
+        // null/空（DB未記録）だと同意が永久未記録になり得る。保存/遷移の前に ConsentScreen を出して
+        // 同意を取得する。onAgreed で consent_agreed=true 等を prefs 保存 → 直後の _saveAndNavigate 内の
+        // 既存救済刻印（localAgreed=true + サーバ null 検知）が POST /auth/consent で正式刻印する（重複実装しない）。
+        // ※ サーバ値が非null（既に刻印済み）の時は表示しない＝毎回同意の復活を防ぐ。
+        final serverConsentAt = data['consent_agreed_at'] as String?;
+        if (serverConsentAt == null || serverConsentAt.isEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          bool agreedNow = false;
+          if (!mounted) return;
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ConsentScreen(
+              onAgreed: () {
+                agreedNow = true;
+                prefs.setBool('consent_agreed', true);
+                prefs.setString('consent_version', _kCurrentConsentVersion);
+                prefs.setString(
+                    'consent_agreed_at', DateTime.now().toIso8601String());
+              },
+            ),
+          ));
+          if (!mounted) return;
+          if (!agreedNow) {
+            // 同意せず戻った → 進めない。復旧画面に留まる（袋小路ではない・再試行/戻る可能）。
+            setState(() => _isLoading = false);
+            return;
+          }
+        }
         await _saveAndNavigate(data, deviceId);
         return;
       }

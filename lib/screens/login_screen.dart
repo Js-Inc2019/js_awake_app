@@ -357,8 +357,37 @@ class _LoginScreenState extends State<LoginScreen> {
           // フラグの復元であり、token/role 等の機密は依然として生体成功後の _saveAndNavigate まで保存しない。
           final rcAt  = recoverData['consent_agreed_at'] as String?;
           final rcVer = recoverData['consent_version']   as String?;
-          if (rcAt != null && rcAt.isNotEmpty && rcVer == _kCurrentConsentVersion) {
+          final serverConsentValid =
+              rcAt != null && rcAt.isNotEmpty && rcVer == _kCurrentConsentVersion;
+          if (serverConsentValid) {
+            // サーバに現行versionの有効な同意証跡あり → UIゲートを復元し ConsentScreen は出さない。
+            // ＝一度刻印されたら（サーバ値が非null＆現行version）二度と表示しない（毎回同意の復活防止）。
             await prefs.setBool('consent_agreed', true);
+          } else {
+            // 【旧時代ユーザー救済・角ケース】サーバ同意が null/空、または version 不一致のとき。
+            // 再インストールで prefs 消失していると、上部の同意ゲートは recoveryEligible でスキップ済み、
+            // かつ _saveAndNavigate の救済刻印条件（localAgreed==true）も満たせず、同意が永久未記録になる。
+            // そこで生体認証の前に ConsentScreen を表示して同意を取得する。onAgreed で consent_agreed=true 等を
+            // prefs 保存 → 以降の既存フロー（生体→_saveAndNavigate）内の救済刻印が localAgreed=true + サーバ null を
+            // 検知し POST /auth/consent で正式刻印する（既存ロジック再利用・重複実装しない）。
+            bool agreedNow = false;
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ConsentScreen(
+                onAgreed: () {
+                  agreedNow = true;
+                  prefs.setBool('consent_agreed', true);
+                  prefs.setString('consent_version', '1.0');
+                  prefs.setString(
+                      'consent_agreed_at', DateTime.now().toIso8601String());
+                },
+              ),
+            ));
+            if (!mounted) return;
+            if (!agreedNow) {
+              // 同意せず戻った → ログインへ進めない。従来のランディング画面へ（袋小路ではない）。
+              setState(() => _isLoading = false);
+              return;
+            }
           }
           // 照会200: 生体認証を要求（既存 _doBiometric 流用）。成功時のみ保存/遷移する。
           final ok = await _doBiometric();
