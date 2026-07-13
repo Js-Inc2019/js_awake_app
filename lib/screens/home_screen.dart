@@ -390,6 +390,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── 送信 ───
   bool _submitting = false;
+  // 完了ビューが日報タブ(index1)を占有中か。true の間フォームへ到達不能＝二重報告防止の要
+  bool _todayReportDone = false;
+  // 完了ビューに渡す送信成否。送信直後経路は実成否、復元経路は暫定true
+  // （S4-②: 送信成否がtoday_work_statusに永続化されていないため復元時の実態は不明。今回は未修正）
+  bool _lastSentOk = true;
 
   @override
   void initState() {
@@ -399,6 +404,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _loadCacheAndStart();
     _restoreTabIndex();
     _loadOriginPrefs();
+    _initTodayReportDone();
     _workCtrl.addListener(_onWorkContentChanged);
     if (widget.restoreWorkStatus != null) {
       WidgetsBinding.instance.addPostFrameCallback(
@@ -433,6 +439,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('today_date', todayDate);
     await prefs.setString('today_work_status', status);
+  }
+
+  // 起動時: 当日ぶんが送信済み(done)なら完了ビューを日報タブに出す（復元経路を一本化）
+  Future<void> _initTodayReportDone() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final todayDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final savedDate = prefs.getString('today_date') ?? '';
+    final status    = prefs.getString('today_work_status') ?? '';
+    if (mounted && savedDate == todayDate && status == 'done') {
+      setState(() => _todayReportDone = true);
+    }
   }
 
   Future<void> _saveDraft() async {
@@ -875,72 +893,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _overtimeExpanded = false;
         _overtimeHours = 0;
         _overtimeMinutes = 0;
+        // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
+        // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
+        _lastSentOk = sent;   // 送信直後経路は実際の送信成否を渡す
+        _todayReportDone = true;
       });
-      if (!mounted) return;
-      await Navigator.push(context, MaterialPageRoute(
-        builder: (_) => AfterReportScreen(
-          workerName: name,
-          sent: sent,
-          // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
-          onRetry: () async {
-            await ReportStore.instance.retryPending();
-            final remaining = await ReportStore.instance.pendingCount();
-            if (mounted) {
-              showJsSnackbar(
-                context,
-                remaining == 0
-                    ? '✅ 再送しました'
-                    : '📋 まだ未送信です（$remaining件・自動再送を継続します）',
-                isWarning: remaining != 0,
-              );
-            }
-          },
-          onMoveToNextSite: () {
-            Navigator.pop(context);
-            _otherCtrl.clear();
-            _parkingCtrl.clear();
-            _carpoolCtrl.clear();
-            _transportMemoCtrl.clear();
-            setState(() {
-              _gpsAddress = '';
-              _transports = {};
-              _carType = 'own';
-              _routeComparisons = {};
-              _workPhotoPaths = [];
-              _parkingPhotoPaths = [];
-            });
-            _fetchGps();
-          },
-          onNightShift: () {
-            Navigator.pop(context);
-            if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
-          },
-          onOvertime: () async {
-            await showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (ctx) => OvertimeDialog(
-                workerName: name,
-                gpsAddress: gpsAddr,
-                onSubmit: (start, end, overtime) async {
-                  final sentOt = await ReportStore.instance.addReport(WorkerReportItem(
-                    name: name,
-                    transport: TransportType.other,
-                    workContent: '【残業】$start〜$end $overtime',
-                    gpsAddress: gpsAddr,
-                  ));
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (mounted) showJsSnackbar(
-                    context,
-                    sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
-                    isWarning: !sentOt,
-                  );
-                },
-              ),
-            );
-          },
-        ),
-      ));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -1217,6 +1174,75 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── ホームタブ本体 ───
   Widget _buildHomeTabContent() {
+    // 完了ビューが占有中は日報フォームを出さない＝到達不能（二重報告防止の要）
+    if (_todayReportDone) {
+      return AfterReportBody(
+        workerName: _userName,
+        sent: _lastSentOk,
+        // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
+        onRetry: () async {
+          await ReportStore.instance.retryPending();
+          final remaining = await ReportStore.instance.pendingCount();
+          if (mounted) {
+            showJsSnackbar(
+              context,
+              remaining == 0
+                  ? '✅ 再送しました'
+                  : '📋 まだ未送信です（$remaining件・自動再送を継続します）',
+              isWarning: remaining != 0,
+            );
+          }
+        },
+        // 現場移動：Navigator.popは廃止。クリア+GPS再取得に加え、完了ビュー解除＋
+        // prefsのtoday_work_statusを'working'へ更新してフォームへ復帰する。
+        onMoveToNextSite: () async {
+          _otherCtrl.clear();
+          _parkingCtrl.clear();
+          _carpoolCtrl.clear();
+          _transportMemoCtrl.clear();
+          await _saveWorkStatus('working');
+          if (!mounted) return;
+          setState(() {
+            _todayReportDone = false;
+            _gpsAddress = '';
+            _transports = {};
+            _carType = 'own';
+            _routeComparisons = {};
+            _workPhotoPaths = [];
+            _parkingPhotoPaths = [];
+          });
+          _fetchGps();
+        },
+        // 夜勤継続：Navigator.popは廃止しスナックバーのみ（挙動は現状維持・設計は別途）
+        onNightShift: () {
+          if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
+        },
+        onOvertime: () async {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => OvertimeDialog(
+              workerName: _userName,
+              gpsAddress: _gpsAddress,
+              onSubmit: (start, end, overtime) async {
+                final sentOt = await ReportStore.instance.addReport(WorkerReportItem(
+                  name: _userName,
+                  transport: TransportType.other,
+                  workContent: '【残業】$start〜$end $overtime',
+                  gpsAddress: _gpsAddress,
+                ));
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) showJsSnackbar(
+                  context,
+                  sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
+                  isWarning: !sentOt,
+                );
+              },
+            ),
+          );
+        },
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

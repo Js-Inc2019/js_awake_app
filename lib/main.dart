@@ -12,7 +12,6 @@ import 'screens/login_screen.dart';
 import 'screens/pending_approval_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/share_screen.dart';
-import 'screens/after_report_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -800,43 +799,16 @@ class _GateScreenState extends State<GateScreen> {
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final savedDate  = prefs.getString('today_date') ?? '';
     final workStatus = prefs.getString('today_work_status') ?? 'idle';
-    final userName = prefs.getString('user_name') ?? '';
     final shouldRestore = savedDate == todayDate &&
         workStatus != 'idle' &&
         workStatus != 'done';
 
-    if (workStatus == 'done') {
-      if (savedDate == todayDate) {
-        // 当日の報告完了 → 完了画面を復元
-        if (!context.mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (innerCtx) {
-              void goHome() {
-                prefs.remove('today_work_status');
-                prefs.remove('today_date');
-                Navigator.of(innerCtx).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const HomeScreen()));
-              }
-              return AfterReportScreen(
-                workerName: userName,
-                // [S4-②で要修正] 復元経路: 送信成否がtoday_work_statusに永続化されていないため
-                //  実態不明を暫定でtrue扱い。正しくは状態値に送信成否を含めて判定する(終業フロー設計と一体)
-                sent: true,
-                onMoveToNextSite: goHome,
-                onNightShift: goHome,
-                onOvertime: () async => goHome(),
-              );
-            },
-          ),
-        );
-        return;
-      } else {
-        // 日付が変わった → クリアして通常起動
-        await prefs.remove('today_work_status');
-        await prefs.remove('today_date');
-      }
+    // 当日の報告完了(done)状態は HomeScreen 側(日報タブ)が prefs を読んで
+    // 完了ビューを出すため、ここでは全画面pushによる復元を行わない（復元経路を一本化）。
+    // 日付が変わっている場合のみ当日キーをクリアして通常起動する。
+    if (workStatus == 'done' && savedDate != todayDate) {
+      await prefs.remove('today_work_status');
+      await prefs.remove('today_date');
     }
 
     if (!context.mounted) return;

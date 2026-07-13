@@ -12,7 +12,7 @@ class _C {
   static const warning  = Color(0xFFE65100);
 }
 
-class AfterReportScreen extends StatefulWidget {
+class AfterReportScreen extends StatelessWidget {
   const AfterReportScreen({
     super.key,
     required this.workerName,
@@ -29,20 +29,55 @@ class AfterReportScreen extends StatefulWidget {
   final Future<void> Function() onOvertime;
   final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
 
-  @override
-  State<AfterReportScreen> createState() => _AfterReportScreenState();
-}
-
-class _AfterReportScreenState extends State<AfterReportScreen> {
-  bool _overtimeDone = false;  // 残業送信後に丸ボタンを消す
-
+  // 全画面版は中身をAfterReportBodyへ委譲（他参照が壊れないよう残置）
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,  // バックボタンで報告画面に戻れないようにする
       child: Scaffold(
         backgroundColor: _C.black,
-        body: SafeArea(
+        body: AfterReportBody(
+          workerName: workerName,
+          sent: sent,
+          onMoveToNextSite: onMoveToNextSite,
+          onNightShift: onNightShift,
+          onOvertime: onOvertime,
+          onRetry: onRetry,
+        ),
+      ),
+    );
+  }
+}
+
+// 完了表示＋各アクションの中身のみ（Scaffold/PopScopeなし）。
+// 全画面(AfterReportScreen)からも日報タブ内(JsMainShell)からも埋め込める。
+class AfterReportBody extends StatefulWidget {
+  const AfterReportBody({
+    super.key,
+    required this.workerName,
+    required this.sent,
+    required this.onMoveToNextSite,
+    required this.onNightShift,
+    required this.onOvertime,
+    this.onRetry,
+  });
+  final String workerName;
+  final bool sent;                       // 送信APIの成否（正直ゲート用）
+  final VoidCallback onMoveToNextSite;
+  final VoidCallback onNightShift;
+  final Future<void> Function() onOvertime;
+  final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
+
+  @override
+  State<AfterReportBody> createState() => _AfterReportBodyState();
+}
+
+class _AfterReportBodyState extends State<AfterReportBody> {
+  bool _overtimeDone = false;  // 残業送信後に丸ボタンを消す
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: Column(
@@ -160,8 +195,6 @@ class _AfterReportScreenState extends State<AfterReportScreen> {
               ],
             ),
           ),
-        ),
-      ),
     );
   }
 }
