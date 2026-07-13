@@ -180,10 +180,10 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
             builder: (context, constraints) => SingleChildScrollView(
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                // thumb zone 考慮: カード群を画面下半分へ寄せる。
+                // コンテンツ群（見出し＋カード群）を画面の垂直中央に配置。
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(height: 8),
                     const Text(
