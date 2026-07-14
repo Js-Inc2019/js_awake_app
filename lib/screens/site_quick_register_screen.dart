@@ -1,9 +1,10 @@
 // lib/screens/site_quick_register_screen.dart
 // 職長の承認ゲートから開く「現場の仮登録」軽量フォーム（FIELD / Asphalt Dawn）。
 //   ・入力: 現場名(必須) / 住所(任意)。lat/lng は任意（呼び出し元が渡せれば引き継ぐ）。
-//   ・重複チェック: 表示時に lat/lng があれば matchSites(50m) を実行し、候補があれば
-//     上部に提示。候補タップ = 新規登録せずその現場を選択（site_id を返す）＝重複入口の封鎖。
-//     候補なし/通信失敗は静かにスキップ（登録をブロックしない・袋小路なし）。
+//   ・重複チェック(a案): 画面は即開き、表示後に非同期で gps_address→geocode→matchSites(50m)。
+//     候補があれば上部に控えめに提示。候補タップ = 新規登録せずその現場を選択（site_id を返す）
+//     ＝重複入口の封鎖。geocode失敗(not_found/error/offline)・候補なしは静かにスキップ
+//     （ダイアログ/スナックバー禁止＝登録の摩擦を増やさない・袋小路なし）。
 //   ・登録 = POST /sites（status はサーバが boss→pending 付与）→ 201 の site_id を返す。
 //   ・戻り値契約: Navigator.pop(context, siteId)（キャンセル/失敗時は pop せず or null）。
 import 'package:flutter/material.dart';
@@ -50,11 +51,26 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     super.dispose();
   }
 
-  // 表示時の重複チェック。lat/lng が無ければ何もしない。失敗も静かにスキップ（袋小路禁止）。
+  // 表示時の重複チェック（a案・画面は既に開いている＝完全非同期）。
+  //   1) 座標が渡っていればそれを使用。無ければ gps_address を geocode して座標化。
+  //   2) matchSites(50m) で近隣候補を取得し、あれば上部に提示。
+  //   すべての失敗（geocode not_found/error/offline・match ok:false・材料なし）は
+  //   静かにスキップ（ダイアログ/スナックバー禁止＝登録の摩擦を増やさない・袋小路なし）。
   Future<void> _checkDuplicatesSilently() async {
-    final lat = widget.lat;
-    final lng = widget.lng;
-    if (lat == null || lng == null) return; // 座標なし＝チェック不可（登録は可能）
+    double? lat = widget.lat;
+    double? lng = widget.lng;
+
+    if (lat == null || lng == null) {
+      final addr = widget.initialAddress?.trim() ?? '';
+      if (addr.isEmpty) return; // 材料なし＝チェック不可（登録は可能）
+      final g = await _siteService.geocode(addr);
+      if (!mounted) return;
+      if (g['status'] != 'ok') return; // not_found/error/offline → 静かにスキップ
+      lat = g['lat'] as double?;
+      lng = g['lng'] as double?;
+      if (lat == null || lng == null) return;
+    }
+
     final res = await _siteService.matchSites(lat, lng);
     if (!mounted) return;
     if (res['ok'] == true) {
@@ -190,27 +206,43 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
             Icon(Icons.near_me, color: JsColors.gold, size: 16),
             SizedBox(width: 6),
             Expanded(
-              child: Text('近くにこの現場があります（重複登録を防げます）',
+              child: Text('📍 近くに登録済みの現場があります',
                   style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ]),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
+          const Text('タップすると新規登録せずにその現場へ紐づけます（提案）',
+              style: TextStyle(color: JsColors.textMid, fontSize: 11)),
+          const SizedBox(height: 4),
           ..._nearby.map((s) {
             final id = s['site_id'] as String?;
             final name = s['site_name'] as String? ?? '(名称未設定)';
+            final addr = (s['address'] as String? ?? '').trim();
             final dist = s['distance_m'];
             final distStr = (dist is num) ? '約${dist.round()}m' : '';
+            final isPending = (s['status'] as String?) == 'pending';
+            final sub = [if (addr.isNotEmpty) addr, if (distStr.isNotEmpty) distStr].join('　');
             return ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.location_on, color: JsColors.gold, size: 18),
-              title: Text(name, style: const TextStyle(color: JsColors.textWhite, fontSize: 14)),
-              subtitle: distStr.isNotEmpty
-                  ? Text(distStr, style: const TextStyle(color: JsColors.textMid, fontSize: 11))
+              // 現場名＋（pending 現場は仮登録バッジ併記）
+              title: Row(children: [
+                Flexible(
+                  child: Text(name,
+                      style: const TextStyle(color: JsColors.textWhite, fontSize: 14)),
+                ),
+                if (isPending) ...[
+                  const SizedBox(width: 6),
+                  _pendingBadge(),
+                ],
+              ]),
+              subtitle: sub.isNotEmpty
+                  ? Text(sub, style: const TextStyle(color: JsColors.textMid, fontSize: 11))
                   : null,
               trailing: const Text('これを選ぶ',
                   style: TextStyle(color: JsColors.gold, fontSize: 12)),
-              // 候補タップ = 新規登録せず既存 site_id を返す（重複を作らない）
+              // 候補タップ = 新規登録せず既存 site_id を返す（承認ゲートの紐づけ経路へ合流）
               onTap: id == null ? null : () => Navigator.pop(context, id),
             );
           }),
@@ -218,6 +250,18 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
       ),
     );
   }
+
+  // 仮登録(pending)現場のバッジ（本ファイル:140 の warning 約18% リテラルと同型）。
+  Widget _pendingBadge() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+    decoration: BoxDecoration(
+      color: const Color(0x2EFFB800),
+      borderRadius: BorderRadius.circular(5),
+      border: Border.all(color: JsColors.warning),
+    ),
+    child: const Text('仮登録',
+        style: TextStyle(color: JsColors.warning, fontSize: 10, fontWeight: FontWeight.bold)),
+  );
 
   InputDecoration _deco(String hint) => InputDecoration(
         hintText: hint,

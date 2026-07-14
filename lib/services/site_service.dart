@@ -154,6 +154,37 @@ class SiteService {
   }
 
   // ============================================================
+  // 住所→座標（GET /sites/geocode?address=）。matchSites と同じく非200/通信断を
+  // 握り潰さず status で区別する（BE: 200→{success,lat,lng} / 404 GEOCODE_NOT_FOUND /
+  // 502 GEOCODE_FAILED / 400 ADDRESS_REQUIRED, routes/sites.js:171-208）。
+  //   成功        → {'status': 'ok', 'lat': double, 'lng': double}
+  //   住所不明     → {'status': 'not_found'}                 （404）
+  //   その他非200  → {'status': 'error', 'httpStatus': int}   （502/400等）
+  //   通信断/例外  → {'status': 'offline'}
+  // ============================================================
+  Future<Map<String, dynamic>> geocode(String address) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/sites/geocode?address=${Uri.encodeQueryComponent(address)}'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return {
+          'status': 'ok',
+          'lat': (data['lat'] as num?)?.toDouble(),
+          'lng': (data['lng'] as num?)?.toDouble(),
+        };
+      }
+      if (response.statusCode == 404) return {'status': 'not_found'};
+      return {'status': 'error', 'httpStatus': response.statusCode};
+    } catch (_) {
+      return {'status': 'offline'};
+    }
+  }
+
+  // ============================================================
   // 現場情報更新
   // ============================================================
 

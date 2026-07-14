@@ -2057,10 +2057,11 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
       context,
       MaterialPageRoute(
         builder: (_) => SiteQuickRegisterScreen(
-          // 住所欄の初期値は日報の gps_address（文字列）。
+          // a案: 対象日報の gps_address を渡し、画面は即開く（geocode を待たない）。
+          // 住所欄の初期値になり、かつ画面側で gps_address→geocode→matchSites の重複チェックに使う。
           initialAddress: widget.report['gps_address'] as String?,
-          // reports に lat/lng 列が無く（prod_schema）、承認ゲートの report は数値座標を持たない
-          // （LIST_COLS は gps_address のみ・reports.js:457）。→ 座標なしで登録、重複チェックは休止。
+          // reports に lat/lng 列は無い（prod_schema）ため数値座標は渡さない（画面が gps_address を
+          // geocode して座標化する）。職長の現在GPSは使わない（誤マッチ回避・確定設計）。
           lat: null,
           lng: null,
         ),
