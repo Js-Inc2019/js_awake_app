@@ -3287,34 +3287,75 @@ class _ForemanManagementBody extends StatelessWidget {
 // ─────────────────────────────────────────────
 // 承認・是正タブ（S2）: [承認待ち / 差戻し] の2サブタブ
 // ─────────────────────────────────────────────
-class _ReviewTab extends StatelessWidget {
+class _ReviewTab extends StatefulWidget {
   const _ReviewTab();
+  @override
+  State<_ReviewTab> createState() => _ReviewTabState();
+}
+
+class _ReviewTabState extends State<_ReviewTab>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+  // 両サブタブの State へアクセスして再読込するためのキー（同一ライブラリ内解決）。
+  final GlobalKey<_PendingApprovalTabState> _pendingKey =
+      GlobalKey<_PendingApprovalTabState>();
+  final GlobalKey<RevisionInboxBodyState> _revisionKey =
+      GlobalKey<RevisionInboxBodyState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    _tab.addListener(_onTabSettled);
+  }
+
+  // (i) サブタブがアクティブになるたび、そのリストを再読込（stale 表示の防止）。
+  void _onTabSettled() {
+    if (_tab.indexIsChanging) return;
+    if (_tab.index == 0) {
+      _pendingKey.currentState?.reload();
+    } else {
+      _revisionKey.currentState?.reload();
+    }
+  }
+
+  // (ii) 承認/修正依頼の操作成功後、両リストを再読込（相互の残存を解消）。
+  void _reloadBoth() {
+    _pendingKey.currentState?.reload();
+    _revisionKey.currentState?.reload();
+  }
+
+  @override
+  void dispose() {
+    _tab.removeListener(_onTabSettled);
+    _tab.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Container(
-            color: JsColors.gunmetal,
-            child: const TabBar(
-              tabs: [
-                Tab(text: '承認待ち'),
-                Tab(text: '差戻し'),
-              ],
-            ),
+    return Column(
+      children: [
+        Container(
+          color: JsColors.gunmetal,
+          child: TabBar(
+            controller: _tab,
+            tabs: const [
+              Tab(text: '承認待ち'),
+              Tab(text: '差戻し'),
+            ],
           ),
-          const Expanded(
-            child: TabBarView(
-              children: [
-                _PendingApprovalTab(),
-                RevisionInboxBody(),
-              ],
-            ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tab,
+            children: [
+              _PendingApprovalTab(key: _pendingKey, onActionSuccess: _reloadBoth),
+              RevisionInboxBody(key: _revisionKey, isForeman: true),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3323,7 +3364,9 @@ class _ReviewTab extends StatelessWidget {
 // ④ 承認待ちタブ（P4-2 STEP3a: 一覧表示のみ。承認/差戻し・写真は後続STEP）
 // ─────────────────────────────────────────────
 class _PendingApprovalTab extends StatefulWidget {
-  const _PendingApprovalTab();
+  const _PendingApprovalTab({super.key, this.onActionSuccess});
+  // 承認/修正依頼の成功後に呼ぶ（親 _ReviewTab が両リスト再読込に配線）。
+  final VoidCallback? onActionSuccess;
   @override
   State<_PendingApprovalTab> createState() => _PendingApprovalTabState();
 }
@@ -3337,6 +3380,9 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
     super.initState();
     _loadPending();
   }
+
+  // 親（_ReviewTab）からの再読込用に公開。
+  void reload() => _loadPending();
 
   Future<void> _loadPending() async {
     setState(() => _loading = true);
@@ -3380,11 +3426,28 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
     );
   }
 
+  // 読み取り専用の日報詳細ボトムシートを開く（根因a対策：承認待ちカードの詳細導線）。
+  void _openDetail(BuildContext context, Map<String, dynamic> r) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: JsColors.gunmetal,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => ReportDetailSheet(report: r),
+    );
+  }
+
   // カード1件: 共有部品 JsReportTile(非改変) に写真とアクション行を合成。
   Widget _pendingCard(BuildContext context, Map<String, dynamic> r) {
     final reportId = r['report_id']?.toString() ?? '';
     bool sending = false;
-    return Container(
+    // カード本体タップで詳細シートを開く。承認/修正依頼ボタンは自前でタップを消費するため干渉しない。
+    // JsReportTile は自前 onTap（不完全な旧詳細）を持つため AbsorbPointer で無効化し、導線を一本化する。
+    return GestureDetector(
+      onTap: () => _openDetail(context, r),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -3394,7 +3457,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          JsReportTile(report: r, myCompanyId: ''),
+          AbsorbPointer(child: JsReportTile(report: r, myCompanyId: '')),
           const SizedBox(height: 8),
           ReportPhotos(reportId: reportId, report: r),
           const SizedBox(height: 8),
@@ -3467,7 +3530,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                                       ok ? JsColors.success : JsColors.error,
                                 ),
                               );
-                              if (ok) _loadPending();
+                              if (ok) (widget.onActionSuccess ?? _loadPending)();
                             }
                             if (context.mounted) {
                               setSending(() => sending = false);
@@ -3514,7 +3577,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                                       ok ? JsColors.warning : JsColors.error,
                                 ),
                               );
-                              if (ok) _loadPending();
+                              if (ok) (widget.onActionSuccess ?? _loadPending)();
                             }
                             if (context.mounted) {
                               setSending(() => sending = false);
@@ -3532,6 +3595,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

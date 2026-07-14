@@ -7,6 +7,7 @@ import '../main.dart' show showJsSnackbar;
 import '../core/theme/js_colors.dart';
 import '../config/constants.dart';
 import 'revision_edit_screen.dart';
+import '../widgets/report_photos.dart';
 
 const String _apiUrl = kApiBaseUrl;
 
@@ -38,7 +39,10 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
 
 // タブ埋め込み用: Scaffold/AppBar を持たない本体（S2で承認・是正タブに束ねる）
 class RevisionInboxBody extends StatefulWidget {
-  const RevisionInboxBody({super.key});
+  // isForeman=true（職長文脈）はタップを職人修正画面ではなく読み取り専用詳細表示にする。
+  // 既定 false は職人自身の是正受信画面（RevisionInboxScreen）＝従来遷移を維持（後方互換）。
+  const RevisionInboxBody({super.key, this.isForeman = false});
+  final bool isForeman;
   @override
   State<RevisionInboxBody> createState() => RevisionInboxBodyState();
 }
@@ -106,7 +110,22 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
                   itemCount: _revisions.length,
                   itemBuilder: (ctx, i) => _RevisionCard(
                     revision: _revisions[i],
+                    isForeman: widget.isForeman,
                     onResubmit: () async {
+                      // 職長は職人の修正画面へ遷移せず、読み取り専用の詳細を表示する。
+                      if (widget.isForeman) {
+                        showModalBottomSheet(
+                          context: context,
+                          backgroundColor: JsColors.gunmetal,
+                          isScrollControlled: true,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                          ),
+                          builder: (_) => ReportDetailSheet(report: _revisions[i]),
+                        );
+                        return;
+                      }
+                      // 職人（本人）は従来どおり自分の修正画面へ。
                       final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -156,9 +175,10 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
 }
 
 class _RevisionCard extends StatelessWidget {
-  const _RevisionCard({required this.revision, required this.onResubmit});
+  const _RevisionCard({required this.revision, required this.onResubmit, this.isForeman = false});
   final Map<String, dynamic> revision;
   final VoidCallback onResubmit;
+  final bool isForeman;
 
   @override
   Widget build(BuildContext context) {
@@ -218,8 +238,8 @@ class _RevisionCard extends StatelessWidget {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: onResubmit,
-                icon: const Icon(Icons.send, size: 16),
-                label: const Text('直して再提出'),
+                icon: Icon(isForeman ? Icons.visibility : Icons.send, size: 16),
+                label: Text(isForeman ? '詳細を見る' : '直して再提出'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: JsColors.gold,
                   side: const BorderSide(color: JsColors.gold),
@@ -232,4 +252,154 @@ class _RevisionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// 読み取り専用 日報詳細ボトムシート（承認待ち／差戻し・職長文脈で共用）
+//   作業内容全文 / メモ / 現場住所・移動手段・駐車料金 / 承認状態・承認時刻(JST) /
+//   提出時刻(JST) / 差戻し履歴(boss_note＝事務の修正依頼・worker_revision_note＝職人の再提出メモ) /
+//   写真(ReportPhotos)。操作ボタンは持たない（承認/修正依頼は既存カードのボタンで行う）。
+//   ※ worker_revision_note は一覧API(LIST_COLS)に含まれないため、応答に存在する時のみ表示。
+// ─────────────────────────────────────────────
+class ReportDetailSheet extends StatelessWidget {
+  const ReportDetailSheet({super.key, required this.report});
+  final Map<String, dynamic> report;
+
+  // JST「MM/DD HH:mm」整形（端末TZ=Asia/Tokyo前提・生ISO禁止）。null/不正は null。
+  static String? _jst(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return null;
+    String p(int n) => n.toString().padLeft(2, '0');
+    return '${p(dt.month)}/${p(dt.day)} ${p(dt.hour)}:${p(dt.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = report;
+    final date     = r['report_date'] as String? ?? '';
+    final approved = r['approved'] == true;
+    final revision = r['revision_requested'] == true;
+    final Color sc; final String sl;
+    if (approved)      { sc = JsColors.success; sl = '承認済'; }
+    else if (revision) { sc = JsColors.warning; sl = '差戻し'; }
+    else               { sc = JsColors.silver;  sl = '未承認'; }
+
+    final reportId   = r['report_id'] as String? ?? r['id'] as String? ?? '';
+    final submitted  = _jst(r['created_at'] as String?);
+    final approvedAt = _jst(r['approved_at'] as String?);
+    final approvedBy = (r['approved_by'] as String?)?.trim() ?? '';
+    final work       = (r['work_content'] as String?)?.trim() ?? '';
+    final memo       = (r['memo'] as String?)?.trim() ?? '';
+    final gps        = (r['gps_address'] as String?)?.trim() ?? '';
+    final trans      = (r['transport_type'] as String?)?.trim() ?? '';
+    final parking    = r['parking_fee'];
+    final bossNote   = (r['boss_note'] as String?)?.trim() ?? '';
+    final workerNote = (r['worker_revision_note'] as String?)?.trim() ?? '';
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (_, controller) => SingleChildScrollView(
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: JsColors.divider, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(date, style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: sc.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: sc),
+                  ),
+                  child: Text(sl,
+                      style: TextStyle(color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (submitted != null) _row(Icons.schedule, '提出時刻', submitted),
+            if (approved && approvedAt != null)
+              _row(Icons.event_available, '承認時刻',
+                  approvedBy.isNotEmpty ? '$approvedAt（$approvedBy）' : approvedAt),
+            _row(Icons.work_outline, '作業内容', work.isEmpty ? '（未入力）' : work),
+            if (memo.isNotEmpty) _row(Icons.sticky_note_2_outlined, 'メモ', memo),
+            if (gps.isNotEmpty) _row(Icons.location_on_outlined, '現場住所', gps),
+            if (trans.isNotEmpty) _row(Icons.directions_car_outlined, '移動手段', trans),
+            if (parking != null && parking.toString().isNotEmpty)
+              _row(Icons.local_parking, '駐車料金', '¥$parking'),
+            // 差戻し履歴
+            if (bossNote.isNotEmpty)
+              _noteBox('事務からの修正依頼', bossNote, JsColors.gold, Icons.feedback_outlined),
+            if (workerNote.isNotEmpty)
+              _noteBox('職人の再提出メモ', workerNote, JsColors.silver, Icons.reply),
+            const SizedBox(height: 12),
+            const Text('写真', style: TextStyle(color: JsColors.silver, fontSize: 11)),
+            const SizedBox(height: 6),
+            ReportPhotos(reportId: reportId, report: r),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(IconData icon, String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: JsColors.gold, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              const SizedBox(height: 2),
+              Text(value,
+                  style: const TextStyle(color: JsColors.offWhite, fontSize: 14, height: 1.4)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _noteBox(String title, String body, Color color, IconData icon) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(top: 12),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withValues(alpha: 0.6)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+        ]),
+        const SizedBox(height: 6),
+        Text(body, style: const TextStyle(color: JsColors.offWhite, fontSize: 13, height: 1.5)),
+      ],
+    ),
+  );
 }
