@@ -68,26 +68,66 @@ class _InboxScreenState extends State<InboxScreen>
   // ============================================================
 
   Future<void> _checkTamper(String shareId) async {
+    // チェック中のローディング表示（閉じられないバリア付き）
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        backgroundColor: Color(0xFF2A2A2A),
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            SizedBox(width: 20),
+            Expanded(
+              child: Text('改ざんチェック中…',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
     final result = await _shareService.checkTamper(shareId);
     if (!mounted) return;
+    Navigator.pop(context); // ローディングを閉じる
+    if (!mounted) return;
+
+    // 三値分岐（'ok' / 'tampered' / 'error'）。
+    // 確認失敗(error)は ✅正常 とは絶対に混同させず、不明表示＋再試行を出す。
+    final status = result['status'];
+    final String title;
+    final Color titleColor;
+    if (status == 'tampered') {
+      title = '⚠️ 改ざん検知';
+      titleColor = Colors.red;
+    } else if (status == 'ok') {
+      title = '✅ 正常';
+      titleColor = const Color(0xFFD4AF37);
+    } else {
+      title = '⚠️ 確認できませんでした';
+      titleColor = Colors.orange;
+    }
 
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF2A2A2A),
-        title: Text(
-          result['is_tampered'] == true ? '⚠️ 改ざん検知' : '✅ 正常',
-          style: TextStyle(
-            color: result['is_tampered'] == true
-                ? Colors.red
-                : const Color(0xFFD4AF37),
-          ),
-        ),
+        title: Text(title, style: TextStyle(color: titleColor)),
         content: Text(
           result['message'] ?? 'チェック完了',
           style: const TextStyle(color: Colors.white),
         ),
         actions: [
+          if (status == 'error')
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _checkTamper(shareId); // 再試行の道
+              },
+              child: const Text('再試行',
+                  style: TextStyle(color: Color(0xFFD4AF37))),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('閉じる',

@@ -149,6 +149,12 @@ class ShareService {
   // 改ざんチェック（手動）
   // ============================================================
 
+  /// 改ざんチェック（手動）
+  /// 戻り値の 'status' は必ず次の3値のいずれか。呼び出し側はこれで分岐する:
+  ///   'ok'       … 確認成功・改ざんなし
+  ///   'tampered' … 確認成功・改ざん検知
+  ///   'error'    … 確認失敗（通信断・非200・不正レスポンス）
+  /// ※ 確認失敗を 'ok'（正常）に混同させないため、成功時のみ 'ok'/'tampered' を返す。
   Future<Map<String, dynamic>> checkTamper(String shareId) async {
     try {
       final headers = await _auth.getAuthHeaders();
@@ -161,16 +167,25 @@ class ShareService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
-        return {
-          'success':     true,
-          'is_tampered': data['is_tampered'] as bool,
-          'message':     data['message'] as String,
-        };
+        final tampered = data['is_tampered'];
+        // 200 でも is_tampered が bool でなければ判定不能 → 安全側で error 扱い
+        if (tampered is bool) {
+          return {
+            'status':      tampered ? 'tampered' : 'ok',
+            'is_tampered': tampered,
+            'message':     (data['message'] as String?) ??
+                (tampered ? '改ざんが検知されました' : '正常です'),
+          };
+        }
+        return {'status': 'error', 'message': '確認結果を取得できませんでした'};
       }
 
-      return {'success': false, 'message': data['error'] ?? 'エラーが発生しました'};
+      return {
+        'status':  'error',
+        'message': (data['error'] as String?) ?? 'エラーが発生しました',
+      };
     } catch (e) {
-      return {'success': false, 'message': 'サーバーに接続できません: $e'};
+      return {'status': 'error', 'message': 'サーバーに接続できません: $e'};
     }
   }
 
