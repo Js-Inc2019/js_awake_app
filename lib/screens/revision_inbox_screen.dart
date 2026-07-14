@@ -8,6 +8,7 @@ import '../core/theme/js_colors.dart';
 import '../config/constants.dart';
 import 'revision_edit_screen.dart';
 import '../widgets/report_photos.dart';
+import '../services/auth_service.dart';
 
 const String _apiUrl = kApiBaseUrl;
 
@@ -39,8 +40,10 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
 
 // タブ埋め込み用: Scaffold/AppBar を持たない本体（S2で承認・是正タブに束ねる）
 class RevisionInboxBody extends StatefulWidget {
-  // isForeman=true（職長文脈）はタップを職人修正画面ではなく読み取り専用詳細表示にする。
-  // 既定 false は職人自身の是正受信画面（RevisionInboxScreen）＝従来遷移を維持（後方互換）。
+  // isForeman は呼び出し元（home_screen.dart:3396 は true / RevisionInboxScreen は既定 false）
+  // との互換のため構造上残すが、タップ分岐は「提出者本人か」の判定に切替済みで参照しない。
+  //   本人（rev['user_id']==自分）→ RevisionEditScreen（編集・再提出）
+  //   本人以外（職長が他人の差戻しを見る等）→ ReportDetailSheet（閲覧）
   const RevisionInboxBody({super.key, this.isForeman = false});
   final bool isForeman;
   @override
@@ -51,9 +54,22 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
   List<Map<String, dynamic>> _revisions = [];
   bool _loading = true;
   bool _hasError = false;
+  // 本人判定用の現在ユーザーID（prefs 'user_id' = 提出者 reports.user_id と同一体系）。
+  // 取得失敗/未取得(null)時は「本人でない」に倒す＝編集を誤開放しない（フェイルセーフ）。
+  String? _myUserId;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _loadMyUserId();
+    _load();
+  }
+
+  Future<void> _loadMyUserId() async {
+    final uid = await AuthService().getUserId();
+    if (!mounted) return;
+    setState(() => _myUserId = uid);
+  }
 
   // 外部（AppBar等）からの再読込用に公開
   void reload() => _load();
@@ -108,33 +124,41 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: _revisions.length,
-                  itemBuilder: (ctx, i) => _RevisionCard(
-                    revision: _revisions[i],
-                    isForeman: widget.isForeman,
-                    onResubmit: () async {
-                      // 職長は職人の修正画面へ遷移せず、読み取り専用の詳細を表示する。
-                      if (widget.isForeman) {
-                        showModalBottomSheet(
-                          context: context,
-                          backgroundColor: JsColors.gunmetal,
-                          isScrollControlled: true,
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  itemBuilder: (ctx, i) {
+                    final rev = _revisions[i];
+                    // 本人判定: 提出者(user_id)==自分 のときのみ編集へ。
+                    // _myUserId が null（取得失敗/未取得）や不一致は「本人でない」＝閲覧側へ倒す
+                    // （編集画面へは本人のみ＝フェイルセーフ。職長が他人の差戻しを見る場合も閲覧）。
+                    final isMine =
+                        _myUserId != null && rev['user_id'] == _myUserId;
+                    return _RevisionCard(
+                      revision: rev,
+                      isMine: isMine,
+                      onResubmit: () async {
+                        if (!isMine) {
+                          // 本人以外 → 読み取り専用の詳細（現状維持）。
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: JsColors.gunmetal,
+                            isScrollControlled: true,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                            ),
+                            builder: (_) => ReportDetailSheet(report: rev),
+                          );
+                          return;
+                        }
+                        // 本人 → 編集・再提出（職長本人でも到達＝袋小路解消）。
+                        final result = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RevisionEditScreen(revision: rev),
                           ),
-                          builder: (_) => ReportDetailSheet(report: _revisions[i]),
                         );
-                        return;
-                      }
-                      // 職人（本人）は従来どおり自分の修正画面へ。
-                      final result = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => RevisionEditScreen(revision: _revisions[i]),
-                        ),
-                      );
-                      if (result == true) _load();
-                    },
-                  ),
+                        if (result == true) _load();
+                      },
+                    );
+                  },
                 ),
               );
   }
@@ -175,10 +199,10 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
 }
 
 class _RevisionCard extends StatelessWidget {
-  const _RevisionCard({required this.revision, required this.onResubmit, this.isForeman = false});
+  const _RevisionCard({required this.revision, required this.onResubmit, this.isMine = false});
   final Map<String, dynamic> revision;
   final VoidCallback onResubmit;
-  final bool isForeman;
+  final bool isMine; // 提出者本人か（本人=編集導線／他人=閲覧導線）
 
   @override
   Widget build(BuildContext context) {
@@ -238,8 +262,8 @@ class _RevisionCard extends StatelessWidget {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: onResubmit,
-                icon: Icon(isForeman ? Icons.visibility : Icons.send, size: 16),
-                label: Text(isForeman ? '詳細を見る' : '直して再提出'),
+                icon: Icon(isMine ? Icons.send : Icons.visibility, size: 16),
+                label: Text(isMine ? '直して再提出' : '詳細を見る'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: JsColors.gold,
                   side: const BorderSide(color: JsColors.gold),
