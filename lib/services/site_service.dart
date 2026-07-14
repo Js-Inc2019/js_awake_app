@@ -87,6 +87,73 @@ class SiteService {
   }
 
   // ============================================================
+  // 新規登録して site_id を返す（承認ゲートの仮登録導線用）。
+  //   ・既存 createSite(Map返し) は後方互換のため不変（呼び出し元: site_select_screen.dart:131）。
+  //   ・status は BE がサーバ側で決定（boss→pending）。body に status は送らない。
+  //   ・成功=201 の site_id を返す。失敗/非201/通信断は null（呼び出し側でエラー表示）。
+  // ============================================================
+  Future<String?> createSiteReturningId({
+    required String siteName,
+    String? address,
+    double? lat,
+    double? lng,
+  }) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/sites'),
+        headers: headers,
+        body: jsonEncode({
+          'site_name': siteName,
+          'address':   address,
+          'lat':       lat,
+          'lng':       lng,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final site = data['site'] as Map<String, dynamic>?;
+        return site?['site_id'] as String?;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // GPS照合（半径50m以内の登録現場・距離昇順）。GET /sites/match?lat=&lon=。
+  //   ・非200 と通信断を「成功(空含む)」と区別する（collapse させない）:
+  //       成功 → {'ok': true,  'sites': List<Map>}   （0件でも ok:true）
+  //       失敗 → {'ok': false, 'message': String}     （非200/例外）
+  //   ・★ BE の query param は 'lon'（routes/sites.js:111 の { lat, lon }）。
+  // ============================================================
+  Future<Map<String, dynamic>> matchSites(double lat, double lng) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/sites/match?lat=$lat&lon=$lng'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final sites = (data['sites'] as List?)
+                ?.map((e) => e as Map<String, dynamic>)
+                .toList() ??
+            <Map<String, dynamic>>[];
+        return {'ok': true, 'sites': sites};
+      }
+      String? msg;
+      try {
+        msg = (jsonDecode(response.body) as Map<String, dynamic>)['error'] as String?;
+      } catch (_) {}
+      return {'ok': false, 'message': msg ?? 'GPS照合に失敗しました (${response.statusCode})'};
+    } catch (e) {
+      return {'ok': false, 'message': 'サーバーに接続できません: $e'};
+    }
+  }
+
+  // ============================================================
   // 現場情報更新
   // ============================================================
 

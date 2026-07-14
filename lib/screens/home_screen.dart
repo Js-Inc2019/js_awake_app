@@ -29,6 +29,7 @@ import '../main.dart'
         API_URL;
 import '../core/theme/js_colors.dart';
 import 'revision_inbox_screen.dart';
+import 'site_quick_register_screen.dart';
 import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
 import 'day_reports_screen.dart';
@@ -2049,6 +2050,26 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     );
   }
 
+  // ＋新規現場を登録 → 仮登録フォームへ。site_id が返ったら既存の現場選択フローに合流:
+  // ゲートを {'site_id': ...} 付きで pop → 承認ハンドラが PATCH /reports/:id/site → 承認 を実行。
+  Future<void> _openQuickRegister() async {
+    final siteId = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SiteQuickRegisterScreen(
+          // 住所欄の初期値は日報の gps_address（文字列）。
+          initialAddress: widget.report['gps_address'] as String?,
+          // reports に lat/lng 列が無く（prod_schema）、承認ゲートの report は数値座標を持たない
+          // （LIST_COLS は gps_address のみ・reports.js:457）。→ 座標なしで登録、重複チェックは休止。
+          lat: null,
+          lng: null,
+        ),
+      ),
+    );
+    if (!mounted || siteId == null || siteId.isEmpty) return;
+    Navigator.pop(context, {'site_id': siteId});
+  }
+
   Widget _buildList() {
     if (_loading) {
       return const Padding(
@@ -2056,8 +2077,29 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
         child: Center(child: CircularProgressIndicator(color: JsColors.gold)),
       );
     }
-    // 「現場未登録（事務へ回す）」は最上段固定・オレンジ系。エラー時でも必ず選べる。
+    // 最上段固定は上から順に:
+    //   ① ＋新規現場を登録（緑・仮登録の正のアクション＝OFFICE S3 ダイアログの並びに合わせ最上段）
+    //   ② 現場未登録（事務へ回す）（オレンジ・既存の退避選択肢）
+    // ①は選択(radio)ではなくアクションのため RadioListTile ではなくタップ行にする。
     final children = <Widget>[
+      InkWell(
+        onTap: _openQuickRegister,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: const Row(children: [
+            Icon(Icons.add_location_alt, color: JsColors.success, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('＋新規現場を登録',
+                  style: TextStyle(
+                      color: JsColors.success, fontSize: 14, fontWeight: FontWeight.bold)),
+            ),
+            Icon(Icons.chevron_right, color: JsColors.success, size: 20),
+          ]),
+        ),
+      ),
+      const Divider(color: JsColors.divider, height: 1),
       RadioListTile<String?>(
         value: null,
         groupValue: _selectedId,
