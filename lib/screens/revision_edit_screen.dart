@@ -44,6 +44,10 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   String _overtimeSuffix = ''; // 残業接尾辞(編集対象外・退避→再付与)
   bool _submitting = false;
 
+  // 差戻し対象項目（JSONB由来・キー: work_content/site_photo/transport/parking_fee/parking_photo）。
+  // null/空/パース不能→['work_content']（従来挙動＝旧データ互換）。initState で確定。
+  late final List<String> _targets;
+
   static const Map<TransportType, String> _transportLabels = {
     TransportType.car: '車',
     TransportType.train: '電車',
@@ -51,12 +55,46 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     TransportType.other: 'その他',
   };
 
+  // 差戻し対象キー → 日本語ラベル
+  static const Map<String, String> _targetLabels = {
+    'work_content': '作業内容',
+    'site_photo': '現場写真',
+    'transport': '移動手段',
+    'parking_fee': '駐車料金',
+    'parking_photo': '駐車写真',
+  };
+
   @override
   void initState() {
     super.initState();
+    _targets = _parseTargets(widget.revision['revision_targets']);
     _restoreFromRevision();
     _loadExistingPhotos();
   }
+
+  // revision_targets(List or JSON文字列)を List<String> へ。null/空/不能→['work_content']。
+  List<String> _parseTargets(dynamic raw) {
+    final out = <String>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final s = e?.toString().trim() ?? '';
+        if (s.isNotEmpty) out.add(s);
+      }
+    } else if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final d = jsonDecode(raw);
+        if (d is List) {
+          for (final e in d) {
+            final s = e?.toString().trim() ?? '';
+            if (s.isNotEmpty) out.add(s);
+          }
+        }
+      } catch (_) {}
+    }
+    return out.isEmpty ? const ['work_content'] : out; // 旧データ互換（従来の一律必須）
+  }
+
+  bool _isTarget(String key) => _targets.contains(key);
 
   // 既存写真(フォールバック込み): GET結果があればそれ、無ければ旧単数URLを1要素に。
   List<String> get _effectiveExistingSiteUrls {
@@ -176,8 +214,32 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
   Future<void> _submit() async {
     if (_submitting) return;
-    if (_workCtrl.text.trim().isEmpty) {
-      showJsSnackbar(context, '作業内容を入力してください', isError: true);
+
+    // 差戻し対象項目のみ必須化（非対象は任意・縛らない）。エラーは対象項目名を含める。
+    if (_isTarget('work_content') && _workCtrl.text.trim().isEmpty) {
+      showJsSnackbar(context, '差戻し対象の作業内容を入力してください', isError: true);
+      return;
+    }
+    if (_isTarget('transport') && _transports.isEmpty) {
+      showJsSnackbar(context, '差戻し対象の移動手段を選択してください', isError: true);
+      return;
+    }
+    if (_isTarget('parking_fee') && _parkingCtrl.text.trim().isEmpty) {
+      showJsSnackbar(context, '差戻し対象の駐車料金を入力してください', isError: true);
+      return;
+    }
+    // 写真は種別区別済（site=作業/現場写真・parking=駐車写真）。撮り直しON→新規/OFF→既存(フォールバック込み)で判定。
+    final siteEmpty =
+        _retakeWork ? _workPhotoPaths.isEmpty : _effectiveExistingSiteUrls.isEmpty;
+    if (_isTarget('site_photo') && siteEmpty) {
+      showJsSnackbar(context, '差戻し対象の現場写真を撮影してください', isError: true);
+      return;
+    }
+    final parkingPhotoEmpty = _retakeParking
+        ? _parkingPhotoPaths.isEmpty
+        : _effectiveExistingParkingUrls.isEmpty;
+    if (_isTarget('parking_photo') && parkingPhotoEmpty) {
+      showJsSnackbar(context, '差戻し対象の駐車写真を撮影してください', isError: true);
       return;
     }
 
@@ -190,12 +252,14 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     // 未添付ダイアログ: 車/その他 かつ 駐車写真が実質ゼロ
     //（撮り直しON→新規0枚 / 撮り直しOFF→既存(フォールバック込み)なし）。
     // home_screen と同文言・同構造。
+    // 既存のソフト警告は parking_photo が差戻し対象で「ない」時のみ従来どおり発火。
+    // 対象の場合は上の必須バリデーションで既に担保済み（二重警告を避ける）。
     final hasCarOrOther = _transports.contains(TransportType.car) ||
         _transports.contains(TransportType.other);
     final parkingEmpty = _retakeParking
         ? _parkingPhotoPaths.isEmpty
         : _effectiveExistingParkingUrls.isEmpty;
-    if (hasCarOrOther && parkingEmpty) {
+    if (!_isTarget('parking_photo') && hasCarOrOther && parkingEmpty) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -309,7 +373,56 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         child: Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
       );
 
-  InputDecoration _fieldDeco(String hint) => InputDecoration(
+  // 差戻し対象の項目ラベル: 通常ラベル＋ゴールド「差戻し対象」バッジ。
+  Widget _sectionLabelT(String text, String key) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Row(children: [
+          Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+          if (_isTarget(key)) ...[const SizedBox(width: 8), _targetBadge()],
+        ]),
+      );
+
+  // ゴールドの「差戻し対象」バッジ（Asphalt Dawn・gold 約18%リテラル）。
+  Widget _targetBadge() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0x2EA89868),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: JsColors.gold),
+        ),
+        child: const Text('差戻し対象',
+            style: TextStyle(color: JsColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+      );
+
+  // boss_note ボックス近くの「差戻し対象」タグ日本語一覧。
+  Widget _targetSummary() {
+    final labels = _targets.map((t) => _targetLabels[t] ?? t).toList();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text('差戻し対象:',
+              style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+          ...labels.map((l) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0x2EA89868),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: JsColors.gold),
+                ),
+                child: Text(l,
+                    style: const TextStyle(
+                        color: JsColors.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+              )),
+        ],
+      ),
+    );
+  }
+
+  InputDecoration _fieldDeco(String hint, {bool highlight = false}) => InputDecoration(
         filled: true,
         fillColor: JsColors.gunmetal,
         hintText: hint,
@@ -317,7 +430,9 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         isDense: true,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: JsColors.divider),
+          borderSide: BorderSide(
+              color: highlight ? JsColors.gold : JsColors.divider,
+              width: highlight ? 1.6 : 1.0),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -356,12 +471,15 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     required VoidCallback onRetakeStart,
     required VoidCallback onRestoreExisting,
     required ValueChanged<List<String>> onChanged,
+    bool isTarget = false,
   }) {
     if (retake) {
       // 撮り直しモード: 既存widget(PhotoStripField・上限5)を再利用。「既存に戻す」で袋小路防止。
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isTarget)
+            Padding(padding: const EdgeInsets.only(bottom: 4), child: _targetBadge()),
           PhotoStripField(
             label: label,
             paths: newPaths,
@@ -384,6 +502,8 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isTarget)
+          Padding(padding: const EdgeInsets.only(bottom: 4), child: _targetBadge()),
         _sectionLabel('$label（既存）'),
         if (existingUrls.isEmpty)
           Container(
@@ -511,23 +631,26 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                 ],
               ),
             ),
+          // 差戻し対象タグの日本語一覧（boss_note ボックスの近く）
+          _targetSummary(),
           const SizedBox(height: 16),
           if (reportDate.isNotEmpty) ...[
             _sectionLabel('対象日'),
             Text(reportDate, style: const TextStyle(color: JsColors.offWhite, fontSize: 15)),
             const SizedBox(height: 16),
           ],
-          _sectionLabel('作業内容'),
+          _sectionLabelT('作業内容', 'work_content'),
           TextField(
             controller: _workCtrl,
             maxLines: null,
             minLines: 3,
             style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-            decoration: _fieldDeco('作業内容を入力'),
+            decoration: _fieldDeco('作業内容を入力', highlight: _isTarget('work_content')),
           ),
           const SizedBox(height: 16),
           _photoSection(
             label: '作業写真',
+            isTarget: _isTarget('site_photo'),
             existingUrls: _effectiveExistingSiteUrls,
             newPaths: _workPhotoPaths,
             retake: _retakeWork,
@@ -546,7 +669,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             }),
           ),
           const SizedBox(height: 20),
-          _sectionLabel('移動手段'),
+          _sectionLabelT('移動手段', 'transport'),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -582,12 +705,12 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             ),
             const SizedBox(height: 12),
             if (_carType == 'own') ...[
-              _sectionLabel('駐車料金（円）'),
+              _sectionLabelT('駐車料金（円）', 'parking_fee'),
               TextField(
                 controller: _parkingCtrl,
                 keyboardType: TextInputType.number,
                 style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-                decoration: _fieldDeco('例: 500'),
+                decoration: _fieldDeco('例: 500', highlight: _isTarget('parking_fee')),
               ),
             ] else ...[
               _sectionLabel('相乗り相手（任意）'),
@@ -611,6 +734,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             const SizedBox(height: 16),
             _photoSection(
               label: '看板/領収書（任意）',
+              isTarget: _isTarget('parking_photo'),
               existingUrls: _effectiveExistingParkingUrls,
               newPaths: _parkingPhotoPaths,
               retake: _retakeParking,
