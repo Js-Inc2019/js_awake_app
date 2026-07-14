@@ -90,6 +90,41 @@ class ReportsService {
   }
 
   // ============================================================
+  // 現場の紐づけ（後付け）。PATCH /reports/:id/site。
+  // siteId=null は「対象なし」（現状維持相当）。BE側は content_hash 再計算＋
+  // 'edited' イベント追記で改ざん検知に抵触させない実装（reports.js:1287-）。
+  // ============================================================
+
+  Future<Map<String, dynamic>> linkReportToSite(
+      String reportId, String? siteId) async {
+    if (reportId.isEmpty) {
+      return {'success': false, 'error': 'report_id なし'};
+    }
+
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.patch(
+        Uri.parse('$kApiBaseUrl/reports/$reportId/site'),
+        headers: headers,
+        body: jsonEncode({'site_id': siteId}),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return {'success': true};
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  // ============================================================
   // 差戻し（修正依頼）。revision_targets はUIが決めた配列をそのまま送る。
   // ============================================================
 

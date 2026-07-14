@@ -40,6 +40,7 @@ import '../widgets/approval_dialogs.dart';
 import '../widgets/report_photos.dart';
 import '../services/auth_service.dart';
 import '../services/reports_service.dart';
+import '../services/site_service.dart';
 import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
@@ -351,6 +352,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _gpsLoading = false;
   double? _lat;
   double? _lon;
+
+  // ─── 作業現場選択（null=対象なし） ───
+  String? _selectedSiteId;
+  String? _selectedSiteName;
 
   // ─── 天気 ───
   _WeatherData? _weather;
@@ -869,6 +874,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
         originType: _originType,
+        siteId: _selectedSiteId,   // 「対象なし」= null（BE側 NULL）
       ));
       await ReportStore.instance.retryPending();
       _saveWorkStatus('done');
@@ -893,6 +899,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _overtimeExpanded = false;
         _overtimeHours = 0;
         _overtimeMinutes = 0;
+        _selectedSiteId = null;      // 送信後は現場選択を「対象なし」に戻す
+        _selectedSiteName = null;
         // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
         // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
         _lastSentOk = sent;   // 送信直後経路は実際の送信成否を渡す
@@ -901,6 +909,27 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  // 作業現場の選択ボトムシート（getSites をサルベージ・「対象なし」を最上段固定）
+  Future<void> _showSitePicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: JsColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _SitePickerSheet(
+        selectedSiteId: _selectedSiteId,
+        onSelected: (id, name) {
+          setState(() {
+            _selectedSiteId = id;
+            _selectedSiteName = name;
+          });
+        },
+      ),
+    );
   }
 
   // ─── J's Tool 起動 ───
@@ -1210,6 +1239,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             _routeComparisons = {};
             _workPhotoPaths = [];
             _parkingPhotoPaths = [];
+            // 現場移動：現場選択は「対象なし」にリセット
+            _selectedSiteId = null;
+            _selectedSiteName = null;
           });
           _fetchGps();
         },
@@ -1260,6 +1292,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   address: _gpsAddress,
                   loading: _gpsLoading,
                   onRefresh: _fetchGps,
+                ),
+                const SizedBox(height: 8),
+
+                // ①' 作業現場選択（GPS住所の直下・選択必須バッジ付き・金枠強調）
+                _SiteSelectField(
+                  siteName: _selectedSiteName,
+                  onTap: _showSitePicker,
                 ),
                 const SizedBox(height: 8),
 
@@ -1660,6 +1699,420 @@ class _BottomTabItem extends StatelessWidget {
       ),
     ),
   );
+}
+
+// ─────────────────────────────────────────────
+// ①' 作業現場 選択欄（GPS住所の直下・金枠強調・選択必須バッジ）
+// ─────────────────────────────────────────────
+class _SiteSelectField extends StatelessWidget {
+  const _SiteSelectField({required this.siteName, required this.onTap});
+  final String? siteName;      // null = 対象なし
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNone = siteName == null;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: JsColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JsColors.gold, width: 1.5), // 金枠強調
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.place, color: JsColors.gold, size: 20),
+            const SizedBox(width: 8),
+            const Text('作業現場',
+                style: TextStyle(
+                    color: JsColors.textMid,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                isNone ? '対象なし' : siteName!,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isNone ? JsColors.textWeak : JsColors.textWhite,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // 「選択必須」小バッジ
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0x2EA89868), // gold 約18%
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: JsColors.gold, width: 1),
+              ),
+              child: const Text('選択必須',
+                  style: TextStyle(
+                      color: JsColors.gold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.expand_more, color: JsColors.gold, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// 作業現場 選択ボトムシート（getSites サルベージ・「対象なし」最上段固定）
+class _SitePickerSheet extends StatefulWidget {
+  const _SitePickerSheet(
+      {required this.selectedSiteId, required this.onSelected});
+  final String? selectedSiteId;
+  final void Function(String? id, String? name) onSelected;
+  @override
+  State<_SitePickerSheet> createState() => _SitePickerSheetState();
+}
+
+class _SitePickerSheetState extends State<_SitePickerSheet> {
+  final SiteService _siteService = SiteService();
+  List<dynamic> _sites = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final result = await _siteService.getSites();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (result['success'] == true) {
+        _sites = result['sites'] as List<dynamic>;
+      } else {
+        _error = result['message'] as String? ?? '現場一覧を取得できませんでした';
+      }
+    });
+  }
+
+  void _choose(String? id, String? name) {
+    widget.onSelected(id, name);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            const Text('作業現場を選択',
+                style: TextStyle(
+                    color: JsColors.gold,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Divider(color: JsColors.border, height: 1),
+            Flexible(child: _buildBody()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(child: CircularProgressIndicator(color: JsColors.gold)),
+      );
+    }
+    // 「対象なし」は最上段固定（エラー時でも必ず選べる）
+    final noneTile = _tile(
+      id: null,
+      title: '対象なし',
+      subtitle: '該当現場がない・現場未登録',
+      selected: widget.selectedSiteId == null,
+    );
+    if (_error != null) {
+      return ListView(
+        shrinkWrap: true,
+        children: [
+          noneTile,
+          const Divider(color: JsColors.border, height: 1),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Text(_error!,
+                    textAlign: TextAlign.center,
+                    style:
+                        const TextStyle(color: JsColors.error, fontSize: 13)),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh, color: JsColors.gold),
+                  label: const Text('再試行',
+                      style: TextStyle(color: JsColors.gold)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      shrinkWrap: true,
+      itemCount: _sites.length + 1,
+      separatorBuilder: (_, __) =>
+          const Divider(color: JsColors.border, height: 1),
+      itemBuilder: (context, i) {
+        if (i == 0) return noneTile;
+        final site = _sites[i - 1] as Map<String, dynamic>;
+        final id = site['site_id'] as String?;
+        final name = site['site_name'] as String? ?? '(名称未設定)';
+        final addr = site['address'] as String?;
+        return _tile(
+          id: id,
+          title: name,
+          subtitle: (addr != null && addr.isNotEmpty) ? addr : null,
+          selected: widget.selectedSiteId == id,
+        );
+      },
+    );
+  }
+
+  Widget _tile({
+    required String? id,
+    required String title,
+    String? subtitle,
+    required bool selected,
+  }) {
+    return ListTile(
+      title: Text(title,
+          style: TextStyle(
+            color: id == null ? JsColors.textWeak : JsColors.textWhite,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          )),
+      subtitle: subtitle != null
+          ? Text(subtitle,
+              style: const TextStyle(color: JsColors.textMid, fontSize: 12))
+          : null,
+      trailing:
+          selected ? const Icon(Icons.check, color: JsColors.gold) : null,
+      onTap: () => _choose(id, id == null ? null : title),
+    );
+  }
+}
+
+// 提出時刻を JST「MM/DD HH:mm」へ整形（端末TZ=Asia/Tokyo前提・punch_screen.dart:17 と同型の手動整形）
+String? _fmtSubmittedJst(String? iso) {
+  if (iso == null) return null;
+  final dt = DateTime.tryParse(iso)?.toLocal();
+  if (dt == null) return null;
+  final mm = dt.month.toString().padLeft(2, '0');
+  final dd = dt.day.toString().padLeft(2, '0');
+  final hh = dt.hour.toString().padLeft(2, '0');
+  final mi = dt.minute.toString().padLeft(2, '0');
+  return '$mm/$dd $hh:$mi';
+}
+
+// 職長承認ゲート：site_id が null の日報を承認する前に現場を選ばせる
+class _SiteLinkGateDialog extends StatefulWidget {
+  const _SiteLinkGateDialog({required this.report});
+  final Map<String, dynamic> report;
+  @override
+  State<_SiteLinkGateDialog> createState() => _SiteLinkGateDialogState();
+}
+
+class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
+  final SiteService _siteService = SiteService();
+  List<dynamic> _sites = [];
+  bool _loading = true;
+  String? _error;
+  String? _selectedId; // null = 現場未登録（事務へ回す）＝デフォルト
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final result = await _siteService.getSites();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (result['success'] == true) {
+        _sites = result['sites'] as List<dynamic>;
+      } else {
+        _error = result['message'] as String? ?? '現場一覧を取得できませんでした';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.report;
+    final worker = r['worker_name'] as String? ?? '(氏名不明)';
+    final submitted = _fmtSubmittedJst(r['created_at'] as String?);  // 生ISO禁止・JST整形
+    final gps = r['gps_address'] as String?;
+    return AlertDialog(
+      backgroundColor: JsColors.surface,
+      title: const Text('現場の紐づけ',
+          style: TextStyle(color: JsColors.gold, fontSize: 17)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 参考情報
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: JsColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _infoRow('提出者', worker),
+                  if (submitted != null) _infoRow('提出時刻', submitted),
+                  if (gps != null && gps.isNotEmpty) _infoRow('GPS住所', gps),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Flexible(child: _buildList()),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context), // キャンセル → null
+          child: const Text('キャンセル',
+              style: TextStyle(color: JsColors.textMid)),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, {'site_id': _selectedId}),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: JsColors.success,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('選択して承認'),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(label,
+                style:
+                    const TextStyle(color: JsColors.textMid, fontSize: 12)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(
+                    color: JsColors.textStrong, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator(color: JsColors.gold)),
+      );
+    }
+    // 「現場未登録（事務へ回す）」は最上段固定・オレンジ系。エラー時でも必ず選べる。
+    final children = <Widget>[
+      RadioListTile<String?>(
+        value: null,
+        groupValue: _selectedId,
+        onChanged: (v) => setState(() => _selectedId = v),
+        activeColor: JsColors.warning,
+        title: const Text('現場未登録（事務へ回す）',
+            style: TextStyle(
+                color: JsColors.warning,
+                fontSize: 14,
+                fontWeight: FontWeight.bold)),
+        subtitle: const Text('承認は完了・紐づけは事務の未紐づけ一覧に残る',
+            style: TextStyle(color: JsColors.textMid, fontSize: 11)),
+        contentPadding: EdgeInsets.zero,
+      ),
+    ];
+    if (_error != null) {
+      children.add(Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Text(_error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: JsColors.error, fontSize: 12)),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _load,
+              icon:
+                  const Icon(Icons.refresh, color: JsColors.gold, size: 18),
+              label:
+                  const Text('再試行', style: TextStyle(color: JsColors.gold)),
+            ),
+          ],
+        ),
+      ));
+    } else {
+      for (final s in _sites) {
+        final site = s as Map<String, dynamic>;
+        final id = site['site_id'] as String?;
+        final name = site['site_name'] as String? ?? '(名称未設定)';
+        children.add(RadioListTile<String?>(
+          value: id,
+          groupValue: _selectedId,
+          onChanged: (v) => setState(() => _selectedId = v),
+          activeColor: JsColors.gold,
+          title: Text(name,
+              style:
+                  const TextStyle(color: JsColors.textWhite, fontSize: 14)),
+          contentPadding: EdgeInsets.zero,
+        ));
+      }
+    }
+    return SingleChildScrollView(
+      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -2963,6 +3416,42 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                               ),
                             );
                             if (confirmed != true || !context.mounted) return;
+
+                            // 現場紐づけゲート：site_id が null の日報は承認前に現場選択を促す。
+                            // site_id が既にある日報は従来どおりダイアログなしで承認する。
+                            final existingSiteId = r['site_id'] as String?;
+                            if (existingSiteId == null) {
+                              final gate =
+                                  await showDialog<Map<String, dynamic>>(
+                                context: context,
+                                builder: (_) => _SiteLinkGateDialog(report: r),
+                              );
+                              // キャンセル（null）→ 何もしない
+                              if (gate == null || !context.mounted) return;
+                              final chosenSiteId =
+                                  gate['site_id'] as String?;
+                              if (chosenSiteId != null) {
+                                // 現場を選択 → PATCH site を先に実行。非200は無言禁止＝承認中断。
+                                setSending(() => sending = true);
+                                final linkRes = await ReportsService()
+                                    .linkReportToSite(reportId, chosenSiteId);
+                                if (linkRes['success'] != true) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            '現場の紐づけに失敗しました：${linkRes['error']}'),
+                                        backgroundColor: JsColors.error,
+                                      ),
+                                    );
+                                    setSending(() => sending = false);
+                                  }
+                                  return; // 承認は中断
+                                }
+                              }
+                              // chosenSiteId == null（事務へ回す）→ 紐づけせず承認へ進む
+                            }
+
                             setSending(() => sending = true);
                             final result = await ReportsService()
                                 .approveReport(reportId,

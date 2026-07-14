@@ -125,6 +125,7 @@ class WorkerReportItem {
     List<String>? workPhotoPaths,
     this.gpsAddress = '',
     this.originType = 'home',
+    this.siteId,
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -144,6 +145,7 @@ class WorkerReportItem {
   final List<String> workPhotoPaths;    // 作業(site)：複数
   final String gpsAddress;
   final String originType;
+  final String? siteId;   // 作業現場（null=対象なし／未選択）
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -173,6 +175,7 @@ class WorkerReportItem {
     'workPhotoPaths':   workPhotoPaths,
     'gpsAddress':       gpsAddress,
     'originType':       originType,
+    'siteId':           siteId,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -190,6 +193,7 @@ class WorkerReportItem {
     workPhotoPaths:   _readPaths(j['workPhotoPaths']),
     gpsAddress:       j['gpsAddress']       as String? ?? '',
     originType:       j['originType']       as String? ?? 'home',
+    siteId:           j['siteId']           as String?,
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -257,6 +261,8 @@ class ReportStore {
           'origin_type':         item.originType,
           'work_content':        item.workContent,
         };
+        // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
+        if (item.siteId != null) body['site_id'] = item.siteId;
         // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
         final photos = <Map<String, dynamic>>[];
         for (final p in item.workPhotoPaths) {
