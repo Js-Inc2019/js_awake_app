@@ -242,6 +242,12 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
       showJsSnackbar(context, '差戻し対象の駐車写真を撮影してください', isError: true);
       return;
     }
+    // B案: 対応メモ（worker_revision_note）は常に必須。元の値のまま再提出も許容する代わりに
+    // 「どう対応したか」を必ず一言残させる（差戻しが誤りでも「〇〇のため変更なし」と書けば通る＝袋小路なし）。
+    if (_noteCtrl.text.trim().isEmpty) {
+      showJsSnackbar(context, '対応メモを入力してください（どのように対応したかを一言）', isError: true);
+      return;
+    }
 
     final reportId = widget.revision['report_id'] as String?;
     if (reportId == null) {
@@ -754,13 +760,31 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             ),
           ],
           const SizedBox(height: 20),
-          _sectionLabel('事務への申し送り（任意）'),
+          // B案: 対応メモは必須。既存の _targetBadge 流儀（ゴールドのピル）で必須を強調。
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(children: [
+              const Text('対応メモ（必須）',
+                  style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0x2EA89868),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: JsColors.gold),
+                ),
+                child: const Text('必須',
+                    style: TextStyle(color: JsColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
+            ]),
+          ),
           TextField(
             controller: _noteCtrl,
             maxLines: null,
             minLines: 2,
             style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
-            decoration: _fieldDeco('指定外で気づいた点などがあれば記入'),
+            decoration: _fieldDeco('例: 作業内容を修正しました / 現地確認の結果、変更ありません'),
           ),
           const SizedBox(height: 24),
           SizedBox(
