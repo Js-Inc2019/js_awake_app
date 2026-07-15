@@ -1,7 +1,7 @@
 // lib/screens/site_quick_register_screen.dart
 // 職長の承認ゲートから開く「現場の仮登録」軽量フォーム（FIELD / Asphalt Dawn）。
 //   ・入力: 現場名(必須) / 住所(任意)。lat/lng は任意（呼び出し元が渡せれば引き継ぐ）。
-//   ・重複チェック(a案): 画面は即開き、表示後に非同期で gps_address→geocode→matchSites(50m)。
+//   ・重複チェック(a案): 画面は即開き、表示後に非同期で gps_address→geocode→matchSites(500m・最大5件)。
 //     候補があれば上部に控えめに提示。候補タップ = 新規登録せずその現場を選択（site_id を返す）
 //     ＝重複入口の封鎖。geocode失敗(not_found/error/offline)・候補なしは静かにスキップ
 //     （ダイアログ/スナックバー禁止＝登録の摩擦を増やさない・袋小路なし）。
@@ -33,7 +33,7 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
   final TextEditingController _addrCtrl = TextEditingController();
 
   bool _submitting = false;
-  List<Map<String, dynamic>> _nearby = []; // matchSites の候補（50m以内）
+  List<Map<String, dynamic>> _nearby = []; // matchSites の候補（500m以内・最大5件）
 
   @override
   void initState() {
@@ -53,7 +53,7 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
 
   // 表示時の重複チェック（a案・画面は既に開いている＝完全非同期）。
   //   1) 座標が渡っていればそれを使用。無ければ gps_address を geocode して座標化。
-  //   2) matchSites(50m) で近隣候補を取得し、あれば上部に提示。
+  //   2) matchSites(500m・最大5件) で近隣候補を取得し、あれば上部に提示。
   //   すべての失敗（geocode not_found/error/offline・match ok:false・材料なし）は
   //   静かにスキップ（ダイアログ/スナックバー禁止＝登録の摩擦を増やさない・袋小路なし）。
   Future<void> _checkDuplicatesSilently() async {

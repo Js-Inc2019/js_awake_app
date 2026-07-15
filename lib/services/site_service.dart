@@ -122,7 +122,7 @@ class SiteService {
   }
 
   // ============================================================
-  // GPS照合（半径50m以内の登録現場・距離昇順）。GET /sites/match?lat=&lon=。
+  // GPS照合（半径500m以内・近い順最大5件の登録現場）。GET /sites/match?lat=&lon=。
   //   ・非200 と通信断を「成功(空含む)」と区別する（collapse させない）:
   //       成功 → {'ok': true,  'sites': List<Map>}   （0件でも ok:true）
   //       失敗 → {'ok': false, 'message': String}     （非200/例外）
