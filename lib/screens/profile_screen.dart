@@ -158,7 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Future.value(_ProfileData(
       name:            prefs.getString('user_name')    ?? '',
       role:            prefs.getString('user_role')    ?? 'worker',
-      companyName:     prefs.getString('company_name') ?? '株式会社J\'s',
+      companyName:     prefs.getString('company_name') ?? '',
       homeAddress:     prefs.getString('home_address') ?? '',
       phone:           prefs.getString('profile_phone') ?? '',
       bloodType:       prefs.getString('profile_blood_type') ?? '',
