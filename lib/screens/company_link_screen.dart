@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show showJsSnackbar;
 import '../core/theme/js_colors.dart';
 import '../config/constants.dart';
+import '../widgets/search_suggest_field.dart';
 
 class CompanyLinkScreen extends StatefulWidget {
   const CompanyLinkScreen({super.key});
@@ -325,47 +326,14 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                 fontSize: 15),
           ),
           const SizedBox(height: 12),
-          // 検索フィールド
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _ctrl,
-              autofocus: true,
-              style: const TextStyle(color: JsColors.offWhite),
-              onChanged: _onChanged,
-              decoration: InputDecoration(
-                hintText: '会社名でさがす',
-                hintStyle: const TextStyle(color: JsColors.silver),
-                prefixIcon: const Icon(Icons.search,
-                    color: JsColors.silver, size: 20),
-                suffixIcon: _searching
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsColors.gold),
-                        ),
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFF0D1520),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: JsColors.gold),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 12),
-              ),
+          // 検索中インジケータ（_searching を参照＝従来の suffixIcon スピナー代替）
+          if (_searching)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: LinearProgressIndicator(
+                  color: JsColors.gold, backgroundColor: Colors.transparent),
             ),
-          ),
-          const SizedBox(height: 8),
-          // 候補リスト
+          // 候補リスト（検索欄の上に表示）
           if (_searched && _results.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
@@ -453,7 +421,24 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                 },
               ),
             ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          // 検索欄（最下段・候補チップ直上）。onChanged=_onChanged（300msデバウンス+/companies/search）は不変。
+          // 候補チップは API 取得済み _results の会社名（差し替えは親 setState）。
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SearchSuggestField(
+              controller: _ctrl,
+              candidates: _results
+                  .map((c) => (c['company_name'] as String? ?? '').trim())
+                  .where((s) => s.isNotEmpty)
+                  .toList(),
+              hintText: '会社名でさがす',
+              autofocus: true, // シート表示で従来どおり自動フォーカス（旧autofocus保全）
+              onChanged: _onChanged,
+              onSelected: _onChanged,
+            ),
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
