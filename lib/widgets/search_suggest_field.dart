@@ -127,14 +127,19 @@ class _SearchSuggestFieldState extends State<SearchSuggestField> {
         controller: widget.controller,
         onChanged: _handleChanged,
         autofocus: widget.autofocus,
+        // 入力中文字は offWhite ではっきり（背景に沈まない）。
         style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
         decoration: InputDecoration(
           isDense: true,
           filled: true,
-          fillColor: JsColors.surface,
+          // 背景から浮かせる薄塗り: surface系に一段明るい既存定数が無いため、
+          // アクセント色(accent=#A89868)の 8% 薄塗りで代用（新規hexリテラルなし・案1準拠）。
+          fillColor: JsColors.accent.withValues(alpha: 0.08),
           hintText: widget.hintText,
-          hintStyle: const TextStyle(color: JsColors.silver, fontSize: 13),
-          prefixIcon: const Icon(Icons.search, color: JsColors.silver, size: 20),
+          // ヒントは textMid より明るく（offWhite の 60%）・fontSize 14。
+          hintStyle: TextStyle(color: JsColors.offWhite.withValues(alpha: 0.6), fontSize: 14),
+          // 検索アイコンはアクセント色・サイズ20（16以上）。
+          prefixIcon: const Icon(Icons.search, color: JsColors.accent, size: 20),
           suffixIcon: widget.controller.text.isEmpty
               ? null
               : IconButton(
@@ -146,13 +151,14 @@ class _SearchSuggestFieldState extends State<SearchSuggestField> {
                   },
                 ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          // 枠線は常時アクセント色の実線1.5px（暗い枠を廃止）／フォーカス時2px。
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: JsColors.divider),
+            borderSide: const BorderSide(color: JsColors.accent, width: 1.5),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: JsColors.accent, width: 1.4),
+            borderSide: const BorderSide(color: JsColors.accent, width: 2),
           ),
         ),
       ),
