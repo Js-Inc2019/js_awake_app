@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/constants.dart';
 import '../widgets/photo_strip_field.dart';
+import '../widgets/search_suggest_field.dart';
 
 import '../main.dart'
     show
@@ -1784,10 +1785,31 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
   bool _loading = true;
   String? _error;
 
+  // 現場名の部分一致フィルタ（ローカルのみ・APIは叩かない）。「対象なし」は常に先頭固定＝未選択の道を塞がない。
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // 検索候補（登録現場名・重複除去・非空）。取得済み _sites から生成（新規API無し）。
+  List<String> get _candidates {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final s in _sites) {
+      final n = ((s as Map)['site_name'] as String? ?? '').trim();
+      if (n.isNotEmpty && seen.add(n)) out.add(n);
+    }
+    return out;
   }
 
   Future<void> _load() async {
@@ -1830,7 +1852,23 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             const Divider(color: JsColors.border, height: 1),
+            // 上段=スクロール（「対象なし」＋現場リスト）。高さ不足時はここが逃げる。
             Flexible(child: _buildBody()),
+            // 下段=固定: 検索欄（最下段）＋候補チップ（直上）。キーボード追従（viewInsets）。
+            // 既存の絞り込みは _buildBody の .where が担当（onChanged で _query 更新）。
+            Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: SearchSuggestField(
+                  controller: _searchCtrl,
+                  candidates: _candidates,
+                  hintText: '現場名で検索',
+                  onChanged: (v) => setState(() => _query = v),
+                  onSelected: (v) => setState(() => _query = v),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1878,14 +1916,36 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
         ],
       );
     }
+    // 現場名の部分一致でローカルフィルタ（登録現場の並びは getSites の順を維持）。
+    final q = _query.trim().toLowerCase();
+    final shown = q.isEmpty
+        ? _sites
+        : _sites.where((s) =>
+            ((s as Map)['site_name'] as String? ?? '').toLowerCase().contains(q)).toList();
+    // 検索0件でも「対象なし」は必ず残す（未選択の道を塞がない＝袋小路禁止）。
+    if (shown.isEmpty && q.isNotEmpty) {
+      return ListView(
+        shrinkWrap: true,
+        children: [
+          noneTile,
+          const Divider(color: JsColors.border, height: 1),
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Text('該当する現場がありません',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+          ),
+        ],
+      );
+    }
     return ListView.separated(
       shrinkWrap: true,
-      itemCount: _sites.length + 1,
+      itemCount: shown.length + 1,
       separatorBuilder: (_, __) =>
           const Divider(color: JsColors.border, height: 1),
       itemBuilder: (context, i) {
         if (i == 0) return noneTile;
-        final site = _sites[i - 1] as Map<String, dynamic>;
+        final site = shown[i - 1] as Map<String, dynamic>;
         final id = site['site_id'] as String?;
         final name = site['site_name'] as String? ?? '(名称未設定)';
         final addr = site['address'] as String?;
