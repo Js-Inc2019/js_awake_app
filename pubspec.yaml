@@ -40,8 +40,6 @@ dependencies:
   http: ^1.6.0
   google_fonts: ^6.2.1
   # PDF生成
-  pdf: ^3.10.8
-  printing: ^5.12.0
   # ファイル保存
   path_provider: ^2.1.2
   geocoding: ^4.0.0
