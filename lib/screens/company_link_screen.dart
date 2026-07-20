@@ -141,15 +141,15 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
           : _links.isEmpty
-              ? Center(
+              ? const Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.handshake_outlined,
+                    Icon(Icons.handshake_outlined,
                         color: JsColors.silver, size: 48),
-                    const SizedBox(height: 12),
-                    const Text('協力申請はありません',
+                    SizedBox(height: 12),
+                    Text('協力申請はありません',
                         style: TextStyle(color: JsColors.silver)),
-                    const SizedBox(height: 6),
-                    const Text('右下のボタンから申請できます',
+                    SizedBox(height: 6),
+                    Text('右下のボタンから申請できます',
                         style: TextStyle(color: JsColors.silver, fontSize: 12)),
                   ]),
                 )

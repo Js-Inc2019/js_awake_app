@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 void main() {
   group('UIコンポーネントテスト', () {
     testWidgets('ローディング中はボタンが無効', (tester) async {
-      bool loading = true;
+      final data = <String, dynamic>{'loading': true};
+      final bool loading = data['loading'] == true;
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: StatefulBuilder(
@@ -86,7 +87,8 @@ void main() {
     });
 
     test('null安全: null金額→0表示', () {
-      int? amount;
+      final data = <String, dynamic>{};
+      final int? amount = data['amount'];
       String display = amount?.toString() ?? '0';
       expect(display, '0');
     });

@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/material.dart';
 
 void main() {
   group('画面遷移ロジックテスト', () {
@@ -28,25 +27,27 @@ void main() {
     });
 
     test('device_id未登録→登録画面フラグ', () {
-      String? deviceId;
+      final data = <String, dynamic>{};
+      final String? deviceId = data['device_id'];
       bool needsRegister = deviceId == null || deviceId.isEmpty;
       expect(needsRegister, true);
     });
 
     test('device_id登録済み→ログイン画面フラグ', () {
       String? deviceId = 'registered-device-id';
-      bool needsRegister = deviceId == null || deviceId.isEmpty;
+      bool needsRegister = deviceId.isEmpty;
       expect(needsRegister, false);
     });
 
     test('token有効→自動ログインフラグ', () {
       String? token = 'valid_token_xyz';
-      bool autoLogin = token != null && token.isNotEmpty;
+      bool autoLogin = token.isNotEmpty;
       expect(autoLogin, true);
     });
 
     test('token無効→ログイン必要フラグ', () {
-      String? token;
+      final data = <String, dynamic>{};
+      final String? token = data['token'];
       bool autoLogin = token != null && token.isNotEmpty;
       expect(autoLogin, false);
     });

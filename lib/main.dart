@@ -643,12 +643,15 @@ Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.deniedForever)
+    if (permission == LocationPermission.deniedForever) {
       return (address: '位置情報の権限がありません', lat: null, lon: null);
-    if (permission == LocationPermission.denied)
+    }
+    if (permission == LocationPermission.denied) {
       return (address: '位置情報の権限がありません', lat: null, lon: null);
-    if (!await Geolocator.isLocationServiceEnabled())
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) {
       return (address: 'GPS が無効です', lat: null, lon: null);
+    }
 
     final pos = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
@@ -671,15 +674,19 @@ Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
             final s = p.street!;
             final sub = p.subLocality ?? '';
             final idx = sub.isNotEmpty ? s.indexOf(sub) : -1;
-            if (idx >= 0) return (
+            if (idx >= 0) {
+              return (
               address: '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}',
               lat: pos.latitude, lon: pos.longitude,
             );
+            }
           }
-          if (parts.isNotEmpty) return (
+          if (parts.isNotEmpty) {
+            return (
             address: parts.join(''),
             lat: pos.latitude, lon: pos.longitude,
           );
+          }
         }
       } catch (_) {}
     }

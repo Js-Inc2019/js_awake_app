@@ -1266,11 +1266,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   gpsAddress: _gpsAddress,
                 ));
                 if (ctx.mounted) Navigator.pop(ctx);
-                if (mounted) showJsSnackbar(
+                if (mounted) {
+                  showJsSnackbar(
                   context,
                   sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
                   isWarning: !sentOt,
                 );
+                }
               },
             ),
           );

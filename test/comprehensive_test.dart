@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('報告データ検証', () {
     test('report_date必須チェック', () {
-      String? date;
+      final data = <String, dynamic>{};
+      final String? date = data['report_date'];
       expect(date == null || date.isEmpty, true);
     });
 
@@ -55,7 +56,8 @@ void main() {
     });
 
     test('nullレスポンスのフォールバック', () {
-      Map<String, dynamic>? response;
+      final data = <String, dynamic>{};
+      final Map<String, dynamic>? response = data['response'];
       final name = response?['name'] ?? '不明';
       expect(name, '不明');
     });
@@ -101,7 +103,8 @@ void main() {
     });
 
     test('トークンnull→未ログイン', () {
-      String? token;
+      final data = <String, dynamic>{};
+      final String? token = data['token'];
       bool isLoggedIn = token != null && token.isNotEmpty;
       expect(isLoggedIn, false);
     });
@@ -142,7 +145,7 @@ void main() {
     });
 
     test('consent_agreed_at: ISO8601フォーマット', () {
-      final dateStr = '2026-06-05T09:00:00.000Z';
+      const dateStr = '2026-06-05T09:00:00.000Z';
       expect(() => DateTime.parse(dateStr), returnsNormally);
     });
   });
