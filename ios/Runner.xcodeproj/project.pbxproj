@@ -209,7 +209,7 @@
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				F3FC1FC46348CBA396C556AE /* [CP] Embed Pods Frameworks */,
 				60F350B1CCA2950B118A76D4 /* Clear Extended Attributes */,
-				DAF7579B921D7ADB6CD3FD0B /* Clear Extended Attributes */,
+				5EA7F0EE2D918BE6550B0A9E /* Clear Extended Attributes */,
 				07ECBF4ADE969C9358474A99 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
@@ -344,6 +344,24 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" embed_and_thin";
 		};
+		3EAF6A6FC06C7C4E66C0A052 /* Clear Extended Attributes */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Clear Extended Attributes";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "find \"$BUILT_PRODUCTS_DIR\" -name \"*.app\" -o -name \"*.framework\" -o -name \"*.dylib\" | xargs xattr -cr 2>/dev/null; true";
+		};
 		508803AFB304A5819469C5F5 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -365,6 +383,24 @@
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
+		};
+		5EA7F0EE2D918BE6550B0A9E /* Clear Extended Attributes */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Clear Extended Attributes";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "find \"$BUILT_PRODUCTS_DIR\" -name \"*.app\" -o -name \"*.framework\" -o -name \"*.dylib\" | xargs xattr -cr 2>/dev/null; true";
 		};
 		60F350B1CCA2950B118A76D4 /* Clear Extended Attributes */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -399,24 +435,6 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
-		DAF7579B921D7ADB6CD3FD0B /* Clear Extended Attributes */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Clear Extended Attributes";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "find \"$BUILT_PRODUCTS_DIR\" -name \"*.app\" -o -name \"*.framework\" -o -name \"*.dylib\" | xargs xattr -cr 2>/dev/null; true";
-		};
 		F3FC1FC46348CBA396C556AE /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -433,24 +451,6 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
-		};
-		FB9E84B04EBE4C56A77E5C01 /* Clear Extended Attributes */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Clear Extended Attributes";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "find \"$BUILT_PRODUCTS_DIR\" -name \"*.app\" -o -name \"*.framework\" -o -name \"*.dylib\" | xargs xattr -cr 2>/dev/null; true";
 		};
 /* End PBXShellScriptBuildPhase section */
 
