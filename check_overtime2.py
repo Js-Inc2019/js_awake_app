@@ -1,5 +1,0 @@
-﻿content = open('lib/screens/after_report_screen.dart', 'r', encoding='utf-8').read()
-print('ファイルサイズ:', len(content))
-print('先頭100文字:', repr(content[:100]))
-print('overtime:', 'overtime' in content)
-print('ElevatedButton:', 'ElevatedButton' in content)
