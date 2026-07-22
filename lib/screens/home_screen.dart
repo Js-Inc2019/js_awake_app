@@ -35,6 +35,8 @@ import 'company_link_screen.dart';
 import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
 import 'day_reports_screen.dart';
 import 'profile_screen.dart';
+import 'notification_list_screen.dart';
+import '../services/notification_service.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
 import '../widgets/slide_to_confirm.dart';
@@ -328,6 +330,29 @@ Future<T> _withRetry<T>(
 // ─────────────────────────────────────────────
 // JsMainShell — 全画面共通シェル
 // ─────────────────────────────────────────────
+// ============================================================
+// ReportTabNavigator — 日報作成画面（JsMainShell の日報タブ index0）への
+// 単一の入口。通知一覧の 'report_remind' タップと FCM 'report_reminder' の
+// 両方が「■2と同じルート」でここを経由する。
+// シェルが initState で register / dispose で unregister する。
+// go() は成功で true、シェル未生成時は false（呼び出し側はフォールバック可）。
+// ============================================================
+class ReportTabNavigator {
+  ReportTabNavigator._();
+  static VoidCallback? _handler;
+  static void register(VoidCallback cb) => _handler = cb;
+  static void unregister(VoidCallback cb) {
+    if (identical(_handler, cb)) _handler = null;
+  }
+
+  static bool go() {
+    final h = _handler;
+    if (h == null) return false;
+    h();
+    return true;
+  }
+}
+
 class JsMainShell extends StatefulWidget {
   const JsMainShell({super.key, this.isForeman = false, this.restoreWorkStatus});
   final bool isForeman;
@@ -348,6 +373,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   int _revisionCount = 0;
   int _pendingApprovalCount = 0;
   int _linkCount     = 0;
+  int _unreadCount   = 0; // 通知未読件数（0=バッジ非表示・失敗時も0でfail-soft）
+
+  // 日報タブ(index0)への遷移ハンドラ（ReportTabNavigator へ登録/解除する実体・
+  // register/unregister で identical 比較するため単一インスタンスを保持）
+  late final VoidCallback _openReportTabCb = _goReportTab;
+  void _goReportTab() {
+    if (mounted) _setTab(0);
+  }
 
   // ─── GPS ───
   String _gpsAddress = '';
@@ -407,8 +440,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ReportTabNavigator.register(_openReportTabCb);
     _initSeasonAndDaily();
     _loadCacheAndStart();
+    _loadUnreadCount();
     _restoreTabIndex();
     _loadOriginPrefs();
     _initTodayReportDone();
@@ -534,13 +569,26 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _parkingCtrl.dispose();
     _carpoolCtrl.dispose();
     _transportMemoCtrl.dispose();
+    ReportTabNavigator.unregister(_openReportTabCb);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  // ─── 通知未読件数の取得（fail-soft: 失敗時は0＝バッジ非表示）───
+  Future<void> _loadUnreadCount() async {
+    final res = await NotificationService().fetchUnreadCount();
+    if (!mounted) return;
+    setState(() {
+      _unreadCount = res['success'] == true ? (res['count'] as int? ?? 0) : 0;
+    });
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _fetchGps();
+    if (state == AppLifecycleState.resumed) {
+      _fetchGps();
+      _loadUnreadCount();
+    }
   }
 
   // ─── キャッシュ即時表示 → バックグラウンド最新取得 ───
@@ -1091,6 +1139,45 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               ),
           ],
         ),
+        // 🔔 お知らせ（未読ゴールドバッジ）
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: Icon(
+                Icons.notifications_none,
+                color: _unreadCount > 0 ? JsColors.gold : JsColors.silver,
+              ),
+              tooltip: 'お知らせ',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const NotificationListScreen()),
+              ).then((_) => _loadUnreadCount()),
+            ),
+            if (_unreadCount > 0)
+              Positioned(
+                top: 6,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  constraints: const BoxConstraints(minWidth: 18),
+                  decoration: BoxDecoration(
+                    color: JsColors.gold,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    _unreadCount > 99 ? '99+' : '$_unreadCount',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+          ],
+        ),
         // ⚙️ 設定ボタン
         IconButton(
           icon: const Icon(Icons.settings, color: JsColors.silver),
@@ -1098,7 +1185,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const ProfileScreen()),
-          ).then((_) => _loadCacheAndStart()),
+          ).then((_) {
+            _loadCacheAndStart();
+            _loadUnreadCount();
+          }),
         ),
       ],
       // 2段目: 上段=会社名（薄・小）、下段=アイコン+氏名（メイン）

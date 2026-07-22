@@ -20,6 +20,7 @@ import '../services/profile_service.dart';
 import '../config/constants.dart';
 import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
+import 'notification_settings_screen.dart';
 
 // ─── 経験年数 → バッジ色 ───────────────────────────────────
 Color experienceColor(int? years) {
@@ -279,10 +280,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        _buildPrivacyTile(),
-                        const SizedBox(height: 12),
-                        _buildConsentCard(),
-                        const SizedBox(height: 16),
                         _buildHeader(p),
                         const SizedBox(height: 24),
                         _buildInfoCard(p),
@@ -290,6 +287,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _buildEmergencyCard(p),
                         const SizedBox(height: 16),
                         _ToolKeyCard(token: _token),
+                        // 通知設定・プライバシーポリシー・利用規約/同意状況はログアウト直上ブロックへ
+                        const SizedBox(height: 16),
+                        _buildNotificationSettingsTile(),
+                        const SizedBox(height: 12),
+                        _buildPrivacyTile(),
+                        const SizedBox(height: 12),
+                        _buildConsentCard(),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(0, 32, 0, 16),
                           child: SizedBox(
@@ -480,6 +484,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           letterSpacing: 0.5)),
                   SizedBox(height: 2),
                   Text('プライバシーポリシー',
+                      style: TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationSettingsTile() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF252525),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.notifications_active_outlined,
+                color: JsColors.gold, size: 18),
+            SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('通知',
+                      style: TextStyle(
+                          color: JsColors.silver,
+                          fontSize: 10,
+                          letterSpacing: 0.5)),
+                  SizedBox(height: 2),
+                  Text('通知設定',
                       style: TextStyle(
                           color: JsColors.offWhite,
                           fontSize: 14,

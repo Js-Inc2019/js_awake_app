@@ -7,6 +7,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
 import '../screens/revision_inbox_screen.dart';
+import '../screens/notification_list_screen.dart';
+import '../screens/home_screen.dart' show ReportTabNavigator;
 import 'auth_service.dart';
 
 class FcmService {
@@ -106,12 +108,24 @@ class FcmService {
   }
 
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
-    if (data['type'] != 'revision_request') return;
+    final type = data['type'];
+    if (type != 'revision_request' && type != 'report_reminder') return;
     final loggedIn = await AuthService().isLoggedIn();
     if (!loggedIn) return;
-    navigatorKey.currentState?.push(
-      MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
-    );
+
+    if (type == 'revision_request') {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+      );
+    } else {
+      // report_reminder → 日報作成画面（JsMainShell 日報タブ index0）へ。
+      // ■2 と同一ルート（ReportTabNavigator）。シェル未生成時は通知一覧へフォールバック。
+      if (!ReportTabNavigator.go()) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+        );
+      }
+    }
   }
 
   Future<void> _postToken(String token) async {
