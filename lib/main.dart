@@ -35,6 +35,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
+import 'utils/business_date.dart';
 
 // ============================================================
 // API設定
@@ -126,6 +127,7 @@ class WorkerReportItem {
     this.gpsAddress = '',
     this.originType = 'home',
     this.siteId,
+    this.shiftType = 'day',   // 'day'|'night'（BE: shift_type・省略時'day'扱い）
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -146,6 +148,7 @@ class WorkerReportItem {
   final String gpsAddress;
   final String originType;
   final String? siteId;   // 作業現場（null=対象なし／未選択）
+  final String shiftType; // 'day'|'night'（業務日の夜勤補正とBE送出に使用）
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -176,6 +179,7 @@ class WorkerReportItem {
     'gpsAddress':       gpsAddress,
     'originType':       originType,
     'siteId':           siteId,
+    'shiftType':        shiftType,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -194,6 +198,8 @@ class WorkerReportItem {
     gpsAddress:       j['gpsAddress']       as String? ?? '',
     originType:       j['originType']       as String? ?? 'home',
     siteId:           j['siteId']           as String?,
+    // 旧形式JSON（shiftType欠落）・不正値は 'day' にフォールバック（BEの400回避・クラッシュ防止）
+    shiftType:        j['shiftType'] == 'night' ? 'night' : 'day',
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -252,7 +258,10 @@ class ReportStore {
         final body = <String, dynamic>{
           'worker_name':   item.name,
           'worker_company': '',
-          'report_date':   item.timestamp.toIso8601String().substring(0, 10),
+          // 業務日：端末TZ非依存のJST固定。夜勤かつJST 0:00-11:59は始業日=前日
+          //（BE js-office-api/utils/businessDate.js の businessDateForShift と同一ルール）
+          'report_date':   businessDateForShift(item.shiftType, item.timestamp),
+          'shift_type':    item.shiftType,
           'clock_in_time': '${item.timeLabel}:00',
           'transport_type':      item.transport.name,
           'transport_types_json': item.transportTypes,

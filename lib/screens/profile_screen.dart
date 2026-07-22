@@ -370,10 +370,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('role');
     await prefs.remove('company_id');
     await prefs.remove('work_mode');
+    // 勤務設定(みなし)・打刻状態：別ユーザーが同一端末でログインした際の残置を防ぐ
+    await prefs.remove('deemed_start');
+    await prefs.remove('deemed_end');
+    await prefs.remove('break_minutes');
+    await prefs.remove('work_checked_in');
+    await prefs.remove('work_check_in_time');
+    // 勤務区分（業務日スコープ）：別ユーザーへの引き継ぎ防止
+    await prefs.remove('shift_type');
+    await prefs.remove('shift_business_date');
     await prefs.remove('today_date');
     await prefs.remove('today_work_status');
     await prefs.remove('today_transport');
     await prefs.remove('today_work_content');
+    await prefs.remove('today_parking_fee');
     await prefs.remove('today_overtime_hours');
     await prefs.remove('today_overtime_minutes');
     await prefs.remove('last_tab_index_worker');

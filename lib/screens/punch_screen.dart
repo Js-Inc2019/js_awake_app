@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
 import '../widgets/slide_to_confirm.dart';
+import '../core/theme/js_colors.dart';
+import '../utils/business_date.dart';
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
 const _bg     = Color(0xFF080806);
@@ -35,9 +37,15 @@ class PunchScreen extends StatefulWidget {
     super.key,
     this.onNavigateToReport,
     this.weatherPanel,
+    required this.shiftType,
+    required this.onShiftTypeChanged,
   });
   final VoidCallback? onNavigateToReport;
   final Widget? weatherPanel;
+  // 勤務区分（日勤/夜勤）は親(JsMainShell)が真実を保持し、値+変更通知を下ろす。
+  // 送信時の report_date 補正・shift_type 送出は親側で行う。
+  final String shiftType;                       // 'day'|'night'
+  final ValueChanged<String> onShiftTypeChanged;
   @override
   State<PunchScreen> createState() => _PunchScreenState();
 }
@@ -255,6 +263,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       breakLabel:    _breakLabel(),
                       onChangeBreak: _openBreakRequestSheet,
                     ),
+                    const SizedBox(height: 20),
+                    // 勤務区分（日勤/夜勤・1タップ）＋ 送信される業務日
+                    // isActual の分岐外＝みなし/実打刻の両モードで同一位置に出る
+                    _ShiftTypeSelector(
+                      selected: widget.shiftType,
+                      businessDate: businessDateForShift(
+                          widget.shiftType, DateTime.now()),
+                      onChanged: widget.onShiftTypeChanged,
+                    ),
                   ],
                 ),
               ),
@@ -274,6 +291,83 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// ⓪ 勤務区分 2択（日勤 / 夜勤）＋ 業務日表示
+//   タッチターゲット 44pt以上・選択=ゴールド / 非選択=沈み
+//   （home_screen.dart から移設・見た目は変更なし）
+// ─────────────────────────────────────────────
+class _ShiftTypeSelector extends StatelessWidget {
+  const _ShiftTypeSelector({
+    required this.selected,
+    required this.businessDate,
+    required this.onChanged,
+  });
+  final String selected;        // 'day'|'night'
+  final String businessDate;    // 送信される report_date（'YYYY-MM-DD'）
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String type, String label, IconData icon) {
+      final sel = selected == type;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onChanged(type),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 46,                       // タッチターゲット 44pt以上
+            decoration: BoxDecoration(
+              color: sel
+                  ? JsColors.gold.withValues(alpha: 0.15)
+                  : JsColors.gunmetal,
+              borderRadius: BorderRadius.circular(23),
+              border: Border.all(
+                color: sel ? JsColors.gold : JsColors.divider,
+                width: sel ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 16,
+                    color: sel ? JsColors.gold : JsColors.silver),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: sel ? JsColors.gold : JsColors.silver,
+                    fontSize: 14,
+                    fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          chip('day',   '日勤', Icons.wb_sunny_outlined),
+          const SizedBox(width: 8),
+          chip('night', '夜勤', Icons.nightlight_outlined),
+        ]),
+        const SizedBox(height: 4),
+        Text(
+          '業務日 $businessDate',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: JsColors.textSecondary, fontSize: 11),
+        ),
+      ],
     );
   }
 }

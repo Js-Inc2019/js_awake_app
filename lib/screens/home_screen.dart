@@ -5,7 +5,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config/constants.dart';
 import '../widgets/photo_strip_field.dart';
 import '../widgets/search_suggest_field.dart';
+import '../utils/business_date.dart';
 
 import '../main.dart'
     show
@@ -423,10 +423,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _isListening = false;
   final _speechMgr = SpeechManager();
 
-  // ─── 残業 ───
-  bool _overtimeExpanded = false;
-  int _overtimeHours = 0;
-  int _overtimeMinutes = 0;
+  // ─── 勤務区分（日勤/夜勤）───
+  // 送信データ組み立てまで保持。業務日(report_date)の夜勤補正とBEへの shift_type 送出に使う。
+  String _shiftType = 'day';   // 'day'|'night'
 
   // ─── 送信 ───
   bool _submitting = false;
@@ -447,6 +446,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _restoreTabIndex();
     _loadOriginPrefs();
     _initTodayReportDone();
+    _restoreShiftType();
     _workCtrl.addListener(_onWorkContentChanged);
     if (widget.restoreWorkStatus != null) {
       WidgetsBinding.instance.addPostFrameCallback(
@@ -495,13 +495,39 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
+  // 勤務区分の永続化：業務日スコープ。
+  // 「同じ業務日のあいだだけ選択を維持する」＝夜勤者の1タップを守りつつ、
+  // 別の業務日へ夜勤設定を引きずる誤爆を防ぐ。
+  Future<void> _saveShiftType(String v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('shift_type', v);
+    await prefs.setString(
+        'shift_business_date', businessDateForShift(v, DateTime.now()));
+  }
+
+  // 起動時: 保存時の業務日と「いま同じ勤務区分で計算した業務日」が一致する場合のみ復元。
+  // 不一致・欠落・不正値は 'day' にリセットし prefs も掃除する（引きずり防止）。
+  Future<void> _restoreShiftType() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedType = prefs.getString('shift_type');
+    final savedDate = prefs.getString('shift_business_date');
+    final valid = (savedType == 'day' || savedType == 'night') &&
+        savedDate != null &&
+        savedDate == businessDateForShift(savedType!, DateTime.now());
+    if (valid) {
+      if (mounted) setState(() => _shiftType = savedType);
+      return;
+    }
+    await prefs.remove('shift_type');
+    await prefs.remove('shift_business_date');
+    if (mounted && _shiftType != 'day') setState(() => _shiftType = 'day');
+  }
+
   Future<void> _saveDraft() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('today_transport', _transports.map((t) => t.name).join(','));
     await prefs.setString('today_work_content', _workCtrl.text);
     await prefs.setString('today_parking_fee', _parkingCtrl.text);
-    await prefs.setInt('today_overtime_hours', _overtimeHours);
-    await prefs.setInt('today_overtime_minutes', _overtimeMinutes);
   }
 
   Future<void> _clearDraft() async {
@@ -509,8 +535,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await prefs.remove('today_transport');
     await prefs.remove('today_work_content');
     await prefs.remove('today_parking_fee');
-    await prefs.remove('today_overtime_hours');
-    await prefs.remove('today_overtime_minutes');
   }
 
   Future<void> _restoreDraft(String workStatus) async {
@@ -518,8 +542,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final transportName = prefs.getString('today_transport') ?? '';
     final workContent   = prefs.getString('today_work_content') ?? '';
     final parkingFee    = prefs.getString('today_parking_fee') ?? '';
-    final overtimeH     = prefs.getInt('today_overtime_hours') ?? 0;
-    final overtimeM     = prefs.getInt('today_overtime_minutes') ?? 0;
     final restored = transportName.isEmpty
         ? <TransportType>{}
         : transportName.split(',').map((n) => TransportType.values.firstWhere(
@@ -531,11 +553,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _transports = restored;
       _workCtrl.text = workContent;
       _parkingCtrl.text = parkingFee;
-      _overtimeHours = overtimeH;
-      _overtimeMinutes = overtimeM;
-      if (workStatus == 'overtime' && (overtimeH > 0 || overtimeM > 0)) {
-        _overtimeExpanded = true;
-      }
     });
   }
 
@@ -902,10 +919,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final name = _userName;
     final gpsAddr = _gpsAddress;
     try {
-      final overtimeNote = (_overtimeHours > 0 || _overtimeMinutes > 0)
-          ? ' 【残業$_overtimeHours時間$_overtimeMinutes分】'
-          : '';
-      final carpoolPrefix = (_transports.contains(TransportType.car) && _carType == 'carpool')
+      final carpoolPrefix =(_transports.contains(TransportType.car) && _carType == 'carpool')
           ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] '
           : '';
       final parkingPrefix = (_transports.contains(TransportType.car) && _carType == 'own' && _parkingCtrl.text.trim().isNotEmpty)
@@ -919,12 +933,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         name: name,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
-        workContent: carpoolPrefix + parkingPrefix + otherPrefix + _workCtrl.text.trim() + overtimeNote,
+        workContent: carpoolPrefix + parkingPrefix + otherPrefix + _workCtrl.text.trim(),
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
         originType: _originType,
         siteId: _selectedSiteId,   // 「対象なし」= null（BE側 NULL）
+        shiftType: _shiftType,     // 'day'|'night'（業務日補正+BE送出）
       ));
       await ReportStore.instance.retryPending();
       _saveWorkStatus('done');
@@ -946,9 +961,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         _parkingCtrl.clear();
         _workPhotoPaths = [];
         _parkingPhotoPaths = [];
-        _overtimeExpanded = false;
-        _overtimeHours = 0;
-        _overtimeMinutes = 0;
         _selectedSiteId = null;      // 送信後は現場選択を「対象なし」に戻す
         _selectedSiteName = null;
         // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
@@ -1016,11 +1028,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ─── 日付ラベル ───
+  // 日報タブ(index1)では勤務区分に応じた業務日（JST固定・夜勤の深夜〜午前は始業日=前日）を出す。
+  // ＝送信される report_date と画面表示を一致させる（黙って日付を変えない）。
   String get _dateLabel {
-    final n = DateTime.now();
+    final ds = businessDateForShift(
+        _tabIndex == 1 ? _shiftType : 'day', DateTime.now());
+    final d  = DateTime.parse(ds);
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
-    final w = weekdays[n.weekday - 1];
-    return '${n.year}/${n.month.toString().padLeft(2, '0')}/${n.day.toString().padLeft(2, '0')}（$w）';
+    final w = weekdays[d.weekday - 1];
+    return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}（$w）';
   }
 
   // ─── ページタイトル ───
@@ -1050,6 +1066,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final tabChildren = <Widget>[
       PunchScreen(
         onNavigateToReport: () => _setTab(1),
+        // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
+        shiftType: _shiftType,
+        onShiftTypeChanged: (v) {
+          setState(() => _shiftType = v);
+          _saveShiftType(v);   // 業務日スコープで永続化
+        },
         weatherPanel: _PunchWeatherPanel(
           weather:       _weather,
           forecast:      _forecast,
@@ -1354,6 +1376,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   transport: TransportType.other,
                   workContent: '【残業】$start〜$end $overtime',
                   gpsAddress: _gpsAddress,
+                  shiftType: _shiftType,   // 残業報告も同じ勤務区分で業務日を揃える
                 ));
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
@@ -1665,23 +1688,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   onChanged: (v) => setState(() => _workPhotoPaths = v),
                 ),
                 const SizedBox(height: 4),
-
-                // ⑥ 残業（タップで時計入力）
-                _OvertimeSection(
-                  hours: _overtimeHours,
-                  minutes: _overtimeMinutes,
-                  expanded: _overtimeExpanded,
-                  onToggle: () =>
-                      setState(() => _overtimeExpanded = !_overtimeExpanded),
-                  onChanged: (h, m) {
-                    setState(() { _overtimeHours = h; _overtimeMinutes = m; });
-                    if (h > 0 || m > 0) {
-                      _saveWorkStatus('overtime');
-                      _saveDraft();
-                    }
-                  },
-                ),
-                const SizedBox(height: 4),
+                // ⑥ 残業入力は撤去（提出後の残業報告導線=OvertimeDialogに一本化）
               ],
             ),
           ),
@@ -2968,195 +2975,6 @@ class _SmallMediaButton extends StatelessWidget {
           color: active ? JsColors.gold : JsColors.silver),
     ),
   );
-}
-
-// ─────────────────────────────────────────────
-// ⑥ 残業セクション（タップで時計入力）
-// ─────────────────────────────────────────────
-class _OvertimeSection extends StatelessWidget {
-  const _OvertimeSection({
-    required this.hours,
-    required this.minutes,
-    required this.expanded,
-    required this.onToggle,
-    required this.onChanged,
-  });
-  final int hours;
-  final int minutes;
-  final bool expanded;
-  final VoidCallback onToggle;
-  final void Function(int hours, int minutes) onChanged;
-
-  String get _label {
-    if (hours == 0 && minutes == 0) return 'なし';
-    if (hours == 0) return '$minutes分';
-    if (minutes == 0) return '$hours時間';
-    return '$hours時間$minutes分';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasOvertime = hours > 0 || minutes > 0;
-    return Container(
-      decoration: BoxDecoration(
-        color: JsColors.gunmetal,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: hasOvertime
-              ? JsColors.warning.withValues(alpha: 0.6)
-              : JsColors.divider,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: onToggle,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 10),
-              child: Row(children: [
-                const Icon(Icons.access_time,
-                    color: JsColors.gold, size: 16),
-                const SizedBox(width: 6),
-                const Text('残業',
-                    style: TextStyle(
-                        color: JsColors.offWhite,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold)),
-                const SizedBox(width: 8),
-                Text(_label,
-                    style: TextStyle(
-                        color:
-                            hasOvertime ? JsColors.warning : JsColors.silver,
-                        fontSize: 13,
-                        fontWeight: hasOvertime
-                            ? FontWeight.bold
-                            : FontWeight.normal)),
-                const Spacer(),
-                Icon(
-                  expanded
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
-                  color: JsColors.silver,
-                  size: 18,
-                ),
-              ]),
-            ),
-          ),
-          if (expanded) ...[
-            const Divider(height: 1, color: JsColors.divider),
-            SizedBox(
-              height: 120,
-              child: _OvertimePicker(
-                hours: hours,
-                minutes: minutes,
-                onChanged: onChanged,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// 残業ドラムロールピッカー
-// ─────────────────────────────────────────────
-class _OvertimePicker extends StatefulWidget {
-  const _OvertimePicker({
-    required this.hours,
-    required this.minutes,
-    required this.onChanged,
-  });
-  final int hours;
-  final int minutes;
-  final void Function(int, int) onChanged;
-
-  @override
-  State<_OvertimePicker> createState() => _OvertimePickerState();
-}
-
-class _OvertimePickerState extends State<_OvertimePicker> {
-  late FixedExtentScrollController _hCtrl;
-  late FixedExtentScrollController _mCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _hCtrl = FixedExtentScrollController(initialItem: widget.hours);
-    _mCtrl =
-        FixedExtentScrollController(initialItem: widget.minutes ~/ 5);
-  }
-
-  @override
-  void dispose() {
-    _hCtrl.dispose();
-    _mCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Expanded(
-        child: Column(children: [
-          const SizedBox(height: 4),
-          const Text('時間',
-              style: TextStyle(color: JsColors.silver, fontSize: 10)),
-          Expanded(
-            child: CupertinoPicker(
-              scrollController: _hCtrl,
-              itemExtent: 36,
-              backgroundColor: Colors.transparent,
-              selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
-                  background: JsColors.gold.withValues(alpha: 0.12)),
-              onSelectedItemChanged: (i) =>
-                  widget.onChanged(i, widget.minutes),
-              children: List.generate(
-                13,
-                (i) => Center(
-                    child: Text('$i',
-                        style: const TextStyle(
-                            color: JsColors.offWhite, fontSize: 20))),
-              ),
-            ),
-          ),
-        ]),
-      ),
-      const Text(':',
-          style: TextStyle(
-              color: JsColors.silver,
-              fontSize: 20,
-              fontWeight: FontWeight.bold)),
-      Expanded(
-        child: Column(children: [
-          const SizedBox(height: 4),
-          const Text('分',
-              style: TextStyle(color: JsColors.silver, fontSize: 10)),
-          Expanded(
-            child: CupertinoPicker(
-              scrollController: _mCtrl,
-              itemExtent: 36,
-              backgroundColor: Colors.transparent,
-              selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
-                  background: JsColors.gold.withValues(alpha: 0.12)),
-              onSelectedItemChanged: (i) =>
-                  widget.onChanged(widget.hours, i * 5),
-              children: List.generate(
-                12,
-                (i) => Center(
-                    child: Text((i * 5).toString().padLeft(2, '0'),
-                        style: const TextStyle(
-                            color: JsColors.offWhite, fontSize: 20))),
-              ),
-            ),
-          ),
-        ]),
-      ),
-    ]);
-  }
 }
 
 // ─────────────────────────────────────────────
