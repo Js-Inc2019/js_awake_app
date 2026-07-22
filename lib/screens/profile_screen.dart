@@ -388,6 +388,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('today_overtime_minutes');
     await prefs.remove('last_tab_index_worker');
     await prefs.remove('last_tab_index_foreman');
+    // 現行タブキー(v2)：旧キー削除だけでは残置するため追加（home_screen.dart:562/576）
+    await prefs.remove('last_tab_index_v2_worker');
+    await prefs.remove('last_tab_index_v2_foreman');
+    // 日報：未送信キューとキャッシュ履歴（前ユーザーの日報が次ユーザーのトークンで
+    // 送信される事故を防ぐ・main.dart _K.pendingReports/_K.reports）
+    await prefs.remove('pending_reports');
+    await prefs.remove('worker_reports_history');
+    // 個人情報：別ユーザーへの引き継ぎ防止（profile_screen 保存/復元系）
+    await prefs.remove('emergency_contact_name');
+    await prefs.remove('emergency_contact_phone');
+    await prefs.remove('profile_phone');
+    await prefs.remove('profile_blood_type');
+    await prefs.remove('home_address');
+    await prefs.remove('work_address');
+    await prefs.remove('health_check_date_iso');
+    await prefs.remove('experience_years');
+    await prefs.remove('worker_id');
     // device_id は削除しない → PINログイン画面へ
 
     if (!mounted) return;
