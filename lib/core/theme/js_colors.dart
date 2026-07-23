@@ -72,3 +72,25 @@ class JsColors {
     return Color.lerp(getWorkerAccent(workerYears), foremanBase, 0.3)!;
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// FIELD日報フォームv2の意味名トークン。将来OFFICE等へ同名で展開予定。
+//
+// ★別クラスにした理由（推測でなく事実）: 意味名 textPrimary が既存の
+//   JsColors.textPrimary(#EDE8DC・後方互換エイリアス) と衝突する。
+//   「既存定数は削除も改変もしない」を満たしつつ8つの意味名を揃って持つには
+//   名前空間を分けるしかないため JsFormTokens として分離した。
+//   JsColors 側は1行も触っていない＝他画面への影響ゼロ。
+// ─────────────────────────────────────────────────────────────
+class JsFormTokens {
+  JsFormTokens._();
+
+  static const Color bgBase       = Color(0xFF2C2C2C); // 地（ガンメタ）
+  static const Color surfaceCard  = Color(0xFF242424); // カード（枠線なし・明度差のみ）
+  static const Color textPrimary  = Color(0xFFF5F5F0); // オフホワイト（本文・見出し）
+  static const Color textSub      = Color(0xFF8A9BA8); // シルバー（ラベル・補助）
+  static const Color textMuted    = Color(0xFF7D8891); // さらに弱い補助（GPS・注記）
+  static const Color chipSelected = Color(0xFF41474C); // 鋼（選択中チップの面）
+  static const Color chipBorder   = Color(0xFF3D3D3D); // 未選択チップの枠
+  static const Color accentAlert  = Color(0xFFE8A33D); // 琥珀（未入力バッジのみ・枠線+文字）
+}

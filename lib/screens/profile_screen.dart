@@ -390,6 +390,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('today_parking_fee');
     await prefs.remove('today_overtime_hours');
     await prefs.remove('today_overtime_minutes');
+    // 現場の引き継ぎ（裁定A・home_screen.dart _kLastSiteId/_kLastSiteName）：
+    // 別ユーザーが前任者の現場をデフォルトで背負わないよう掃除する
+    await prefs.remove('last_site_id');
+    await prefs.remove('last_site_name');
+    // 移動手段のデフォルト復元（home_screen.dart _kLastTransports/_kLastCarType）：同上
+    await prefs.remove('last_transports');
+    await prefs.remove('last_car_type');
+    // ルート結果の鍵付きキャッシュ（home_screen.dart _kRouteCacheKey/_kRouteCacheJson）：
+    // 前ユーザーの現場の金額が次ユーザーに見えるのを防ぐ
+    await prefs.remove('route_cache_key');
+    await prefs.remove('route_cache_json');
     await prefs.remove('last_tab_index_worker');
     await prefs.remove('last_tab_index_foreman');
     // 現行タブキー(v2)：旧キー削除だけでは残置するため追加（home_screen.dart:562/576）

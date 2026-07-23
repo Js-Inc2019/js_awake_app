@@ -712,6 +712,13 @@ Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
 // 共通ユーティリティ
 // ============================================================
 
+// 共通スナックバー。
+// ★2026-07 是正: 従来は fontSize 20 + padding(24,20) + margin 無しの floating だったため、
+//   1行のメッセージでも画面幅いっぱいの巨大な帯になり、さらに floating は
+//   ソフトキーボードの上へ持ち上がる仕様のため、入力中は画面中央付近に大きく居座っていた。
+//   文字と余白を実用サイズへ落とし、明示的な margin で画面下部に寄せる。
+//   （キーボード表示中に中央へ来る件は、呼び出し側で unfocus してから出すのが根治。
+//     日報フォームの必須通知は home_screen 側で unfocus 済み）
 void showJsSnackbar(BuildContext context, String msg,
     {bool isError = false, bool isWarning = false}) {
   if (!context.mounted) return;
@@ -722,12 +729,13 @@ void showJsSnackbar(BuildContext context, String msg,
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
       content: Text(msg, style: const TextStyle(
-          color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
       backgroundColor: bg,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      duration: const Duration(seconds: 3),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),   // 画面下部へ寄せる
+      duration: const Duration(seconds: 2),
     ));
 }
 
