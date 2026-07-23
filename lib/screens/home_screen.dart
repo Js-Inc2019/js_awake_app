@@ -3962,12 +3962,16 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                       ),
           ),
           // note は summary の有無にかかわらず常時表示（法務の盾3層目）
+          // 読めない注意書きは盾にならないため可読水準へ。背景 surface(#181810) 比の
+          // コントラストは silver(#484830)=1.91 / textMid(#686040)=2.83 で共にWCAG AA(4.5)未達、
+          // gold の alpha 0.85 合成(#92855b)=4.87 でAA達成。不透明gold(6.25)は見出しと
+          // 同格になり階層が壊れるため 0.85 を採用。サイズは最低可読の11へ。
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: Text(
               note,
-              style:
-                  const TextStyle(color: JsColors.silver, fontSize: 10),
+              style: TextStyle(
+                  color: JsColors.gold.withValues(alpha: 0.85), fontSize: 11),
             ),
           ),
         ],
