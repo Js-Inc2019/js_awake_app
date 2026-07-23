@@ -123,6 +123,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         lat:  gps.lat,
         lng:  gps.lon,
         addr: gps.address,
+        shiftType: widget.shiftType,   // S5b: 勤務区分をBEへ送出（夜勤は始業日1行に収まる）
       );
       if (!mounted) return;
       if (result.ok) {

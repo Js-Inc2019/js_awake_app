@@ -32,6 +32,10 @@ class JsColors {
   static const Color warning       = Color(0xFFFFB800);
   static const Color success       = Color(0xFF2E7D5E);
 
+  // ─── アクション（次の行動を促す・危険ではない）────────────────
+  // TOOL Arc Flash 由来のミュートシアン。移動・切替など「前へ進む」操作に使う。
+  static const Color actionCyan    = Color(0xFF5ABEAA);
+
   // ─── 役割カラー（経験年数別）────────────────────────────────
   static const Color worker0 = Color(0xFFFF4444);
   static const Color worker1 = Color(0xFFFF8C00);

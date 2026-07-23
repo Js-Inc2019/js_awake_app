@@ -814,24 +814,26 @@ class _GateScreenState extends State<GateScreen> {
   Future<void> _pushWorker(BuildContext context) async {
     if (!context.mounted) return;
 
-    // 当日の作業状態を確認して復元
+    // 当日の作業状態を確認して復元。
+    // S5b追補(B案): 勤務状態は report_done_<shift> = '<業務日>|<status>' のシフト別2キー。
+    // どのシフトで見るかは shift_type（業務日スコープで永続化・home_screen の _saveShiftType）に従う。
+    // 旧3キー（today_date / today_work_status / report_done_shift）は読み捨て＝
+    // 旧キーしか無い端末は復元されず通常起動になるだけ（袋小路なし）。
     final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    final todayDate =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final savedDate  = prefs.getString('today_date') ?? '';
-    final workStatus = prefs.getString('today_work_status') ?? 'idle';
-    final shouldRestore = savedDate == todayDate &&
+    final savedShift = prefs.getString('shift_type');
+    final shiftType  = (savedShift == 'day' || savedShift == 'night') ? savedShift! : 'day';
+    final bizDate    = businessDateForShift(shiftType, DateTime.now());
+    final raw        = prefs.getString('report_done_$shiftType') ?? '';
+    final parts      = raw.split('|');
+    final savedDate  = parts.length == 2 ? parts[0] : '';
+    final workStatus = parts.length == 2 ? parts[1] : 'idle';
+    final shouldRestore = savedDate == bizDate &&
         workStatus != 'idle' &&
         workStatus != 'done';
 
-    // 当日の報告完了(done)状態は HomeScreen 側(日報タブ)が prefs を読んで
-    // 完了ビューを出すため、ここでは全画面pushによる復元を行わない（復元経路を一本化）。
-    // 日付が変わっている場合のみ当日キーをクリアして通常起動する。
-    if (workStatus == 'done' && savedDate != todayDate) {
-      await prefs.remove('today_work_status');
-      await prefs.remove('today_date');
-    }
+    // 報告完了(done)状態は HomeScreen 側(日報タブ)が prefs を読んで完了ビューを出すため、
+    // ここでは全画面pushによる復元を行わない（復元経路を一本化）。
+    // 業務日が変わったキーは次回書込で上書きされ、判定側も日付一致を要求するため掃除不要。
 
     if (!context.mounted) return;
     Navigator.pushReplacement(

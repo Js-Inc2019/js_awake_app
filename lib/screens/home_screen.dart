@@ -475,23 +475,64 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
+  // S5b追補(B案): 勤務状態はシフト別の2キーに分離して保持する。
+  //   report_done_day   = '<業務日>|<status>'   例 '2026-07-23|done'
+  //   report_done_night = '<業務日>|<status>'
+  // 業務日は暦日ではなく businessDateForShift(shift) （夜勤の深夜〜午前は始業日=前日）で、
+  // 送信される report_date と同じ物差しになる。
+  // シフトごとに独立しているため、夜勤done後に日勤へ切り替えても夜勤のdone記録は消えない。
+  static String reportDoneKey(String shiftType) => 'report_done_$shiftType';
+
+  // 現 _shiftType のキーにのみ書く（他シフトのキーには触れない）。
   Future<void> _saveWorkStatus(String status) async {
-    final now = DateTime.now();
-    final todayDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('today_date', todayDate);
-    await prefs.setString('today_work_status', status);
+    final bizDate = businessDateForShift(_shiftType, DateTime.now());
+    await prefs.setString(reportDoneKey(_shiftType), '$bizDate|$status');
   }
 
-  // 起動時: 当日ぶんが送信済み(done)なら完了ビューを日報タブに出す（復元経路を一本化）
-  Future<void> _initTodayReportDone() async {
+  // 現 _shiftType のキーを読み、業務日一致 AND status=='done' で「報告済み」と判定する。
+  // 旧形式（today_date / today_work_status / report_done_shift の3キー）は読み捨て。
+  // 旧キーしか無い端末は新キーが null → false（未完了）＝フォームに落ちるだけで袋小路なし。
+  // 送信済みデータはBEにあるため、ここで無理に移行するより開ける方を選ぶ。
+  Future<bool> _readReportDone() async {
     final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    final todayDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final savedDate = prefs.getString('today_date') ?? '';
-    final status    = prefs.getString('today_work_status') ?? '';
-    if (mounted && savedDate == todayDate && status == 'done') {
-      setState(() => _todayReportDone = true);
+    final raw = prefs.getString(reportDoneKey(_shiftType));
+    if (raw == null) return false;
+    final parts = raw.split('|');
+    if (parts.length != 2) return false;   // 不正値は未完了扱い（袋小路禁止）
+    return parts[0] == businessDateForShift(_shiftType, DateTime.now()) &&
+        parts[1] == 'done';
+  }
+
+  // 起動時: 現在のシフトの業務日ぶんが送信済み(done)なら完了ビューを日報タブに出す。
+  Future<void> _initTodayReportDone() async {
+    final done = await _readReportDone();
+    if (mounted && done) setState(() => _todayReportDone = true);
+  }
+
+  // ✏️ 続けて日報（同一シフトで2枚目）。
+  // S5b仕上げの裁定で完了ビューのアクションは3択に絞られ、このハンドラは
+  // AfterReportBody へ渡していない＝現在は未配線。将来ボタンを復活させる際に
+  // そのまま `onContinueReport: _onContinueReport` で繋げられるよう温存する。
+  // シフト/現場/GPS/移動手段は維持し、本文と写真だけを白紙にする（🚗と直交）。
+  // ignore: unused_element
+  Future<void> _onContinueReport() async {
+    _workCtrl.clear();
+    await _saveWorkStatus('working');
+    if (!mounted) return;
+    setState(() {
+      _todayReportDone = false;
+      _workPhotoPaths = [];
+      _parkingPhotoPaths = [];
+    });
+  }
+
+  // チップ切替など _shiftType が変わった直後に判定をやり直す。
+  // 夜勤done後に日勤へ切替 → 複合キー不一致 → false → フォームが自然に開く。
+  Future<void> _reevaluateReportDone() async {
+    final done = await _readReportDone();
+    if (mounted && done != _todayReportDone) {
+      setState(() => _todayReportDone = done);
     }
   }
 
@@ -1070,7 +1111,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {
           setState(() => _shiftType = v);
-          _saveShiftType(v);   // 業務日スコープで永続化
+          _saveShiftType(v);        // 業務日スコープで永続化
+          _reevaluateReportDone();  // S5b: 複合キーで報告済み判定をやり直す
         },
         weatherPanel: _PunchWeatherPanel(
           weather:       _weather,
@@ -1322,6 +1364,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return AfterReportBody(
         workerName: _userName,
         sent: _lastSentOk,
+        shiftType: _shiftType,   // 継続ボタンのラベル反転（day→🌙夜勤継続 / night→☀日勤継続）
         // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
         onRetry: () async {
           await ReportStore.instance.retryPending();
@@ -1359,9 +1402,26 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           });
           _fetchGps();
         },
-        // 夜勤継続：Navigator.popは廃止しスナックバーのみ（挙動は現状維持・設計は別途）
-        onNightShift: () {
-          if (mounted) showJsSnackbar(context, '🌙 夜勤モードで継続します');
+        // 🌙/☀ シフト継続：現在の勤務区分の逆へ移行して次の勤務に入る。
+        // 業務日スコープで永続化し、複合キーの報告済み判定は自然に不一致＝false になるが、
+        // 「切替前のシフトでdone」という状態を残さないよう working も明示的に書き直す。
+        // 現場/GPS/移動手段は維持（🚗と直交）、本文と写真のみクリア。
+        onShiftContinue: () async {
+          final next = _shiftType == 'night' ? 'day' : 'night';
+          _workCtrl.clear();
+          setState(() {
+            _shiftType = next;
+            _todayReportDone = false;
+            _workPhotoPaths = [];
+            _parkingPhotoPaths = [];
+          });
+          await _saveShiftType(next);
+          await _saveWorkStatus('working');   // 新シフトの業務日で working を刻む
+          if (!mounted) return;
+          showJsSnackbar(
+            context,
+            next == 'night' ? '🌙 夜勤へ切り替えました' : '☀ 日勤へ切り替えました',
+          );
         },
         onOvertime: () async {
           await showDialog(

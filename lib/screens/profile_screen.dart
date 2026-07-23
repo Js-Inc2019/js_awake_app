@@ -379,8 +379,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // 勤務区分（業務日スコープ）：別ユーザーへの引き継ぎ防止
     await prefs.remove('shift_type');
     await prefs.remove('shift_business_date');
-    await prefs.remove('today_date');
-    await prefs.remove('today_work_status');
+    // 勤務状態（S5b追補: シフト別2キー）。旧3キーも残置端末のために掃除する。
+    await prefs.remove('report_done_day');
+    await prefs.remove('report_done_night');
+    await prefs.remove('today_date');          // 旧キー（読み捨て済み・残骸掃除）
+    await prefs.remove('today_work_status');   // 旧キー（同上）
+    await prefs.remove('report_done_shift');   // 旧キー（同上）
     await prefs.remove('today_transport');
     await prefs.remove('today_work_content');
     await prefs.remove('today_parking_fee');

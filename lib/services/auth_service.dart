@@ -165,32 +165,11 @@ class AuthService {
   }
 
   // ============================================================
-  // ログアウト
+  // ※ ログアウトは profile_screen.dart の _logout() に一本化（S5b で本クラスの
+  //   logout() を削除）。本メソッドは呼び手ゼロの死蔵で、削除キーが6つしかなく
+  //   pending_reports / worker_reports_history / 個人情報系など27キーを残す
+  //   漏洩実装だったため、誤って配線される前に撤去した。
   // ============================================================
-
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    // 単一の顔の掟: 明示ログアウトは端末アンカーを白紙化させる（BEは device_id 受領時に実行）。
-    // 冪等・失敗しても常時200のため、ローカルログアウトは絶対にブロックしない（袋小路禁止）。
-    final deviceId = prefs.getString('device_id') ?? '';
-    if (deviceId.isNotEmpty) {
-      try {
-        await http.post(
-          Uri.parse('$kApiBaseUrl/auth/logout'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'device_id': deviceId}),
-        ).timeout(const Duration(seconds: 5));
-      } catch (_) { /* 通信失敗でもローカルログアウトは継続 */ }
-    }
-    await prefs.setBool('logged_out', true);
-    await prefs.remove('auth_token');
-    await prefs.remove('user_id');
-    await prefs.remove('user_role'); // 二重キー統一
-    await prefs.remove('role');      // 旧キー残骸掃除
-    await prefs.remove('company_id');
-    await prefs.remove('user_name');
-    // device_id は削除しない（次回 PIN/生体で正規に再解決させる）
-  }
 
   // ============================================================
   // トークン検証

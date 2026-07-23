@@ -147,14 +147,17 @@ class WorkModeService {
   }
 
   Future<({bool ok, Map<String, dynamic>? record, int statusCode, String? errorCode, String? errorMessage})>
-      punch(String type, {double? lat, double? lng, String? addr}) async {
+      punch(String type, {double? lat, double? lng, String? addr,
+                          String shiftType = 'day'}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) {
         return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
       }
-      final payload = <String, dynamic>{'type': type};
+      // shift_type は BE の POST /attendance/punch が受ける（'day'|'night'・省略時 day）。
+      // 夜勤は BE 側 businessDateForShift で始業日に寄せられ、出勤/退勤が同一行に収まる。
+      final payload = <String, dynamic>{'type': type, 'shift_type': shiftType};
       if (lat  != null) payload['lat']  = lat;
       if (lng  != null) payload['lng']  = lng;
       if (addr != null) payload['addr'] = addr;
