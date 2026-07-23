@@ -3906,23 +3906,27 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                 ? const Center(
                     child: CircularProgressIndicator(color: JsColors.gold))
                 : _summary == null
+                    // 本文相当の状態表示。silver(=textWeak #484830)では読めないため textStrong。
                     ? const Center(
                         child: Text('データなし',
                             style: TextStyle(
-                                color: JsColors.silver, fontSize: 13)))
+                                color: JsColors.textStrong, fontSize: 13)))
                     : ListView(
                         controller: controller,
                         padding:
                             const EdgeInsets.fromLTRB(16, 16, 16, 0),
                         children: [
+                          // 数値は高コントラスト色で描く（JsColors.silver は
+                          // js_colors.dart:19/25 のとおり textWeak(#484830) と同値で、
+                          // 地(#181810)に沈んで実機で読めなかった）。
+                          // 出勤日数=success（安全色・裁定）／他=textStrong。
+                          // 枠・背景・ラベルは従来のセマンティック色を維持し階層を残す。
                           Row(
                             children: [
-                              JsStatChip(
+                              _StaffStatChip(
                                 '出勤日数',
-                                (_summary!['days_worked'] as num?)
-                                        ?.toInt() ??
-                                    0,
-                                JsColors.silver,
+                                '${(_summary!['days_worked'] as num?)?.toInt() ?? 0}',
+                                JsColors.success,
                               ),
                               const SizedBox(width: 4),
                               _StaffStatChip(
@@ -3936,24 +3940,21 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                                   return '${(mins / 60).toStringAsFixed(1)}h';
                                 }(),
                                 JsColors.gold,
+                                valueColor: JsColors.textStrong,
                               ),
                               const SizedBox(width: 4),
-                              JsStatChip(
+                              _StaffStatChip(
                                 '残業',
-                                ((_summary!['overtime']
-                                            as Map<String, dynamic>?)?[
-                                        'total_min'] as num?)
-                                    ?.toInt() ??
-                                    0,
+                                '${((_summary!['overtime'] as Map<String, dynamic>?)?['total_min'] as num?)?.toInt() ?? 0}',
                                 JsColors.warning,
+                                valueColor: JsColors.textStrong,
                               ),
                               const SizedBox(width: 4),
-                              JsStatChip(
+                              _StaffStatChip(
                                 '休日出勤',
-                                (_summary!['holiday_work_days'] as num?)
-                                        ?.toInt() ??
-                                    0,
+                                '${(_summary!['holiday_work_days'] as num?)?.toInt() ?? 0}',
                                 JsColors.error,
+                                valueColor: JsColors.textStrong,
                               ),
                             ],
                           ),
@@ -3976,11 +3977,15 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
 }
 
 // JsStatChip の String値版（実働時間 h表記用）
+// valueColor: 数値だけを高コントラスト色にするための任意指定。
+//   月次シートの数値が地の色に沈んで読めなかったため、値とラベル/枠の色を分離できるようにした。
+//   省略時は color と同一＝従来挙動（レイアウト・サイズ・枠は不変）。
 class _StaffStatChip extends StatelessWidget {
-  const _StaffStatChip(this.label, this.value, this.color);
+  const _StaffStatChip(this.label, this.value, this.color, {this.valueColor});
   final String label;
   final String value;
   final Color color;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) => Expanded(
@@ -3994,7 +3999,7 @@ class _StaffStatChip extends StatelessWidget {
           child: Column(children: [
             Text(value,
                 style: TextStyle(
-                    color: color,
+                    color: valueColor ?? color,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
             Text(label, style: TextStyle(color: color, fontSize: 11)),
