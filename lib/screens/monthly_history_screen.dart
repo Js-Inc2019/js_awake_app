@@ -7,6 +7,9 @@ import '../main.dart' show API_URL;
 import '../core/theme/js_colors.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
+// 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
+// フォールバックする読み方は revision_parser に実装済みのものを再利用する（新設しない）。
+import '../utils/revision_parser.dart' show transportNamesOf;
 
 // ─────────────────────────────────────────────
 // MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
@@ -307,7 +310,8 @@ class JsReportTile extends StatelessWidget {
     final date       = report['report_date']   as String? ?? '';
     final content    = report['work_content']  as String? ?? '作業内容 未入力';
     final addr       = report['gps_address']   as String? ?? '';
-    final trans      = report['transport_type'] as String? ?? '';
+    // 作業3: 複数選択に対応（'・' 区切り＝確認画面と同じ流儀）
+    final trans      = transportNamesOf(report).join('・');
     final workerName = report['worker_name']   as String? ?? '';
 
     final isRejected  = status == 'rejected';
@@ -458,7 +462,8 @@ class JsReportDetailSheet extends StatelessWidget {
     final date        = report['report_date']    as String? ?? '';
     final content     = report['work_content']   as String? ?? '作業内容 未入力';
     final addr        = report['gps_address']    as String? ?? '';
-    final trans       = report['transport_type'] as String? ?? '';
+    // 作業3: 複数選択に対応（'・' 区切り）
+    final trans       = transportNamesOf(report).join('・');
     final distKm      = report['distance_km'];
     final transCost   = report['transport_cost'];
     final otHours     = report['overtime_hours']   as int? ?? 0;

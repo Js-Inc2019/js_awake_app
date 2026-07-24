@@ -1341,7 +1341,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // 確認画面の表示材料と差異検知キーを一度に作る。読むだけ・stateは変えない。
   _ReportSnapshot _buildSnapshot() {
-    final parts      = _routeParts(_transport, _routeComparisons);
+    // 作業2: 先頭1件(_transport)ではなく選択中の全手段から内訳を作る。
+    final routeRows  = _routeBreakdown(_transports, _routeComparisons);
     final parkingRaw = _parkingCtrl.text.trim();
     return _ReportSnapshot(
       dateLabel:         _formDateLabel,
@@ -1353,8 +1354,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       transportLabel:    _transports.isEmpty
           ? '未選択'
           : _transports.map((t) => t.label).join('・'),
-      distanceLabel:     parts.dist ?? '—',
-      routeCostLabel:    parts.cost ?? '—',
+      routeRows:         routeRows,
       parkingFeeRaw:     parkingRaw,
       workContent:       _workCtrl.text.trim(),
       workPhotoCount:    _workPhotoPaths.length,
@@ -1939,56 +1939,34 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   fromCache: _routeFromCache,
                   onRetry: _calculateRoutes,
                 ),
-                // 車選択時の続き: 相乗り名 / 駐車料金 + 駐車場写真
-                if (_transports.contains(TransportType.car)) ...[
-                  if (_carType == 'carpool') ...[
-                    const SizedBox(height: 10),
-                    _FormInputShell(
-                      icon: Icons.people,
-                      child: TextField(
-                        controller: _carpoolCtrl,
-                        decoration: const InputDecoration(
-                          hintText: '誰の相乗りか（任意）',
-                          border: InputBorder.none,
-                          hintStyle: TextStyle(
-                              color: JsFormTokens.textMuted, fontSize: 12),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(
-                            color: JsFormTokens.textPrimary, fontSize: 13),
+                // 車選択かつ相乗り時: 相乗り名（駐車料金は出さない＝現行仕様のまま）
+                if (_transports.contains(TransportType.car) &&
+                    _carType == 'carpool') ...[
+                  const SizedBox(height: 10),
+                  _FormInputShell(
+                    icon: Icons.people,
+                    child: TextField(
+                      controller: _carpoolCtrl,
+                      decoration: const InputDecoration(
+                        hintText: '誰の相乗りか（任意）',
+                        border: InputBorder.none,
+                        hintStyle: TextStyle(
+                            color: JsFormTokens.textMuted, fontSize: 12),
+                        contentPadding: EdgeInsets.zero,
                       ),
+                      style: const TextStyle(
+                          color: JsFormTokens.textPrimary, fontSize: 13),
                     ),
-                  ],
-                  if (_carType == 'own') ...[
-                    const SizedBox(height: 10),
-                    _FormInputShell(
-                      icon: Icons.local_parking,
-                      child: TextField(
-                        controller: _parkingCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: '駐車料金（円）',
-                          border: InputBorder.none,
-                          hintStyle: TextStyle(
-                              color: JsFormTokens.textMuted, fontSize: 12),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(
-                            color: JsFormTokens.textPrimary, fontSize: 13),
-                        onChanged: (_) => _saveDraft(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // 駐車場写真（複数・横スクロール帯）
-                    PhotoStripField(
-                      label: '駐車場写真（看板・領収書）',
-                      paths: _parkingPhotoPaths,
-                      onChanged: (v) => setState(() => _parkingPhotoPaths = v),
-                    ),
-                  ],
+                  ),
                 ],
-                // その他選択時: 駐車料金・写真欄
-                if (_transports.contains(TransportType.other)) ...[
+                // 駐車料金 + 駐車場写真（1組だけ描画する）
+                // ★根治: 旧実装は「車(own)の分岐」と「その他の分岐」が独立していたため、
+                //   car と other を同時選択すると同じ _parkingCtrl / _parkingPhotoPaths を
+                //   共有する入力欄と写真帯が2組並んでいた。条件を OR で1本化して解消する。
+                //   controller・paths は従来と同一のため、下書き保存(:649)・復元(:674)・
+                //   送信(:1157-1167)の経路は一切変わらない。
+                if ((_transports.contains(TransportType.car) && _carType == 'own') ||
+                    _transports.contains(TransportType.other)) ...[
                   const SizedBox(height: 10),
                   _FormInputShell(
                     icon: Icons.local_parking,
@@ -2242,8 +2220,7 @@ class _ReportSnapshot {
     required this.originLabel,
     required this.transportKey,
     required this.transportLabel,
-    required this.distanceLabel,
-    required this.routeCostLabel,
+    required this.routeRows,
     required this.parkingFeeRaw,
     required this.workContent,
     required this.workPhotoCount,
@@ -2257,8 +2234,9 @@ class _ReportSnapshot {
   final String  originLabel;
   final String  transportKey;    // 差異検知用（順序非依存に正規化済み）
   final String  transportLabel;
-  final String  distanceLabel;
-  final String  routeCostLabel;
+  /// 作業2: 手段ごとの内訳。旧 distanceLabel / routeCostLabel（各1個のString）は
+  /// 先頭1件しか持てず、複数選択時に2件目以降が消えていたため置き換えた。
+  final List<({String label, String? dist, String? cost})> routeRows;
   final String  parkingFeeRaw;   // 入力そのまま（空文字=未入力）
   final String  workContent;
   final int     workPhotoCount;
@@ -2267,12 +2245,19 @@ class _ReportSnapshot {
   String get parkingFeeLabel =>
       parkingFeeRaw.isEmpty ? '—' : '¥$parkingFeeRaw';
 
+  /// ルート金額の差異検知キー。旧 routeCostLabel（単一文字列）の代替。
+  /// 手段名で昇順ソートしてから畳むため、選択順が違っても同じ値になる
+  /// （transportKey と同じ「順序非依存」の性質を保つ）。
+  String get routeCostKey =>
+      (routeRows.map((r) => '${r.label}:${r.cost ?? ''}').toList()..sort())
+          .join(',');
+
   /// 差異検知は4項目に限定: 現場ID・移動手段・作業内容・金額（ルート金額+駐車料金）。
   String get diffKey => [
         siteId ?? '',
         transportKey,
         workContent,
-        routeCostLabel,
+        routeCostKey,
         parkingFeeRaw,
       ].join('');
 }
@@ -2363,7 +2348,13 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                           _row('移動',
                               '${_snap.originLabel}から ${_snap.transportLabel}'),
                           _row('距離・時間',
-                              '${_snap.distanceLabel}　${_snap.routeCostLabel}'),
+                              _snap.routeRows.isEmpty
+                                  ? '—'
+                                  : _snap.routeRows
+                                      .map((r) =>
+                                          '${r.label}　${r.dist ?? '—'}　${r.cost ?? '—'}')
+                                      .join('\n'),
+                              multiline: true),
                           _row('交通費（駐車料金）', _snap.parkingFeeLabel),
                           _row('作業内容', _snap.workContent, multiline: true),
                           _row('写真',
@@ -4022,6 +4013,34 @@ class _RouteInfoBar extends StatelessWidget {
   }
 
   return (time: timeStr, cost: costStr, dist: distStr);
+}
+
+// 作業2: 選択中の【全手段】の内訳を作る。
+// 判定順・条件・書式を二重に書かないため、要素ごとに上の _routeParts をそのまま呼ぶ。
+//
+// ★train と bus の重複回避（理由）:
+//   _routeParts は train も bus も同じ comparisons['transit'] を参照する（:3983-3985）。
+//   BE の POST /routes/compare が返すのは route_transit 1本だけで、バス単独の経路検索は
+//   存在しない（js-office-api/routes/routes-calc.js は transit と car の2種のみ算出）。
+//   したがって train と bus を同時に選ぶと「同一ルートの運賃・所要時間」が2行に
+//   重複計上されてしまう。transit を参照する手段は最初の1件だけを残す。
+//
+// 値が取れない手段も行は残す（dist/cost が null＝表示側で '—'）。
+// 「選んだのに行が消える」ほうが利用者には不可解なため。
+List<({String label, String? dist, String? cost})> _routeBreakdown(
+    Set<TransportType> transports, Map<String, dynamic> comparisons) {
+  final rows = <({String label, String? dist, String? cost})>[];
+  var transitUsed = false;
+  for (final t in transports) {
+    final usesTransit = t == TransportType.train || t == TransportType.bus;
+    if (usesTransit) {
+      if (transitUsed) continue;   // 同一 transit ルートの二重計上を防ぐ
+      transitUsed = true;
+    }
+    final p = _routeParts(t, comparisons);
+    rows.add((label: t.label, dist: p.dist, cost: p.cost));
+  }
+  return rows;
 }
 
 // ─────────────────────────────────────────────

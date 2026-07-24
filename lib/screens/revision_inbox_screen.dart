@@ -7,6 +7,8 @@ import '../main.dart' show showJsSnackbar;
 import '../core/theme/js_colors.dart';
 import '../config/constants.dart';
 import 'revision_edit_screen.dart';
+// 作業3: 移動手段の複数対応。既存の transportNamesOf を再利用する（新設しない）。
+import '../utils/revision_parser.dart' show transportNamesOf;
 import '../widgets/report_photos.dart';
 import '../services/auth_service.dart';
 
@@ -316,7 +318,8 @@ class ReportDetailSheet extends StatelessWidget {
     final work       = (r['work_content'] as String?)?.trim() ?? '';
     final memo       = (r['memo'] as String?)?.trim() ?? '';
     final gps        = (r['gps_address'] as String?)?.trim() ?? '';
-    final trans      = (r['transport_type'] as String?)?.trim() ?? '';
+    // 作業3: 複数選択に対応（'・' 区切り）
+    final trans      = transportNamesOf(r).join('・');
     final parking    = r['parking_fee'];
     final bossNote   = (r['boss_note'] as String?)?.trim() ?? '';
     final workerNote = (r['worker_revision_note'] as String?)?.trim() ?? '';
