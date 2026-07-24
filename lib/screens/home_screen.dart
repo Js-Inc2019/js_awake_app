@@ -1911,6 +1911,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   child: Text('※タップで選択　／　2つ以上使うときはダブルタップで追加',
                       style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
                 ),
+                // 補足テキスト（その他 or 複数選択時）— 注意書き直下・トグルより前へ移設
+                if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
+                  const SizedBox(height: 10),
+                  _FormInputShell(
+                    icon: Icons.edit_note,
+                    child: TextField(
+                      controller: _transportMemoCtrl,
+                      decoration: const InputDecoration(
+                        hintText: '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩',
+                        border: InputBorder.none,
+                        hintStyle: TextStyle(
+                            color: JsFormTokens.textMuted, fontSize: 12),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      style: const TextStyle(
+                          color: JsFormTokens.textPrimary, fontSize: 13),
+                    ),
+                  ),
+                ],
                 // 車選択時: 社用車/相乗り 2択 → 各入力欄
                 if (_transports.contains(TransportType.car)) ...[
                   const SizedBox(height: 10),
@@ -2008,6 +2027,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     hintText: '相乗り相手の会社名（任意）',
                     onChanged: _onCarpoolCompanyChanged,
                     onSelected: _onCarpoolCompanyChanged,
+                    // 候補はサーバ(/companies/search)が正規化検索で絞り済み。
+                    // 生テキスト部分一致の再フィルタでサーバ候補を捨てない。
+                    serverFiltered: true,
                   ),
                   // 作業2: 会社名欄の下に補足（既存の ※ 補足と同じ textMuted / fontSize 11）
                   const Padding(
@@ -2065,25 +2087,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     label: '駐車場写真（看板・領収書）',
                     paths: _parkingPhotoPaths,
                     onChanged: (v) => setState(() => _parkingPhotoPaths = v),
-                  ),
-                ],
-                // 補足テキスト（その他 or 複数選択時）
-                if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
-                  const SizedBox(height: 10),
-                  _FormInputShell(
-                    icon: Icons.edit_note,
-                    child: TextField(
-                      controller: _transportMemoCtrl,
-                      decoration: const InputDecoration(
-                        hintText: '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(
-                            color: JsFormTokens.textMuted, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(
-                          color: JsFormTokens.textPrimary, fontSize: 13),
-                    ),
                   ),
                 ],
                     ],

@@ -20,6 +20,7 @@ class SearchSuggestField extends StatefulWidget {
     this.hintText = '検索',
     this.maxSuggestions = 6,
     this.autofocus = false,
+    this.serverFiltered = false,
   });
 
   final TextEditingController controller;
@@ -29,6 +30,10 @@ class SearchSuggestField extends StatefulWidget {
   final String hintText;
   final int maxSuggestions;
   final bool autofocus;
+  // true のとき candidates は既にサーバ側で絞り込み済みとみなし、
+  // 入力生テキストによる literal 部分一致フィルタ(_matches)を行わない。
+  // 既定 false＝従来動作（生テキスト部分一致で絞る）。
+  final bool serverFiltered;
 
   @override
   State<SearchSuggestField> createState() => _SearchSuggestFieldState();
@@ -44,7 +49,8 @@ class _SearchSuggestFieldState extends State<SearchSuggestField> {
     for (final c in widget.candidates) {
       final s = c.trim();
       if (s.isEmpty) continue;
-      if (!s.toLowerCase().contains(q)) continue;
+      // serverFiltered 時は生テキスト部分一致で捨てない（サーバ絞り込みを尊重）。
+      if (!widget.serverFiltered && !s.toLowerCase().contains(q)) continue;
       if (!seen.add(s)) continue;
       out.add(s);
       if (out.length >= widget.maxSuggestions) break;

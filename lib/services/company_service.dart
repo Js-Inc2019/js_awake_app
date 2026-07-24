@@ -3,6 +3,7 @@
 // ============================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 import '../config/constants.dart';
@@ -131,8 +132,16 @@ class CompanyService {
             .map((e) => e as Map<String, dynamic>)
             .toList();
       }
+      // 沈黙解除: 非200を可視化（認証ヘッダ・トークンは出さない。
+      // body先頭のみ・statusCodeのみ）。戻り値(空リスト)は不変。
+      final bodyHead = response.body.length > 200
+          ? response.body.substring(0, 200)
+          : response.body;
+      debugPrint('searchCompanies 非200: status=${response.statusCode} body=$bodyHead');
       return [];
     } catch (e) {
+      // 沈黙解除: 例外を可視化（認証情報は含めない）。戻り値(空リスト)は不変。
+      debugPrint('searchCompanies 例外: $e');
       return [];
     }
   }
