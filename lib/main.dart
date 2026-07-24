@@ -128,6 +128,15 @@ class WorkerReportItem {
     this.originType = 'home',
     this.siteId,
     this.shiftType = 'day',   // 'day'|'night'（BE: shift_type・省略時'day'扱い）
+    // v57(FIELD): 経費スナップショット（提出時点の値。後で単価が変わっても書き換わらない）
+    this.transportDistanceKm,
+    this.transportFuelCost,
+    this.transportFare,
+    this.transportToll,
+    this.transportBreakdown,
+    // v57(FIELD): 相乗り相手（構造化・work_content連結を廃止した真実源）
+    this.carpoolCompany,
+    this.carpoolName,
     DateTime? timestamp,
     this.isActive = true,
     String? id,
@@ -149,6 +158,15 @@ class WorkerReportItem {
   final String originType;
   final String? siteId;   // 作業現場（null=対象なし／未選択）
   final String shiftType; // 'day'|'night'（業務日の夜勤補正とBE送出に使用）
+  // v57(FIELD): 経費スナップショット（提出時点の合計＋内訳。ルート検索結果由来）
+  final double? transportDistanceKm;
+  final int? transportFuelCost;
+  final int? transportFare;
+  final int? transportToll;
+  final List<Map<String, dynamic>>? transportBreakdown;
+  // v57(FIELD): 相乗り相手（会社名・氏名。二重真実を作らないため work_content には連結しない）
+  final String? carpoolCompany;
+  final String? carpoolName;
   final DateTime timestamp;
   bool isActive;
   String? apiReportId;
@@ -180,6 +198,13 @@ class WorkerReportItem {
     'originType':       originType,
     'siteId':           siteId,
     'shiftType':        shiftType,
+    'transportDistanceKm': transportDistanceKm,
+    'transportFuelCost':   transportFuelCost,
+    'transportFare':       transportFare,
+    'transportToll':       transportToll,
+    'transportBreakdown':  transportBreakdown,
+    'carpoolCompany':      carpoolCompany,
+    'carpoolName':         carpoolName,
     'timestamp':        timestamp.toIso8601String(),
     'isActive':         isActive,
     'apiReportId':      apiReportId,
@@ -200,6 +225,15 @@ class WorkerReportItem {
     siteId:           j['siteId']           as String?,
     // 旧形式JSON（shiftType欠落）・不正値は 'day' にフォールバック（BEの400回避・クラッシュ防止）
     shiftType:        j['shiftType'] == 'night' ? 'night' : 'day',
+    // v57(FIELD): 旧形式JSON（欠落）は null 読み捨て（クラッシュ防止）
+    transportDistanceKm: (j['transportDistanceKm'] as num?)?.toDouble(),
+    transportFuelCost:   (j['transportFuelCost'] as num?)?.toInt(),
+    transportFare:       (j['transportFare'] as num?)?.toInt(),
+    transportToll:       (j['transportToll'] as num?)?.toInt(),
+    transportBreakdown:  (j['transportBreakdown'] as List?)
+        ?.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+    carpoolCompany:      j['carpoolCompany'] as String?,
+    carpoolName:         j['carpoolName'] as String?,
     timestamp:        j['timestamp'] != null
         ? DateTime.tryParse(j['timestamp'] as String) ?? DateTime.now()
         : DateTime.now(),
@@ -269,6 +303,15 @@ class ReportStore {
           'gps_address':         item.gpsAddress,
           'origin_type':         item.originType,
           'work_content':        item.workContent,
+          // v57(FIELD): 経費スナップショット（提出時点の合計）。null は 0 で埋めず null のまま送る。
+          'transport_distance_km': item.transportDistanceKm,
+          'transport_fuel_cost':   item.transportFuelCost,
+          'transport_fare':        item.transportFare,
+          'transport_toll':        item.transportToll,
+          'transport_breakdown':   item.transportBreakdown,
+          // v57(FIELD): 相乗り相手（構造化・空欄は null）。BE:reports.carpool_company/carpool_name
+          'carpool_company':       item.carpoolCompany,
+          'carpool_name':          item.carpoolName,
         };
         // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
         if (item.siteId != null) body['site_id'] = item.siteId;

@@ -415,7 +415,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Set<TransportType> _transports = {};
   TransportType get _transport => _transports.isEmpty ? TransportType.none : _transports.first;
   String _carType = 'own';
-  final _carpoolCtrl       = TextEditingController();
+  final _carpoolNameCtrl       = TextEditingController();
+  // 作業2/3: 相乗り相手の会社名（サジェスト付き）。氏名 _carpoolNameCtrl と2欄構成。
+  final _carpoolCompanyCtrl    = TextEditingController();
+  // 作業3: 会社名サジェストの候補（searchCompanies の結果を親stateに保持し candidates を再生成）
+  List<Map<String, dynamic>> _carpoolCompanyResults = [];
+  Timer? _carpoolCompanyDebounce;
   final _transportMemoCtrl = TextEditingController();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
@@ -647,6 +652,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await prefs.setString('today_transport', _transports.map((t) => t.name).join(','));
     await prefs.setString('today_work_content', _workCtrl.text);
     await prefs.setString('today_parking_fee', _parkingCtrl.text);
+    // 作業2: 相乗り2欄を下書きに含める（旧 _carpoolCtrl は保存されず再起動で消えていた）。
+    await prefs.setString('today_carpool_company', _carpoolCompanyCtrl.text);
+    await prefs.setString('today_carpool_name', _carpoolNameCtrl.text);
   }
 
   Future<void> _clearDraft() async {
@@ -654,6 +662,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await prefs.remove('today_transport');
     await prefs.remove('today_work_content');
     await prefs.remove('today_parking_fee');
+    await prefs.remove('today_carpool_company');
+    await prefs.remove('today_carpool_name');
   }
 
   Future<void> _restoreDraft(String workStatus) async {
@@ -661,6 +671,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final transportName = prefs.getString('today_transport') ?? '';
     final workContent   = prefs.getString('today_work_content') ?? '';
     final parkingFee    = prefs.getString('today_parking_fee') ?? '';
+    final carpoolCompany = prefs.getString('today_carpool_company') ?? '';
+    final carpoolName    = prefs.getString('today_carpool_name') ?? '';
     final restored = transportName.isEmpty
         ? <TransportType>{}
         : transportName.split(',').map((n) => TransportType.values.firstWhere(
@@ -672,6 +684,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _transports = restored;
       _workCtrl.text = workContent;
       _parkingCtrl.text = parkingFee;
+      _carpoolCompanyCtrl.text = carpoolCompany;
+      _carpoolNameCtrl.text = carpoolName;
+    });
+  }
+
+  // 作業3: 会社名サジェスト。company_link_screen.dart:256-268 と同じ流儀（300msデバウンス）。
+  //   結果を _carpoolCompanyResults に格納し、SearchSuggestField の candidates を再生成する。
+  void _onCarpoolCompanyChanged(String v) {
+    _carpoolCompanyDebounce?.cancel();
+    _saveDraft();   // 相乗り会社名の下書き保存（他欄と同じ流儀）
+    final q = v.trim();
+    if (q.isEmpty) {
+      setState(() => _carpoolCompanyResults = []);
+      return;
+    }
+    _carpoolCompanyDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final results = await CompanyService().searchCompanies(q);
+      if (!mounted) return;
+      setState(() => _carpoolCompanyResults = results);
     });
   }
 
@@ -703,7 +734,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _workCtrl.dispose();
     _otherCtrl.dispose();
     _parkingCtrl.dispose();
-    _carpoolCtrl.dispose();
+    _carpoolNameCtrl.dispose();
+    _carpoolCompanyCtrl.dispose();
+    _carpoolCompanyDebounce?.cancel();
     _transportMemoCtrl.dispose();
     ReportTabNavigator.unregister(_openReportTabCb);
     WidgetsBinding.instance.removeObserver(this);
@@ -1139,16 +1172,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final name = _userName;
     final gpsAddr = _gpsAddress;
     try {
-      final carpoolPrefix =(_transports.contains(TransportType.car) && _carType == 'carpool')
-          ? '[相乗り:${_carpoolCtrl.text.trim().isEmpty ? "未記入" : _carpoolCtrl.text.trim()}] '
-          : '';
-      // D-2: 駐車料金の parkingPrefix（work_content への文字列埋め込み）は撤去。
+      // 作業2: [相乗り:〇〇] の work_content 連結は撤去。相乗りは carpool_company/carpool_name
+      //   列を真実源にする（二重真実の禁止）。
+      // D-2: 駐車料金の parkingPrefix（work_content への文字列埋め込み）は撤去済。
       //      金額の真実源を parking_fee 列ひとつに寄せる。
       final otherPrefix = (_transports.contains(TransportType.other) && _otherCtrl.text.trim().isNotEmpty)
           ? '[その他:${_otherCtrl.text.trim()}] '
           : '';
       // D-1: 移動手段の補足テキスト。従来 UI にはあるが payload に載らず消えていた。
-      //      carpool/other prefix と同じ流儀で work_content へ連結する。空なら付けない。
+      //      other prefix と同じ流儀で work_content へ連結する。空なら付けない。
       final memoPrefix = _transportMemoCtrl.text.trim().isEmpty
           ? ''
           : '【移動】${_transportMemoCtrl.text.trim()} ';
@@ -1158,12 +1190,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final parkingParsed = parkingRaw.isEmpty ? null : double.tryParse(parkingRaw);
       final parkingFeeValue =
           (parkingParsed != null && parkingParsed >= 0) ? parkingRaw : null;
+      // 作業1: 提出時点の経費スナップショット（合計＋内訳）。ルート検索結果由来。
+      final exp = _expenseSnapshot(_transports, _routeComparisons);
+      // 作業2: 相乗り2欄（相乗り時のみ・空欄は null）。
+      final isCarpool = _transports.contains(TransportType.car) && _carType == 'carpool';
+      final carpoolCompany = isCarpool && _carpoolCompanyCtrl.text.trim().isNotEmpty
+          ? _carpoolCompanyCtrl.text.trim() : null;
+      final carpoolName = isCarpool && _carpoolNameCtrl.text.trim().isNotEmpty
+          ? _carpoolNameCtrl.text.trim() : null;
       await WorkerNameStore.instance.add(name);
       final sent = await ReportStore.instance.addReport(WorkerReportItem(
         name: name,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
-        workContent: carpoolPrefix + otherPrefix + memoPrefix + _workCtrl.text.trim(),
+        workContent: otherPrefix + memoPrefix + _workCtrl.text.trim(),
         parkingFee: parkingFeeValue,   // D-2: 実値送出（未入力/不正はnull）
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
@@ -1171,6 +1211,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         originType: _originType,
         siteId: _selectedSiteId,   // 「対象なし」= null（BE側 NULL）
         shiftType: _shiftType,     // 'day'|'night'（業務日補正+BE送出）
+        // 作業1: 経費スナップショット（null は 0 で埋めない）
+        transportDistanceKm: exp.distanceKm,
+        transportFuelCost:   exp.fuelCost,
+        transportFare:       exp.fare,
+        transportToll:       exp.toll,
+        transportBreakdown:  exp.breakdown.isEmpty ? null : exp.breakdown,
+        // 作業2: 相乗り相手（構造化）
+        carpoolCompany: carpoolCompany,
+        carpoolName:    carpoolName,
       ));
       await ReportStore.instance.retryPending();
       _saveWorkStatus('done');
@@ -1182,7 +1231,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       // バッジ付きで正面に出しており、同じ事実の二重表示だった。
       // snackbar 側は完了ビューの行動カードに数秒かぶるだけで情報を足していない。
       // ★成否(sent)は下の _lastSentOk へそのまま渡っており、表示の真実は失われない。
-      _carpoolCtrl.clear();
+      _carpoolNameCtrl.clear();
       _transportMemoCtrl.clear();
       setState(() {
         _transports = {};
@@ -1356,6 +1405,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           : _transports.map((t) => t.label).join('・'),
       routeRows:         routeRows,
       parkingFeeRaw:     parkingRaw,
+      // 作業4: 相乗り2項目（相乗り時のみ・空欄は空文字）。表示・差異検知に使う。
+      carpoolCompany:    (_transports.contains(TransportType.car) && _carType == 'carpool')
+          ? _carpoolCompanyCtrl.text.trim() : '',
+      carpoolName:       (_transports.contains(TransportType.car) && _carType == 'carpool')
+          ? _carpoolNameCtrl.text.trim() : '',
       workContent:       _workCtrl.text.trim(),
       workPhotoCount:    _workPhotoPaths.length,
       parkingPhotoCount: _parkingPhotoPaths.length,
@@ -1666,7 +1720,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         onMoveToNextSite: () async {
           _otherCtrl.clear();
           _parkingCtrl.clear();
-          _carpoolCtrl.clear();
+          _carpoolNameCtrl.clear();
           _transportMemoCtrl.clear();
           await _saveWorkStatus('working');
           if (!mounted) return;
@@ -1939,16 +1993,36 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   fromCache: _routeFromCache,
                   onRetry: _calculateRoutes,
                 ),
-                // 車選択かつ相乗り時: 相乗り名（駐車料金は出さない＝現行仕様のまま）
+                // 車選択かつ相乗り時: 相乗り相手（会社名サジェスト＋氏名の2欄）。
+                //   駐車料金は出さない＝現行仕様のまま。work_content には連結しない（二重真実の禁止）。
                 if (_transports.contains(TransportType.car) &&
                     _carType == 'carpool') ...[
+                  const SizedBox(height: 10),
+                  // 作業3: 会社名はサジェスト付き（searchCompanies・300msデバウンス・共通部品）
+                  SearchSuggestField(
+                    controller: _carpoolCompanyCtrl,
+                    candidates: _carpoolCompanyResults
+                        .map((c) => (c['company_name'] as String? ?? '').trim())
+                        .where((s) => s.isNotEmpty)
+                        .toList(),
+                    hintText: '相乗り相手の会社名（任意）',
+                    onChanged: _onCarpoolCompanyChanged,
+                    onSelected: _onCarpoolCompanyChanged,
+                  ),
+                  // 作業2: 会社名欄の下に補足（既存の ※ 補足と同じ textMuted / fontSize 11）
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('※自社なら空欄のままでOK',
+                        style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+                  ),
                   const SizedBox(height: 10),
                   _FormInputShell(
                     icon: Icons.people,
                     child: TextField(
-                      controller: _carpoolCtrl,
+                      controller: _carpoolNameCtrl,
+                      onChanged: (_) => _saveDraft(),
                       decoration: const InputDecoration(
-                        hintText: '誰の相乗りか（任意）',
+                        hintText: '相乗り相手の氏名（任意）',
                         border: InputBorder.none,
                         hintStyle: TextStyle(
                             color: JsFormTokens.textMuted, fontSize: 12),
@@ -2222,6 +2296,8 @@ class _ReportSnapshot {
     required this.transportLabel,
     required this.routeRows,
     required this.parkingFeeRaw,
+    required this.carpoolCompany,
+    required this.carpoolName,
     required this.workContent,
     required this.workPhotoCount,
     required this.parkingPhotoCount,
@@ -2238,6 +2314,8 @@ class _ReportSnapshot {
   /// 先頭1件しか持てず、複数選択時に2件目以降が消えていたため置き換えた。
   final List<({String label, String? dist, String? cost})> routeRows;
   final String  parkingFeeRaw;   // 入力そのまま（空文字=未入力）
+  final String  carpoolCompany;  // 作業4: 相乗り会社名（空文字=相乗りでない/未入力）
+  final String  carpoolName;     // 作業4: 相乗り氏名（空文字=相乗りでない/未入力）
   final String  workContent;
   final int     workPhotoCount;
   final int     parkingPhotoCount;
@@ -2253,12 +2331,20 @@ class _ReportSnapshot {
           .join(',');
 
   /// 差異検知は4項目に限定: 現場ID・移動手段・作業内容・金額（ルート金額+駐車料金）。
+  /// 相乗り相手のラベル。会社名・氏名のどちらか一方でもあれば「会社名　氏名」。
+  /// 両方空なら空文字（＝相乗りを選んでいない or 未入力）。
+  String get carpoolLabel =>
+      [carpoolCompany, carpoolName].where((s) => s.isNotEmpty).join('　');
+
+  // 作業4: 差異検知に相乗り2項目を追加（金額・移動に加えて相乗りの変更も検知する）。
   String get diffKey => [
         siteId ?? '',
         transportKey,
         workContent,
         routeCostKey,
         parkingFeeRaw,
+        carpoolCompany,
+        carpoolName,
       ].join('');
 }
 
@@ -2356,6 +2442,9 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                                       .join('\n'),
                               multiline: true),
                           _row('交通費（駐車料金）', _snap.parkingFeeLabel),
+                          // 作業4: 相乗りを選んでいる時だけ行を出す（未選択・未入力なら行ごと省く）
+                          if (_snap.carpoolLabel.isNotEmpty)
+                            _row('相乗り', _snap.carpoolLabel),
                           _row('作業内容', _snap.workContent, multiline: true),
                           _row('写真',
                               '作業 ${_snap.workPhotoCount}枚 / 駐車 ${_snap.parkingPhotoCount}枚',
@@ -4041,6 +4130,56 @@ List<({String label, String? dist, String? cost})> _routeBreakdown(
     rows.add((label: t.label, dist: p.dist, cost: p.cost));
   }
   return rows;
+}
+
+// 作業1: ルート検索結果(_routeComparisons)から【提出時点の経費スナップショット】を作る。
+//   ★これは提出した瞬間の値の写し。後から燃費単価や運賃が変わっても、この報告の
+//     過去の値は書き換わらない（BE側で reports 列に保存＝不変のスナップショット）。
+//   ・4列（distance_km / fuel_cost / fare / toll）は選択中の全手段の【合計】。
+//   ・breakdown は手段ごとの【内訳】配列（例: [{mode:'car',distance_km:12.3,...},{mode:'train',fare:620}]）。
+//   ・train と bus は同一 transit ルートのため 1件だけ計上（_routeBreakdown の transitUsed と同判定）。
+//     car と other も同一 comparisons['car'] を指すため 1件だけ計上する
+//     （同一ルートの toll/fuel を二重計上しない＝例の内訳が car 1件なのと整合）。
+//   ・値が取れない場合は null（0 で埋めない）。合計はどの手段も寄与しなければ null のまま。
+({double? distanceKm, int? fuelCost, int? fare, int? toll,
+  List<Map<String, dynamic>> breakdown}) _expenseSnapshot(
+    Set<TransportType> transports, Map<String, dynamic> comparisons) {
+  final breakdown = <Map<String, dynamic>>[];
+  double? distanceKm;
+  int? fuelCost, fare, toll;
+  var transitUsed = false, carUsed = false;
+
+  for (final t in transports) {
+    final usesTransit = t == TransportType.train || t == TransportType.bus;
+    final usesCar     = t == TransportType.car   || t == TransportType.other;
+    if (usesTransit) {
+      if (transitUsed) continue;   // 同一 transit ルートの二重計上を防ぐ
+      transitUsed = true;
+      final tr = comparisons['transit'] as TransitRoute?;
+      final f = tr?.fareIc;
+      breakdown.add({'mode': t.name, if (f != null) 'fare': f});
+      if (f != null) fare = (fare ?? 0) + f;
+    } else if (usesCar) {
+      if (carUsed) continue;       // car と other は同一 comparisons['car']＝1件のみ
+      carUsed = true;
+      final c = comparisons['car'] as CarRoute?;
+      final km   = c != null ? c.distanceM / 1000.0 : null;
+      final fuel = c?.gasCost;
+      final tl   = c?.tollNormal;
+      breakdown.add({
+        'mode': t.name,
+        if (km != null)   'distance_km': km,
+        if (fuel != null) 'fuel_cost': fuel,
+        if (tl != null)   'toll': tl,
+      });
+      if (km != null)   distanceKm = (distanceKm ?? 0) + km;
+      if (fuel != null) fuelCost   = (fuelCost ?? 0) + fuel;
+      if (tl != null)   toll       = (toll ?? 0) + tl;
+    }
+    // bike/walk は経費列を持たないため内訳・合計とも計上しない
+  }
+  return (distanceKm: distanceKm, fuelCost: fuelCost, fare: fare,
+          toll: toll, breakdown: breakdown);
 }
 
 // ─────────────────────────────────────────────
