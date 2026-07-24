@@ -436,6 +436,9 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
               autofocus: true, // シート表示で従来どおり自動フォーカス（旧autofocus保全）
               onChanged: _onChanged,
               onSelected: _onChanged,
+              // 候補はサーバ(/companies/search)が正規化検索で絞り済み。
+              // 生テキスト部分一致の再フィルタでサーバ候補を捨てない。
+              serverFiltered: true,
             ),
           ),
           const SizedBox(height: 12),
