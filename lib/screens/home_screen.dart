@@ -385,6 +385,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── GPS ───
   String _gpsAddress = '';
+  // fetchGpsAddress(main.dart:653) の status をそのまま保持する。
+  // '' = 未取得 / 'ok' / 'address_failed'（座標フォールバック）/ 'gps_failed'
+  String _gpsStatus = '';
   bool _gpsLoading = false;
   double? _lat;
   double? _lon;
@@ -792,10 +795,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('GPS取得エラー: $e');
     }
-    final (:address, lat: _, lon: _) = await fetchGpsAddress();
-    if (address.isNotEmpty) prefs?.setString('gps_address', address);
+    final (:address, lat: _, lon: _, :status) = await fetchGpsAddress();
+    // キャッシュ焼き付きの停止: 住所の構築に成功した値だけを保存する。
+    // 座標フォールバック('address_failed')や '位置情報の権限がありません' 等
+    // ('gps_failed')を保存すると、次回起動時に _loadCacheAndStart(:748) が
+    // それを復元して住所のふりをして表示し続けるため。
+    if (status == 'ok') prefs?.setString('gps_address', address);
     if (mounted) {
-      setState(() { _gpsAddress = address; _gpsLoading = false; });
+      setState(() { _gpsAddress = address; _gpsStatus = status; _gpsLoading = false; });
       _loadWeather();
       // GPSが揃った時点が「フォームに目的地が確定した時点」。
       // 鍵が完全一致するキャッシュがあれば即表示し、続けて必ず再計算する。
@@ -1340,7 +1347,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       dateLabel:         _formDateLabel,
       shiftLabel:        _shiftLabel,
       siteId:            _selectedSiteId,
-      siteName:          _selectedSiteName ?? '対象なし',
+      siteName:          _selectedSiteName ?? '該当現場なし',
       originLabel:       _originType == 'office' ? '会社' : '自宅',
       transportKey:      (_transports.map((t) => t.name).toList()..sort()).join(','),
       transportLabel:    _transports.isEmpty
@@ -1761,15 +1768,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _SectionHeader('今日の現場'),
+                    const _SectionHeader('現場'),
                     _SiteSelectField(
                       siteName: _selectedSiteName,
                       onTap: _showSitePicker,
                     ),
                     const SizedBox(height: 6),
-                    // いまの位置（枠なし・textMuted）
+                    // 現在地（枠なし・textMuted）
                     _GpsBar(
                       address: _gpsAddress,
+                      status: _gpsStatus,
                       loading: _gpsLoading,
                       onRefresh: _fetchGps,
                     ),
@@ -1778,12 +1786,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 const SizedBox(height: 18),
 
                 // ═══ ② 現場までの移動 ═══
-                const _SectionHeader('現場までの移動'),
+                const _SectionHeader('移動'),
                 _FormCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const _FieldLabel('どこから'),
+                      const _FieldLabel('出発地'),
                       const SizedBox(height: 8),
                       // 起点選択（自宅/会社）— onChanged は現行のまま（await _calculateRoutes() 維持）
                       _OriginSelector(
@@ -1796,7 +1804,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         },
                       ),
                       const SizedBox(height: 16),
-                      const _FieldLabel('なにで'),
+                      const _FieldLabel('移動手段'),
                       const SizedBox(height: 8),
 
                 // ④ 移動手段 4択（1タップ排他・ダブルタップで複数追加）→ 車種別/相乗り → ルート情報
@@ -1826,8 +1834,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       if (newSet.length >= 2) {
                         if (!context.mounted) return;
                         final ok = await showConfirmDialog(context,
-                          title: '⚠️ 複数の移動手段',
-                          message: '移動手段が2つ以上選択されています。\nよろしいですか？',
+                          title: '移動手段を追加',
+                          message: '2つ以上の移動手段を記録します。よろしいですか？',
                           confirmText: 'OK', cancelText: 'キャンセル',
                         );
                         if (!ok) return;
@@ -1842,6 +1850,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       _saveLastTransport();   // 次回のデフォルト（既存の副作用群は不変・追加のみ）
                     }
                   },
+                ),
+                // 作業5: 複数選択の操作方法を明示（ダブルタップは発見されにくいため）
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text('※タップで選択　／　2つ以上使うときはダブルタップで追加',
+                      style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
                 ),
                 // 車選択時: 社用車/相乗り 2択 → 各入力欄
                 if (_transports.contains(TransportType.car)) ...[
@@ -2029,7 +2043,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _SectionHeader('今日の作業'),
+                    const _SectionHeader('作業'),
                     _FormCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2044,7 +2058,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           const SizedBox(height: 14),
                           // 作業写真（複数・横スクロール帯）
                           PhotoStripField(
-                            label: '写真があれば（なくてもOK）',
+                            label: '写真',
+                            note: '※なくても報告できます',
                             paths: _workPhotoPaths,
                             onChanged: (v) => setState(() => _workPhotoPaths = v),
                           ),
@@ -2069,12 +2084,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: [
               _OutlineActionButton(
-                label: '内容を確かめる',
+                label: '内容を確認する',
                 busy:  _submitting,
                 onTap: _onCheckContent,
               ),
               const SizedBox(height: 7),
-              const Text('次の画面で見直してから送れます',
+              const Text('※次の画面で見直してから送信します',
                   style: TextStyle(
                       color: JsFormTokens.textMuted, fontSize: 11)),
             ],
@@ -2367,7 +2382,7 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _OutlineActionButton(
-                      label: '送る', busy: _sending, onTap: _handleSend),
+                      label: '報告を送信', busy: _sending, onTap: _handleSend),
                   const SizedBox(height: 10),
                   GestureDetector(
                     onTap: _sending ? null : () => Navigator.pop(context),
@@ -2526,7 +2541,7 @@ class _SiteSelectField extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                isNone ? '対象なし' : siteName!,
+                isNone ? '該当現場なし' : siteName!,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isNone
@@ -2538,7 +2553,7 @@ class _SiteSelectField extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Text('変える',
+            const Text('変更',
                 style: TextStyle(
                     color: JsFormTokens.textSub,
                     fontSize: 12,
@@ -2666,7 +2681,7 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
     // 「対象なし」は最上段固定（エラー時でも必ず選べる）
     final noneTile = _tile(
       id: null,
-      title: '対象なし',
+      title: '該当現場なし',
       subtitle: '該当現場がない・現場未登録',
       selected: widget.selectedSiteId == null,
     );
@@ -3005,16 +3020,30 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
 class _GpsBar extends StatelessWidget {
   const _GpsBar({
     required this.address,
+    required this.status,
     required this.loading,
     required this.onRefresh,
   });
   final String address;
+  /// fetchGpsAddress(main.dart:653) の status。'' = 未取得。
+  final String status;
   final bool loading;
   final VoidCallback onRefresh;
 
-  // v2: 枠なし・地の上に直接置く小さな1行（「いまの位置 <住所>」）。
+  // v2: 枠なし・地の上に直接置く小さな1行（「現在地 <住所>」）。
   // 更新アイコンは残す＝この画面で唯一の手動GPS再取得導線であり、
   // _fetchGps → _calculateRoutes（金額の再計算）に繋がっているため落とせない。
+
+  // status で表示を分岐する。座標や権限エラー文字列を「住所」のふりをして
+  // 出さないことが目的（嘘をつかない・再取得の導線を必ず添える）。
+  String _displayText() {
+    if (loading) return '取得中...';
+    if (status == 'ok') return address;
+    if (status == 'address_failed') return '住所を取得できません（タップで再取得）';
+    if (status == 'gps_failed') return '$address（タップで再取得）';
+    return '未取得';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -3022,14 +3051,12 @@ class _GpsBar extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('いまの位置',
+          const Text('現在地',
               style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              loading
-                  ? '取得中...'
-                  : (address.isEmpty ? '未取得' : address),
+              _displayText(),
               style: const TextStyle(
                   color: JsFormTokens.textMuted, fontSize: 11),
               maxLines: 2,
@@ -3575,7 +3602,7 @@ class _WorkContentSection extends StatelessWidget {
         Row(
           children: [
             const Expanded(
-              child: Text('やったこと',
+              child: Text('作業内容',
                   style: TextStyle(
                       color: JsFormTokens.textSub, fontSize: 12)),
             ),
@@ -3602,7 +3629,7 @@ class _WorkContentSection extends StatelessWidget {
               maxLines: null,
               textAlignVertical: TextAlignVertical.top,
               decoration: const InputDecoration(
-                hintText: '1階の配線、コンセント10箇所　みたいに書けばOK',
+                hintText: '1階の配線、コンセント10箇所　など',
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -3614,6 +3641,12 @@ class _WorkContentSection extends StatelessWidget {
                   color: JsFormTokens.textPrimary, fontSize: 14),
             ),
           ),
+        ),
+        // 作業5: 未記入でも報告できることを明示（必須と誤解させない）
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text('※未記入のままでも報告できます',
+              style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
         ),
       ],
     );
@@ -3856,7 +3889,7 @@ class _RouteInfoBar extends StatelessWidget {
               Icon(Icons.refresh, color: JsFormTokens.accentAlert, size: 14),
               SizedBox(width: 6),
               Expanded(
-                child: Text('移動の目安を取得できませんでした（タップで再取得）',
+                child: Text('移動情報を取得できません（タップで再取得）',
                     style: TextStyle(
                         color: JsFormTokens.accentAlert, fontSize: 12)),
               ),

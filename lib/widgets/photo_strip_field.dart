@@ -18,11 +18,15 @@ class PhotoStripField extends StatelessWidget {
     required this.label,
     required this.paths,
     required this.onChanged,
+    this.note,
     this.maxCount = 5,
   });
 
   /// 種別ラベル（例: '作業写真' / '駐車場写真'）
   final String label;
+
+  /// ラベル直下に出す補足（例: '※なくても報告できます'）。null なら非表示。
+  final String? note;
 
   /// ローカルファイルパスの一覧（親が保持する制御状態）
   final List<String> paths;
@@ -82,7 +86,7 @@ class PhotoStripField extends StatelessWidget {
       children: [
         // ヘッダ: 種別ラベル + 枚数バッジ「n/5」（+ 上限表示）
         Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: EdgeInsets.only(bottom: note == null ? 8 : 2),
           child: Row(
             children: [
               Text(label,
@@ -109,6 +113,14 @@ class PhotoStripField extends StatelessWidget {
             ],
           ),
         ),
+        // ラベル直下の補足（note が null なら描画しない＝既存呼び出しは見た目不変）
+        if (note != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(note!,
+                style: const TextStyle(
+                    color: JsFormTokens.textMuted, fontSize: 11)),
+          ),
         // 「＋撮影」を左端固定（スクロール外＝何枚撮っても絶対に隠れない）＋
         // サムネは横スクロール。表示は逆順（最新が左＝＋タイルの隣）だが paths の順序は不変。
         SizedBox(

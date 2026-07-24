@@ -646,20 +646,24 @@ class SpeechManager {
 // GPS + 住所変換
 // ============================================================
 
-Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
+// status の値は次の3つのみ（呼び出し側はこれで「住所」「座標」「取得不能」を区別する）:
+//   'ok'             … 住所文字列の構築に成功
+//   'address_failed' … 座標フォールバック（逆ジオコーディング不成立）
+//   'gps_failed'     … 権限なし / GPS無効 / 位置取得そのものの失敗
+Future<({String address, double? lat, double? lon, String status})> fetchGpsAddress() async {
   try {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
     if (permission == LocationPermission.deniedForever) {
-      return (address: '位置情報の権限がありません', lat: null, lon: null);
+      return (address: '位置情報の権限がありません', lat: null, lon: null, status: 'gps_failed');
     }
     if (permission == LocationPermission.denied) {
-      return (address: '位置情報の権限がありません', lat: null, lon: null);
+      return (address: '位置情報の権限がありません', lat: null, lon: null, status: 'gps_failed');
     }
     if (!await Geolocator.isLocationServiceEnabled()) {
-      return (address: 'GPS が無効です', lat: null, lon: null);
+      return (address: 'GPS が無効です', lat: null, lon: null, status: 'gps_failed');
     }
 
     final pos = await Geolocator.getCurrentPosition(
@@ -686,25 +690,28 @@ Future<({String address, double? lat, double? lon})> fetchGpsAddress() async {
             if (idx >= 0) {
               return (
               address: '${p.administrativeArea ?? ''}${p.locality ?? ''}${s.substring(idx)}',
-              lat: pos.latitude, lon: pos.longitude,
+              lat: pos.latitude, lon: pos.longitude, status: 'ok',
             );
             }
           }
           if (parts.isNotEmpty) {
             return (
             address: parts.join(''),
-            lat: pos.latitude, lon: pos.longitude,
+            lat: pos.latitude, lon: pos.longitude, status: 'ok',
           );
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        // 握り潰しをやめ、失敗理由をログに残す（座標フォールバックの原因追跡用）
+        debugPrint('[gps] 逆ジオコーディング失敗: $e');
+      }
     }
     return (
       address: '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
-      lat: pos.latitude, lon: pos.longitude,
+      lat: pos.latitude, lon: pos.longitude, status: 'address_failed',
     );
   } catch (e) {
-    return (address: 'GPS取得失敗', lat: null, lon: null);
+    return (address: 'GPS取得失敗', lat: null, lon: null, status: 'gps_failed');
   }
 }
 
