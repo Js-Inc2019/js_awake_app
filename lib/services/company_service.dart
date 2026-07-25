@@ -147,6 +147,41 @@ class CompanyService {
   }
 
   // ============================================================
+  // 自社の同僚氏名一覧取得（相乗り氏名サジェスト用）
+  //   GET /workers/colleagues（パラメータ無し・会社スコープはBEのJWT由来）。
+  //   応答 {"success":true,"names":[...]} の names(List<String>) を返す。
+  //   非200/例外は空リスト＋debugPrint（秘匿値は出さない・searchCompaniesと同流儀）。
+  // ============================================================
+
+  Future<List<String>> getColleagues() async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final uri = Uri.parse('$kApiBaseUrl/workers/colleagues');
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return (data['names'] as List? ?? [])
+            .map((e) => (e as String).trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+      }
+      // 沈黙解除: 非200を可視化（認証ヘッダ・トークンは出さない。
+      // body先頭のみ・statusCodeのみ）。戻り値(空リスト)は不変。
+      final bodyHead = response.body.length > 200
+          ? response.body.substring(0, 200)
+          : response.body;
+      debugPrint('getColleagues 非200: status=${response.statusCode} body=$bodyHead');
+      return [];
+    } catch (e) {
+      // 沈黙解除: 例外を可視化（認証情報は含めない）。戻り値(空リスト)は不変。
+      debugPrint('getColleagues 例外: $e');
+      return [];
+    }
+  }
+
+  // ============================================================
   // 会社1件取得（company_id 指定）
   // ============================================================
 

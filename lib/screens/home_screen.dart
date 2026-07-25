@@ -421,6 +421,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 作業3: 会社名サジェストの候補（searchCompanies の結果を親stateに保持し candidates を再生成）
   List<Map<String, dynamic>> _carpoolCompanyResults = [];
   Timer? _carpoolCompanyDebounce;
+  // E-3: 相乗り氏名サジェストの候補（自社の同僚氏名）。/workers/colleagues の結果を保持。
+  //   会社スコープはBEのJWT由来（他社を指定する余地なし）。一度だけ取得する。
+  List<String> _carpoolColleagues = [];
+  bool _carpoolColleaguesLoaded = false;
   final _transportMemoCtrl = TextEditingController();
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
@@ -645,6 +649,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _transports = restored;
       if (car == 'own' || car == 'carpool') _carType = car!;
     });
+    // E-3: 復元時点で既に相乗りが選択されているなら同僚を取得（氏名サジェスト用）。
+    if (_transports.contains(TransportType.car) && _carType == 'carpool') {
+      _ensureColleaguesLoaded();
+    }
   }
 
   Future<void> _saveDraft() async {
@@ -704,6 +712,59 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _carpoolCompanyResults = results);
     });
+  }
+
+  // E-3: 相乗り氏名サジェスト用に自社の同僚を一度だけ取得（会社スコープはBEのJWT由来）。
+  //   二重取得防止のためフラグを先に立てる（in-flight中の再入も抑止）。
+  Future<void> _ensureColleaguesLoaded() async {
+    if (_carpoolColleaguesLoaded) return;
+    _carpoolColleaguesLoaded = true;
+    final names = await CompanyService().getColleagues();
+    if (!mounted) return;
+    setState(() => _carpoolColleagues = names);
+  }
+
+  // BE utils/normalize_company.js の normalizeCompanyName と同等を目指した簡易正規化。
+  //   ★NFKC は省略: dart:core に Unicode 正規化が無く、pubspec にも正規化パッケージが
+  //     無いため。実装は「小文字化＋半角/全角スペース除去＋法人格の前後除去」。
+  //     （NFKC 省略により全角括弧の法人格『（株）』等は除去しきれない場合がある）。
+  static const List<String> _kLegalForms = [
+    '株式会社', '有限会社', '合同会社', '合資会社', '合名会社',
+    '(株)', '(有)', '(同)', '(資)', '(名)',
+    '一般社団法人', '一般財団法人',
+    '公益社団法人', '公益財団法人',
+    '特定非営利活動法人', 'npo法人',
+  ];
+
+  String _normalizeCompanyLocal(String name) {
+    if (name.isEmpty) return '';
+    var s = name.toLowerCase().replaceAll(RegExp(r'[\s　]+'), '');
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final form in _kLegalForms) {
+        if (s.startsWith(form)) {
+          s = s.substring(form.length);
+          changed = true;
+        }
+        if (s.endsWith(form)) {
+          s = s.substring(0, s.length - form.length);
+          changed = true;
+        }
+      }
+    }
+    return s.replaceAll(RegExp(r'[\s　]+'), '');
+  }
+
+  // E-3 発動条件: 相乗り氏名サジェストの候補を返す。
+  //   (a) 相乗り会社名欄が空（＝自社の相乗りと解釈）、または
+  //   (b) 相乗り会社名欄が自社名と正規化一致 → 自社の同僚氏名を候補に出す。
+  //   それ以外（他社名が入っている）→ 候補は空（他社の同僚は出さない＝掟）。
+  List<String> _carpoolNameCandidates() {
+    final company = _carpoolCompanyCtrl.text.trim();
+    final isOwn = company.isEmpty ||
+        _normalizeCompanyLocal(company) == _normalizeCompanyLocal(_companyName);
+    return isOwn ? _carpoolColleagues : const <String>[];
   }
 
   // 最後のタブを復元（モード別キー）
@@ -1973,6 +2034,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             _parkingPhotoPaths = [];
                           });
                           _saveLastTransport();
+                          // E-3: 相乗り選択時に自社同僚を取得（氏名サジェスト用）。
+                          _ensureColleaguesLoaded();
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -2038,21 +2101,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
                   ),
                   const SizedBox(height: 10),
-                  _FormInputShell(
-                    icon: Icons.people,
-                    child: TextField(
-                      controller: _carpoolNameCtrl,
-                      onChanged: (_) => _saveDraft(),
-                      decoration: const InputDecoration(
-                        hintText: '相乗り相手の氏名（任意）',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(
-                            color: JsFormTokens.textMuted, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(
-                          color: JsFormTokens.textPrimary, fontSize: 13),
-                    ),
+                  // E-3: 氏名欄はサジェスト付き（自社同僚を候補に）。会社名欄(:上)と同じく
+                  //   素の SearchSuggestField。候補は _carpoolNameCandidates() が
+                  //   E-3発動条件（会社名が空 or 自社名一致）で出し分ける。
+                  //   serverFiltered:false＝同僚は全件返るのでローカルで部分一致絞り込み。
+                  SearchSuggestField(
+                    controller: _carpoolNameCtrl,
+                    candidates: _carpoolNameCandidates(),
+                    hintText: '相乗り相手の氏名（任意）',
+                    onChanged: (_) => _saveDraft(),
+                    serverFiltered: false,
                   ),
                 ],
                 // 駐車料金 + 駐車場写真（1組だけ描画する）
