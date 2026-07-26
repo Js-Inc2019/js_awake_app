@@ -4719,7 +4719,7 @@ class _StaffCard extends StatelessWidget {
               child: Text(
                 name,
                 style: const TextStyle(
-                    color: Colors.white,
+                    color: JsPalette.textBody,
                     fontSize: 14,
                     fontWeight: FontWeight.bold),
                 maxLines: 1,
@@ -4857,7 +4857,7 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
               child: Text(
                 widget.name,
                 style: const TextStyle(
-                    color: Colors.white,
+                    color: JsPalette.textBody,
                     fontSize: 16,
                     fontWeight: FontWeight.bold),
               ),
@@ -5188,7 +5188,7 @@ class _CoopCard extends StatelessWidget {
                 child: Text(
                   name,
                   style: const TextStyle(
-                      color: Colors.white,
+                      color: JsPalette.textBody,
                       fontSize: 14,
                       fontWeight: FontWeight.bold),
                   maxLines: 1,

@@ -11,7 +11,7 @@ import '../utils/business_date.dart';
 const _bg     = Color(0xFF080806);
 const _card   = Color(0xFF181810);
 const _gold   = Color(0xFFA89868);
-const _text   = Color(0xFFEDE8DC);
+const _text   = JsPalette.textBody;
 const _label  = Color(0xFF686040);
 const _border = Color(0xFF242418);
 
