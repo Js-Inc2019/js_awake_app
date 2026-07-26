@@ -76,16 +76,18 @@ class JsColors {
   // ─── セマンティックカラー ────────────────────────────────
   static const Color error         = JsPalette.statusError;
   static const Color warning       = JsPalette.statusWarning;
-  // ★success は新配色 #6FD6B4 へ差し替えていない。
-  //   理由（実測）: success は塗り面として使われ、その上の文字が
-  //   foregroundColor: Colors.white 固定になっている3箇所がある
-  //     lib/screens/site_quick_register_screen.dart:182-183
-  //     lib/screens/home_screen.dart:3019-3020
-  //     lib/screens/home_screen.dart:4538-4539
-  //   #6FD6B4 に白文字はコントラスト 1.76:1 で読めない（現状 #2E7D5E は 4.99:1）。
-  //   修正には画面ファイルの foregroundColor を JsPalette.onAccent に直す必要があり、
-  //   今回のスコープ（触るのは theme 2ファイルのみ）外のため保留した。
-  static const Color success       = Color(0xFF2E7D5E);
+  // ★success は新配色 statusSuccess(#6FD6B4) へ差し替え済み。
+  //   #6FD6B4 は明るい面なので、塗り面として使う箇所の前景を白のままにすると
+  //   1.76:1 で読めなくなる。そのため下記6箇所の前景を JsPalette.onAccent
+  //   (#0A2A21 / 8.75:1) へ同時に修正した。
+  //     lib/screens/site_quick_register_screen.dart:183（＋:178 のスピナー）
+  //     lib/screens/home_screen.dart:3025
+  //     lib/screens/home_screen.dart:4553
+  //     lib/screens/home_screen.dart:2612（_badgeDot・success のときのみ）
+  //     lib/screens/home_screen.dart:4527-4538（承認SnackBar・ok のときのみ）
+  //     lib/main.dart:782-788（showJsSnackbar・success のときのみ）
+  //   文字/アイコン色としての用途（13箇所）は 3.0〜3.3:1 → 5.7〜10.3:1 へ改善する。
+  static const Color success       = JsPalette.statusSuccess;
 
   // ─── アクション（次の行動を促す・危険ではない）────────────────
   // 「移動・切替など前へ進む操作」＝新配色の「アクセント（押せるもの）」に対応。

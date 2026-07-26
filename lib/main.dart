@@ -775,11 +775,17 @@ void showJsSnackbar(BuildContext context, String msg,
   Color bg = JsColors.success;
   if (isError)   bg = JsColors.error;
   if (isWarning) bg = JsColors.warning;
+  // 前景色は塗り面ごとに出し分ける。success(#6FD6B4) は明るい面のため
+  // 白文字だと 1.76:1 で読めず、暗色 onAccent なら 8.75:1。
+  // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
+  // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
+  final Color fg =
+      (isError || isWarning) ? Colors.white : JsPalette.onAccent;
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(
-          color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+      content: Text(msg, style: TextStyle(
+          color: fg, fontSize: 14, fontWeight: FontWeight.w600)),
       backgroundColor: bg,
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

@@ -175,12 +175,12 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
                 icon: _submitting
                     ? const SizedBox(
                         width: 18, height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        child: CircularProgressIndicator(strokeWidth: 2, color: JsPalette.onAccent))
                     : const Icon(Icons.add_location_alt),
                 label: Text(_submitting ? '登録中…' : '仮登録して紐づけ'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: JsColors.success,
-                  foregroundColor: Colors.white,
+                  foregroundColor: JsPalette.onAccent,
                   textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),

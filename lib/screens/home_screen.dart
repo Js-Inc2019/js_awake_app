@@ -2603,8 +2603,13 @@ class _BottomTabItem extends StatelessWidget {
         padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(color: c, shape: BoxShape.circle),
         child: Text('$n',
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                // c は success / error / warning の3値のみ（:1722-1724, :2589-2590）。
+                // success(#6FD6B4) は明るい面なので白文字だと 1.76:1 で読めない。
+                // 暗色 onAccent なら 8.75:1。
+                // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
+                // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
+                color: c == JsColors.success ? JsPalette.onAccent : Colors.white,
                 fontSize: 9,
                 fontWeight: FontWeight.bold)),
       );
@@ -3017,7 +3022,7 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
           onPressed: () => Navigator.pop(context, {'site_id': _selectedId}),
           style: ElevatedButton.styleFrom(
             backgroundColor: JsColors.success,
-            foregroundColor: Colors.white,
+            foregroundColor: JsPalette.onAccent,
           ),
           child: const Text('選択して承認'),
         ),
@@ -4519,9 +4524,18 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(ok
-                                      ? '承認しました'
-                                      : '承認に失敗しました：${result['error']}'),
+                                  content: Text(
+                                    ok
+                                        ? '承認しました'
+                                        : '承認に失敗しました：${result['error']}',
+                                    // success 塗りの上だけ暗色にする。null は
+                                    // app_theme.dart:141 の contentTextStyle
+                                    // (textStrong #F2F2EE) 継承＝error 側は現状維持。
+                                    style: ok
+                                        ? const TextStyle(
+                                            color: JsPalette.onAccent)
+                                        : null,
+                                  ),
                                   backgroundColor:
                                       ok ? JsColors.success : JsColors.error,
                                 ),
@@ -4536,7 +4550,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                     label: const Text('承認'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: JsColors.success,
-                      foregroundColor: Colors.white,
+                      foregroundColor: JsPalette.onAccent,
                     ),
                   ),
                 ),
