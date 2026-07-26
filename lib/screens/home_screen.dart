@@ -1551,7 +1551,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           Text(
             _pageTitle,
             style: const TextStyle(
-                color: JsColors.gold, fontSize: 17, fontWeight: FontWeight.bold),
+                color: JsPalette.brand, fontSize: 17, fontWeight: FontWeight.bold),
           ),
           const Spacer(),
           Text(
@@ -1607,7 +1607,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             IconButton(
               icon: Icon(
                 Icons.notifications_none,
-                color: _unreadCount > 0 ? JsColors.gold : JsColors.silver,
+                color: _unreadCount > 0 ? JsPalette.brand : JsColors.silver,
               ),
               tooltip: 'お知らせ',
               onPressed: () => Navigator.push(

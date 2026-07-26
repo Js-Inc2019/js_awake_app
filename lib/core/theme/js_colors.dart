@@ -42,6 +42,11 @@ class JsPalette {
   static const Color onAccent      = Color(0xFF0A2A21);
   static const Color accentDeep    = Color(0xFF2A9A7C); // 見出し・左線・副次的な強調
 
+  // ─── ブランド ────────────────────────────────────────────
+  // ★冒頭の「確定13値」外の追加トークン（onAccent と同じ扱い）。
+  //   accent(エメラルド) と役割を分けるために新設した。
+  static const Color brand         = Color(0xFFC9A84C); // ブランド色: タイトル・顔。押せるものには使わない
+
   // ─── 状態 ────────────────────────────────────────────────
   static const Color statusSuccess = Color(0xFF6FD6B4); // 成功/済（accent と同値）
   static const Color statusWarning = Color(0xFFE0603A); // 未提出/警告
