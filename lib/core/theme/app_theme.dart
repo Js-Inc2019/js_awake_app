@@ -17,7 +17,8 @@ class AppTheme {
       secondary:   JsColors.textMid,
       surface:     JsColors.surface,
       error:       JsColors.error,
-      onPrimary:   Colors.black,
+      // primary が accent なので onPrimary は「アクセント上の文字」でなければ読めない
+      onPrimary:   JsPalette.onAccent,
       onSecondary: JsColors.textStrong,
       onSurface:   JsColors.textStrong,
     ),
@@ -57,7 +58,7 @@ class AppTheme {
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: JsColors.accent,
-        foregroundColor: Colors.black,
+        foregroundColor: JsPalette.onAccent,
         minimumSize: const Size(double.infinity, 52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -157,7 +158,8 @@ class AppTheme {
       selectedColor: JsColors.accent,
       secondarySelectedColor: JsColors.accent,
       labelStyle: const TextStyle(color: JsColors.textStrong, fontSize: 13),
-      secondaryLabelStyle: const TextStyle(color: Colors.black, fontSize: 13),
+      // selectedColor が accent のため、選択時ラベルは「アクセント上の文字」
+      secondaryLabelStyle: const TextStyle(color: JsPalette.onAccent, fontSize: 13),
       side: const BorderSide(color: JsColors.border),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     ),
@@ -165,7 +167,7 @@ class AppTheme {
     checkboxTheme: CheckboxThemeData(
       fillColor: WidgetStateProperty.resolveWith((states) =>
           states.contains(WidgetState.selected) ? JsColors.accent : JsColors.border),
-      checkColor: WidgetStateProperty.all(Colors.black),
+      checkColor: WidgetStateProperty.all(JsPalette.onAccent),
     ),
 
     switchTheme: SwitchThemeData(
@@ -181,7 +183,7 @@ class AppTheme {
 
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
       backgroundColor: JsColors.accent,
-      foregroundColor: Colors.black,
+      foregroundColor: JsPalette.onAccent,
     ),
 
     drawerTheme: const DrawerThemeData(backgroundColor: JsColors.surfaceAlt),

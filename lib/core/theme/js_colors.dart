@@ -1,42 +1,98 @@
 // lib/core/theme/js_colors.dart
-// J's FIELD — Asphalt Dawn カラーパレット
+// J's FIELD — カラーパレット
 
 import 'package:flutter/material.dart';
+
+// ─────────────────────────────────────────────────────────────
+// 新配色パレット（確定13値）— 意味名のみ・値の単一出所
+//
+// ★別クラスにした理由（推測でなく事実）:
+//   意味名として必要な background / surface / border / accent / error /
+//   warning / success / textPrimary は、すべて既存 JsColors に同名の定数が
+//   実在する（:100 以降）。リネーム禁止のため JsColors へ追記すると
+//   名前衝突で追加できない。また JsFormTokens は :188 のコメントどおり
+//   「FIELD日報フォームv2 専用」にスコープされており、アプリ全体の
+//   パレットを置く場所ではない。
+//   本ファイルは既に「衝突を避けるためクラスで名前空間を分ける」方式を
+//   採用済み（:186-190 の JsFormTokens 分離）なので、その前例に従った。
+//
+//   以降、JsColors / JsFormTokens の各定数は「値」をこのクラスへ向け直す。
+//   定数名は1つも変えていない（リネーム・削除なし）。
+// ─────────────────────────────────────────────────────────────
+class JsPalette {
+  JsPalette._();
+
+  // ─── 面（奥 → 手前）──────────────────────────────────────
+  static const Color bgBase        = Color(0xFF14161A); // 背景
+  static const Color surfaceCard   = Color(0xFF1C1F24); // カード
+  static const Color surfaceRaised = Color(0xFF23272D); // カード副
+
+  // ─── 境界 ────────────────────────────────────────────────
+  static const Color outline       = Color(0xFF2E333A); // 枠線
+  static const Color outlineStrong = Color(0xFF3A4048); // 枠線(強)
+
+  // ─── 文字 ────────────────────────────────────────────────
+  static const Color textBody      = Color(0xFFF2F2EE); // 本文
+  static const Color textSupport   = Color(0xFF71757C); // 補助文字
+  static const Color textFaint     = Color(0xFF5C6169); // 弱い補助
+
+  // ─── アクセント ──────────────────────────────────────────
+  static const Color accent        = Color(0xFF6FD6B4); // 主要アクション・押せるもの
+  // ★アクセント塗りの上に乗る文字色。これが無いと accent 面上の文字が読めない。
+  static const Color onAccent      = Color(0xFF0A2A21);
+  static const Color accentDeep    = Color(0xFF2A9A7C); // 見出し・左線・副次的な強調
+
+  // ─── 状態 ────────────────────────────────────────────────
+  static const Color statusSuccess = Color(0xFF6FD6B4); // 成功/済（accent と同値）
+  static const Color statusWarning = Color(0xFFE0603A); // 未提出/警告
+  static const Color statusError   = Color(0xFFE05252); // エラー
+}
 
 class JsColors {
   JsColors._();
 
-  // ─── Asphalt Dawn ブランドカラー ────────────────────────────
-  static const Color background    = Color(0xFF080806); // 背景メイン
-  static const Color surfaceAlt    = Color(0xFF101008); // 背景サブ
-  static const Color surface       = Color(0xFF181810); // カード背景
-  static const Color border        = Color(0xFF242418); // ボーダー・区切り線
-  static const Color divider       = Color(0xFF242418); // 区切り線エイリアス
-  static const Color accent        = Color(0xFFA89868); // ゴールド砂埃（アクセント）
-  static const Color textStrong    = Color(0xFFEDE8DC); // タイトル・強テキスト
-  static const Color textWhite     = Color(0xFFFFFFFF); // 名前・重要数値
-  static const Color textMid       = Color(0xFF686040); // ラベル
-  static const Color textWeak      = Color(0xFF484830); // 非選択・サブ
+  // ─── ブランドカラー ─────────────────────────────────────
+  static const Color background    = JsPalette.bgBase;        // 背景メイン
+  static const Color surfaceAlt    = JsPalette.surfaceRaised;  // 背景サブ（入力欄/BottomNav/Drawer の面）
+  static const Color surface       = JsPalette.surfaceCard;    // カード背景
+  static const Color border        = JsPalette.outline;        // ボーダー・区切り線
+  static const Color divider       = JsPalette.outline;        // 区切り線エイリアス
+  static const Color accent        = JsPalette.accent;         // アクセント
+  static const Color textStrong    = JsPalette.textBody;       // タイトル・強テキスト
+  static const Color textWhite     = JsPalette.textBody;       // 名前・重要数値
+  static const Color textMid       = JsPalette.textSupport;    // ラベル
+  static const Color textWeak      = JsPalette.textFaint;      // 非選択・サブ・hint
 
-  // ─── 後方互換エイリアス ──────────────────────────────────────
-  static const Color black         = Color(0xFF080806);
-  static const Color gunmetal      = Color(0xFF181810);
-  static const Color gold          = Color(0xFFA89868);
-  static const Color silver        = Color(0xFF484830);
-  static const Color offWhite      = Color(0xFFEDE8DC);
-  static const Color textPrimary   = Color(0xFFEDE8DC);
-  static const Color textSecondary = Color(0xFF686040);
+  // ─── 後方互換エイリアス ──────────────────────────────────
+  // 名前は色名のまま（リネーム禁止）。値は「実際の用途」に合わせて割り当てた。
+  static const Color black         = JsPalette.bgBase;      // 実体は背景色（Scaffold/AppBar の backgroundColor 専用）
+  static const Color gunmetal      = JsPalette.surfaceCard; // 実体はカード面
+  static const Color gold          = JsPalette.accent;      // 実体はアクセント
+  static const Color silver        = JsPalette.textSupport; // 実体は補助文字（TextStyle 64件 / Icon 30件）
+  static const Color offWhite      = JsPalette.textBody;    // 実体は本文
+  static const Color textPrimary   = JsPalette.textBody;
+  static const Color textSecondary = JsPalette.textSupport;
 
-  // ─── セマンティックカラー ────────────────────────────────────
-  static const Color error         = Color(0xFFFF4444);
-  static const Color warning       = Color(0xFFFFB800);
+  // ─── セマンティックカラー ────────────────────────────────
+  static const Color error         = JsPalette.statusError;
+  static const Color warning       = JsPalette.statusWarning;
+  // ★success は新配色 #6FD6B4 へ差し替えていない。
+  //   理由（実測）: success は塗り面として使われ、その上の文字が
+  //   foregroundColor: Colors.white 固定になっている3箇所がある
+  //     lib/screens/site_quick_register_screen.dart:182-183
+  //     lib/screens/home_screen.dart:3019-3020
+  //     lib/screens/home_screen.dart:4538-4539
+  //   #6FD6B4 に白文字はコントラスト 1.76:1 で読めない（現状 #2E7D5E は 4.99:1）。
+  //   修正には画面ファイルの foregroundColor を JsPalette.onAccent に直す必要があり、
+  //   今回のスコープ（触るのは theme 2ファイルのみ）外のため保留した。
   static const Color success       = Color(0xFF2E7D5E);
 
   // ─── アクション（次の行動を促す・危険ではない）────────────────
-  // TOOL Arc Flash 由来のミュートシアン。移動・切替など「前へ進む」操作に使う。
-  static const Color actionCyan    = Color(0xFF5ABEAA);
+  // 「移動・切替など前へ進む操作」＝新配色の「アクセント（押せるもの）」に対応。
+  static const Color actionCyan    = JsPalette.accent;
 
   // ─── 役割カラー（経験年数別）────────────────────────────────
+  // ★新配色13値に役割色の指定が無いため値は未変更。次工程で要指定。
   static const Color worker0 = Color(0xFFFF4444);
   static const Color worker1 = Color(0xFFFF8C00);
   static const Color worker2 = Color(0xFFFFB800);
@@ -47,6 +103,7 @@ class JsColors {
   static const Color worker7 = Color(0xFFA89868);
 
   // ─── 職種カラー ─────────────────────────────────────────────
+  // ★同上・新配色に指定が無いため未変更。
   static const Color foremanBase  = Color(0xFF7C4DFF);
   static const Color officeBase   = Color(0xFF00B4CC);
   static const Color bossGold     = Color(0xFFA89868);
@@ -77,7 +134,7 @@ class JsColors {
 // FIELD日報フォームv2の意味名トークン。将来OFFICE等へ同名で展開予定。
 //
 // ★別クラスにした理由（推測でなく事実）: 意味名 textPrimary が既存の
-//   JsColors.textPrimary(#EDE8DC・後方互換エイリアス) と衝突する。
+//   JsColors.textPrimary(後方互換エイリアス) と衝突する。
 //   「既存定数は削除も改変もしない」を満たしつつ8つの意味名を揃って持つには
 //   名前空間を分けるしかないため JsFormTokens として分離した。
 //   JsColors 側は1行も触っていない＝他画面への影響ゼロ。
@@ -85,12 +142,18 @@ class JsColors {
 class JsFormTokens {
   JsFormTokens._();
 
-  static const Color bgBase       = Color(0xFF2C2C2C); // 地（ガンメタ）
-  static const Color surfaceCard  = Color(0xFF242424); // カード（枠線なし・明度差のみ）
-  static const Color textPrimary  = Color(0xFFF5F5F0); // オフホワイト（本文・見出し）
-  static const Color textSub      = Color(0xFF8A9BA8); // シルバー（ラベル・補助）
-  static const Color textMuted    = Color(0xFF7D8891); // さらに弱い補助（GPS・注記）
-  static const Color chipSelected = Color(0xFF41474C); // 鋼（選択中チップの面）
-  static const Color chipBorder   = Color(0xFF3D3D3D); // 未選択チップの枠
-  static const Color accentAlert  = Color(0xFFE8A33D); // 琥珀（未入力バッジのみ・枠線+文字）
+  static const Color bgBase       = JsPalette.bgBase;        // 地
+  static const Color surfaceCard  = JsPalette.surfaceCard;   // カード（枠線なし・明度差のみ）
+  static const Color textPrimary  = JsPalette.textBody;      // 本文・見出し
+  static const Color textSub      = JsPalette.textSupport;   // ラベル・補助
+  static const Color textMuted    = JsPalette.textFaint;     // さらに弱い補助（GPS・注記）
+  // ★選択中チップの面。アクセント色にはしていない。
+  //   理由（実測）: この面の上の文字は home_screen.dart:2019 / 2055 / 3638 /
+  //   3707 / 3824 で JsFormTokens.textPrimary(#F2F2EE) 固定。
+  //   面を accent(#6FD6B4) にすると 1.56:1 で読めなくなる。
+  //   枠線(強) #3A4048 なら 9.32:1（従来 8.61:1 より改善）で、
+  //   画面ファイルを一切変えずに選択状態が判別できる。
+  static const Color chipSelected = JsPalette.outlineStrong;
+  static const Color chipBorder   = JsPalette.outline;       // 未選択チップの枠
+  static const Color accentAlert  = JsPalette.statusWarning; // 未入力バッジのみ（枠線+文字）
 }
