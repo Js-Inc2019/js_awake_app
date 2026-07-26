@@ -32,9 +32,9 @@ class JsPalette {
   static const Color outlineStrong = Color(0xFF3A4048); // 枠線(強)
 
   // ─── 文字 ────────────────────────────────────────────────
-  static const Color textBody      = Color(0xFFF2F2EE); // 本文
-  static const Color textSupport   = Color(0xFF71757C); // 補助文字
-  static const Color textFaint     = Color(0xFF5C6169); // 弱い補助
+  static const Color textBody      = Color(0xFFEAE3D0); // 本文（生成り）
+  static const Color textSupport   = Color(0xFF7B7567); // 補助文字（温グレー）
+  static const Color textFaint     = Color(0xFF635F55); // 弱い補助（温グレー弱）
 
   // ─── アクセント ──────────────────────────────────────────
   static const Color accent        = Color(0xFF6FD6B4); // 主要アクション・押せるもの
@@ -45,7 +45,7 @@ class JsPalette {
   // ─── ブランド ────────────────────────────────────────────
   // ★冒頭の「確定13値」外の追加トークン（onAccent と同じ扱い）。
   //   accent(エメラルド) と役割を分けるために新設した。
-  static const Color brand         = Color(0xFFC9A84C); // ブランド色: タイトル・顔。押せるものには使わない
+  static const Color brand         = Color(0xFFD9C08A); // ブランド色(淡い金): タイトル・顔。押せるものには使わない
 
   // ─── 状態 ────────────────────────────────────────────────
   static const Color statusSuccess = Color(0xFF6FD6B4); // 成功/済（accent と同値）
@@ -156,9 +156,9 @@ class JsFormTokens {
   static const Color textMuted    = JsPalette.textFaint;     // さらに弱い補助（GPS・注記）
   // ★選択中チップの面。アクセント色にはしていない。
   //   理由（実測）: この面の上の文字は home_screen.dart:2019 / 2055 / 3638 /
-  //   3707 / 3824 で JsFormTokens.textPrimary(#F2F2EE) 固定。
-  //   面を accent(#6FD6B4) にすると 1.56:1 で読めなくなる。
-  //   枠線(強) #3A4048 なら 9.32:1（従来 8.61:1 より改善）で、
+  //   3707 / 3824 で JsFormTokens.textPrimary(#EAE3D0) 固定。
+  //   面を accent(#6FD6B4) にすると 1.37:1 で読めなくなる。
+  //   枠線(強) #3A4048 なら 8.17:1 で、
   //   画面ファイルを一切変えずに選択状態が判別できる。
   static const Color chipSelected = JsPalette.outlineStrong;
   static const Color chipBorder   = JsPalette.outline;       // 未選択チップの枠
