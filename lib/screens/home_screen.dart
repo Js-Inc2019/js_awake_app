@@ -1666,7 +1666,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               Text(
                 _companyName,
                 style: const TextStyle(
-                    color: Color(0xFF637080),
+                    color: JsPalette.textSupport,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w400),
                 overflow: TextOverflow.ellipsis,
