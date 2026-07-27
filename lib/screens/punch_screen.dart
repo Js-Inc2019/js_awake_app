@@ -691,7 +691,14 @@ class _OperationZone extends StatelessWidget {
     }
 
     final isCheckin = !punchedIn;
+    // ★用途（出勤／退勤）ごとに別インスタンスにする。
+    //   SlideToConfirm は確定後「いったきり」で操作を受け付けない終端状態
+    //   (_fired/_confirmed) を持つ。key を分けないと出勤確定後に
+    //   punchedIn:false→true でラベルだけ退勤へ変わり、State は出勤時の
+    //   確定済みのまま再利用されて退勤スライドが操作不能になる。
+    //   同一用途の間は key が不変なので「いったきり」は維持される。
     return SlideToConfirm(
+      key:       ValueKey(isCheckin ? 'punch-in' : 'punch-out'),
       filled:    isCheckin,
       icon:      isCheckin ? Icons.login : Icons.logout,
       label:     isCheckin ? 'スライドで出勤' : 'スライドで退勤',
