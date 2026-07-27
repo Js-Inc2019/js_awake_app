@@ -66,11 +66,81 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   int  _legalBreak6h = 45;
   int  _legalBreak8h = 60;
 
+  // 本日休み状態（_RestDayButton から持ち上げ）。ボタン表示と日報報告ゲートが
+  // 単一の状態を共有する（照会失敗は fail-open＝rested=false）。
+  final ReportsService _reports = ReportsService();
+  bool _restLoading = true;
+  bool _rested      = false;
+  String? _restReason;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _init();
+    _loadRestStatus();
+  }
+
+  Future<void> _loadRestStatus() async {
+    final res = await _reports.getRestDayToday();
+    if (!mounted) return;
+    setState(() {
+      _restLoading = false;
+      if (res['success'] == true) {
+        _rested     = res['rested'] == true;
+        _restReason = res['reason'] as String?;
+      } else {
+        _rested     = false; // fail-open
+        _restReason = null;
+      }
+    });
+  }
+
+  // 日報報告への遷移ゲート。休み登録済み(rested)なら確認ダイアログを挟み、
+  // 「取り消して続行」時のみ DELETE 成功後に従来遷移する（失敗は SnackBar で可視化）。
+  // rested=false のときは従来どおり即遷移（挙動不変）。
+  Future<void> _onReportTap() async {
+    if (!_rested) {
+      widget.onNavigateToReport?.call();
+      return;
+    }
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.surface,
+        title: const Text('本日は休み登録済みです',
+            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+        content: const Text('日報を出すには、本日の休み登録を取り消す必要があります。',
+            style: TextStyle(color: JsColors.textStrong)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('戻る', style: TextStyle(color: JsColors.textMid)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('休みを取り消して続行',
+                style: TextStyle(color: JsColors.accent)),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+
+    final res = await _reports.deleteRestDay(); // 既存メソッドを再利用
+    if (!mounted) return;
+    if (res['success'] == true) {
+      await _loadRestStatus();               // ボタン表示も最新化
+      if (!mounted) return;
+      widget.onNavigateToReport?.call();      // 従来の日報報告へ
+    } else {
+      showJsSnackbar(
+        context,
+        '${res['error'] ?? '休みの取り消しに失敗しました'}'
+        '${res['statusCode'] != null ? '（${res['statusCode']}）' : ''}',
+        isError: true,
+      );
+    }
   }
 
   @override
@@ -292,7 +362,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     punchedOut:        _punchedOut,
                     busy:              _busy,
                     onPunch:           _doPunch,
-                    onNavigateToReport: widget.onNavigateToReport,
+                    // 日報報告への全経路（!isActual の「日報報告」／退勤済の「追加で日報を出す」）
+                    // を単一のゲート _onReportTap 経由にする。
+                    onNavigateToReport: _onReportTap,
                   ),
                   // 「本日休み」ボタン（序列を下げた OutlinedButton・textMid系）。
                   // 表示条件（裁定）:
@@ -303,7 +375,12 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                   //     `_punchedIn && !_punchedOut` と同じ状態変数を参照（判定式は複製しない）。
                   if (!isActual || !_punchedIn) ...[
                     const SizedBox(height: 10),
-                    const _RestDayButton(),
+                    _RestDayButton(
+                      rested:    _rested,
+                      reason:    _restReason,
+                      loading:   _restLoading,
+                      onChanged: _loadRestStatus,
+                    ),
                   ],
                 ],
               ),
@@ -612,53 +689,33 @@ class _OperationZone extends StatelessWidget {
 }
 
 // ── _RestDayButton ────────────────────────────────────────────────────────────
-// 「本日休み」ボタン（自己完結）。表示時に GET /rest-days/today を照会し、
+// 「本日休み」ボタン（表示は親から受け取る props 駆動）。状態(rested/reason)は
+// 親 _PunchScreenState が単一の真実源として保持し、日報報告ゲートと共有する。
 //   rested=true → 「本日休み 登録済み」＋タップでねぎらい画面
 //   rested=false（or 照会失敗=fail-open）→ 「本日休み」＋タップで休み登録画面
 // 序列は日報報告より下（OutlinedButton・textMid系の控えめ配色）。
-class _RestDayButton extends StatefulWidget {
-  const _RestDayButton();
+class _RestDayButton extends StatelessWidget {
+  const _RestDayButton({
+    required this.rested,
+    required this.reason,
+    required this.loading,
+    required this.onChanged,
+  });
 
-  @override
-  State<_RestDayButton> createState() => _RestDayButtonState();
-}
+  final bool rested;
+  final String? reason;
+  final bool loading;
+  final Future<void> Function() onChanged; // 遷移から戻った後に親が状態を取り直す
 
-class _RestDayButtonState extends State<_RestDayButton> {
-  final ReportsService _svc = ReportsService();
-  bool _loading = true;
-  bool _rested  = false; // 照会失敗時は false（fail-open＝通常表示）
-  String? _reason;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final res = await _svc.getRestDayToday();
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      if (res['success'] == true) {
-        _rested = res['rested'] == true;
-        _reason = res['reason'] as String?;
-      } else {
-        _rested = false; // fail-open
-        _reason = null;
-      }
-    });
-  }
-
-  Future<void> _onTap() async {
-    if (_rested) {
+  Future<void> _onTap(BuildContext context) async {
+    if (rested) {
       await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => RestDayDoneScreen(reason: _reason)));
+        builder: (_) => RestDayDoneScreen(reason: reason)));
     } else {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => const RestDayScreen()));
     }
-    if (mounted) _load(); // 戻ったら状態を取り直す
+    await onChanged(); // 戻ったら状態を取り直す（親が mounted を判定）
   }
 
   @override
@@ -667,14 +724,14 @@ class _RestDayButtonState extends State<_RestDayButton> {
       width: double.infinity,
       height: 48,
       child: OutlinedButton(
-        onPressed: _loading ? null : _onTap,
+        onPressed: loading ? null : () => _onTap(context),
         style: OutlinedButton.styleFrom(
           foregroundColor: JsColors.textMid,
           side: const BorderSide(color: JsColors.textMid),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         child: Text(
-          _rested ? '本日休み 登録済み' : '本日休み',
+          rested ? '本日休み 登録済み' : '本日休み',
           style: const TextStyle(fontSize: 15),
         ),
       ),
