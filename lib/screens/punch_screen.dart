@@ -193,6 +193,13 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   Future<void> _doPunch(String type) async {
     if (_busy) return;
     setState(() => _busy = true);
+    // 裁定(b): 退勤スライド確定直後は日報へ直行する（ホームに戻さない）。
+    // 遷移先の出し分け（未提出=日報フォーム / 提出済=完了ビュー）は既存資産に委ねる:
+    //   _onReportTap(:106) → widget.onNavigateToReport → home_screen:1506 `_setTab(1)`
+    //   → home_screen:1760 `if (_todayReportDone) AfterReportBody`（提出済判定は
+    //     home_screen:_readReportDone が単一の真実源）。判定式はここに複製しない。
+    // _busy 解除後に呼ぶため finally の外へ出す（ゲート内のダイアログ中も操作可）。
+    bool goReport = false;
     try {
       final gps    = await fetchGpsAddress();
       final result = await WorkModeService.instance.punch(
@@ -221,6 +228,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         } else {
           _timer?.cancel();
         }
+        // 退勤打刻がサーバに反映された時だけ立てる（出勤時・反映漏れ時は従来どおり）
+        goReport = type == 'out' && _punchedOut;
       } else {
         showJsSnackbar(
           context,
@@ -231,6 +240,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (goReport && mounted) await _onReportTap();
   }
 
   String _breakLabel() {
@@ -685,7 +695,7 @@ class _OperationZone extends StatelessWidget {
               side: const BorderSide(color: _border),
             ),
           ),
-          child: const Text('追加で日報を出す', style: TextStyle(fontSize: 15)),
+          child: const Text('日報を報告', style: TextStyle(fontSize: 15)),
         ),
       );
     }
