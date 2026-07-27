@@ -134,7 +134,7 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _submitting ? null : _showRequestSheet,
         backgroundColor: JsColors.gold,
-        foregroundColor: Colors.black,
+        foregroundColor: JsPalette.onAccent,
         icon: const Icon(Icons.add),
         label: const Text('新しく申請する', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -171,13 +171,13 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
                       return Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1A2435),
+                          color: JsColors.surface,
                           borderRadius: BorderRadius.circular(10),
                           border: Border(
                             left:   BorderSide(color: sc, width: 3),
-                            top:    const BorderSide(color: Color(0x24FFFFFF)),
-                            right:  const BorderSide(color: Color(0x14FFFFFF)),
-                            bottom: const BorderSide(color: Color(0x14FFFFFF)),
+                            top:    const BorderSide(color: JsColors.border),
+                            right:  const BorderSide(color: JsColors.border),
+                            bottom: const BorderSide(color: JsColors.border),
                           ),
                         ),
                         child: Row(children: [
@@ -301,7 +301,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF1A2435),
+        color: JsColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       padding: EdgeInsets.only(bottom: bottom),
@@ -314,7 +314,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: const Color(0xFF4A5568),
+              color: JsColors.border,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -359,10 +359,10 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D1520),
+                      color: JsColors.surface,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: const Color(0x28FFFFFF)),
+                          color: JsColors.border),
                     ),
                     child: Row(
                       children: [
@@ -397,7 +397,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                                 c['company_id'] as String, name),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: JsColors.gold,
-                              foregroundColor: Colors.black,
+                              foregroundColor: JsPalette.onAccent,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14),
                               shape: RoundedRectangleBorder(

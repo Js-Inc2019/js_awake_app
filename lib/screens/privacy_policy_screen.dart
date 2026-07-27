@@ -1,5 +1,6 @@
 // lib/screens/privacy_policy_screen.dart
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PrivacyPolicyScreen extends StatefulWidget {
@@ -36,17 +37,17 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1B2A),
+      backgroundColor: JsColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0D1B2A),
-        foregroundColor: const Color(0xFFF5F5F0),
+        backgroundColor: JsColors.background,
+        foregroundColor: JsColors.textStrong,
         title: const Text('プライバシーポリシー',
             style: TextStyle(
-                color: Color(0xFFF5F5F0),
+                color: JsColors.textStrong,
                 fontWeight: FontWeight.bold)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, size: 18,
-              color: Color(0xFFC9A84C)),
+              color: JsColors.accent),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -67,7 +68,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
               child: Text(
                 "株式会社J's",
                 style: TextStyle(
-                    color: const Color(0xFFF5F5F0).withValues(alpha: 0.3),
+                    color: JsColors.textStrong.withValues(alpha: 0.3),
                     fontSize: 11),
               ),
             ),
@@ -82,17 +83,17 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: const Color(0xFFC9A84C).withValues(alpha: 0.12),
+      color: JsColors.accent.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: const Color(0xFFC9A84C).withValues(alpha: 0.4)),
+      border: Border.all(color: JsColors.accent.withValues(alpha: 0.4)),
     ),
     child: Row(children: [
       const Icon(Icons.check_circle_outline,
-          color: Color(0xFFC9A84C), size: 16),
+          color: JsColors.accent, size: 16),
       const SizedBox(width: 8),
       Text('同意日時：$date',
           style: const TextStyle(
-              color: Color(0xFFC9A84C),
+              color: JsColors.accent,
               fontSize: 12,
               fontWeight: FontWeight.bold)),
     ]),
@@ -103,20 +104,20 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
     children: [
       const Text('プライバシーポリシー',
           style: TextStyle(
-              color: Color(0xFFC9A84C),
+              color: JsColors.accent,
               fontSize: 20,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.5)),
       const SizedBox(height: 6),
       Text('制定日：2024年　最終改定日：2025年',
           style: TextStyle(
-              color: const Color(0xFFF5F5F0).withValues(alpha: 0.4),
+              color: JsColors.textStrong.withValues(alpha: 0.4),
               fontSize: 11)),
       const SizedBox(height: 14),
       const Text(
         "株式会社J'sは、個人情報保護法およびその他関連法令を遵守し、\n以下のとおり個人情報を適切に取り扱います。",
         style: TextStyle(
-            color: Color(0xFF8A9BA8), fontSize: 13, height: 1.8),
+            color: JsColors.textMid, fontSize: 13, height: 1.8),
       ),
     ],
   );
@@ -186,9 +187,9 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
+        color: JsColors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF4A4A4A)),
+        border: Border.all(color: JsColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,16 +198,16 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFC9A84C).withValues(alpha: 0.08),
+              color: JsColors.accent.withValues(alpha: 0.08),
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(10)),
               border: Border(
                   bottom: BorderSide(
-                      color: const Color(0xFFC9A84C).withValues(alpha: 0.2))),
+                      color: JsColors.accent.withValues(alpha: 0.2))),
             ),
             child: Text(title,
                 style: const TextStyle(
-                    color: Color(0xFFC9A84C),
+                    color: JsColors.accent,
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.3)),
@@ -219,7 +220,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                 if (prose != null) ...[
                   Text(prose,
                       style: const TextStyle(
-                          color: Color(0xFF8A9BA8),
+                          color: JsColors.textMid,
                           fontSize: 12,
                           height: 1.7)),
                   if (items.isNotEmpty) const SizedBox(height: 8),
@@ -228,7 +229,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(line,
                           style: const TextStyle(
-                              color: Color(0xFFF5F5F0),
+                              color: JsColors.textStrong,
                               fontSize: 12,
                               height: 1.7)),
                     )),

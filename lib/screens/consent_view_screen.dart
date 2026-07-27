@@ -67,7 +67,7 @@ class ConsentViewScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('同意内容の確認'),
         backgroundColor: JsColors.black,
-        foregroundColor: Colors.white,
+        foregroundColor: JsColors.textStrong,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: JsColors.gold),
@@ -80,9 +80,9 @@ class ConsentViewScreen extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 16),
         itemBuilder: (_, i) => Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
+            color: JsColors.surface,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: JsColors.border),
           ),
           child: ExpansionTile(
             initiallyExpanded: i == 0,
@@ -109,18 +109,18 @@ class ConsentViewScreen extends StatelessWidget {
             title: Text(
               _titles[i],
               style: const TextStyle(
-                color: Colors.white,
+                color: JsColors.textStrong,
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
               ),
             ),
             iconColor: JsColors.gold,
-            collapsedIconColor: Colors.white38,
+            collapsedIconColor: JsColors.textMid,
             children: [
               Text(
                 _details[i],
                 style: const TextStyle(
-                  color: Colors.white70,
+                  color: JsColors.textMid,
                   fontSize: 13,
                   height: 1.8,
                 ),

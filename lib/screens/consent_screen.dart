@@ -108,7 +108,7 @@ class _ConsentScreenState extends State<ConsentScreen> {
       appBar: AppBar(
         title: const Text('利用規約・同意確認'),
         backgroundColor: JsColors.black,
-        foregroundColor: Colors.white,
+        foregroundColor: JsColors.textStrong,
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
@@ -127,7 +127,7 @@ class _ConsentScreenState extends State<ConsentScreen> {
                     width: i == _currentPage ? 20 : 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: i == _currentPage ? JsColors.gold : Colors.white24,
+                      color: i == _currentPage ? JsColors.gold : JsColors.border,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   );
@@ -160,14 +160,14 @@ class _ConsentScreenState extends State<ConsentScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E1E1E),
+                      color: JsColors.surface,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white12),
+                      border: Border.all(color: JsColors.border),
                     ),
                     child: Text(
                       _details[i],
                       style: const TextStyle(
-                        color: Colors.white70,
+                        color: JsColors.textMid,
                         fontSize: 13.5,
                         height: 1.8,
                       ),
@@ -191,20 +191,20 @@ class _ConsentScreenState extends State<ConsentScreen> {
                         decoration: BoxDecoration(
                           color: _agreed ? JsColors.gold : Colors.transparent,
                           border: Border.all(
-                            color: _agreed ? JsColors.gold : Colors.white38,
+                            color: _agreed ? JsColors.gold : JsColors.textMid,
                             width: 2,
                           ),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: _agreed
-                            ? const Icon(Icons.check, size: 16, color: Colors.black)
+                            ? const Icon(Icons.check, size: 16, color: JsPalette.onAccent)
                             : null,
                       ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
                           '上記すべての内容を確認し、同意します',
-                          style: TextStyle(color: Colors.white, fontSize: 13),
+                          style: TextStyle(color: JsColors.textStrong, fontSize: 13),
                         ),
                       ),
                     ],
@@ -222,7 +222,7 @@ class _ConsentScreenState extends State<ConsentScreen> {
                         onPressed: _prevPage,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: JsColors.silver,
-                          side: const BorderSide(color: Colors.white24),
+                          side: const BorderSide(color: JsColors.border),
                           minimumSize: const Size(0, 48),
                         ),
                         child: const Text('戻る'),
@@ -240,11 +240,11 @@ class _ConsentScreenState extends State<ConsentScreen> {
                           : _nextPage,
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                            isLast && !_agreed ? Colors.white12 : JsColors.gold,
-                        foregroundColor: Colors.black,
+                            isLast && !_agreed ? JsColors.border : JsColors.gold,
+                        foregroundColor: JsPalette.onAccent,
                         minimumSize: const Size(0, 48),
-                        disabledBackgroundColor: Colors.white12,
-                        disabledForegroundColor: Colors.white38,
+                        disabledBackgroundColor: JsColors.border,
+                        disabledForegroundColor: JsColors.textMid,
                       ),
                       child: Text(
                         isLast ? '同意して続ける' : '次へ',

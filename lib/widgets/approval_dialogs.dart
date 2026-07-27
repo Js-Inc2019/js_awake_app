@@ -38,7 +38,7 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
     return AlertDialog(
       backgroundColor: JsColors.gunmetal,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      title: const Text('修正依頼', style: TextStyle(color: Colors.white, fontSize: 17)),
+      title: const Text('修正依頼', style: TextStyle(color: JsColors.textStrong, fontSize: 17)),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('修正理由（複数選択可）', style: TextStyle(color: JsColors.silver, fontSize: 12)),

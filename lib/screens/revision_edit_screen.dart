@@ -392,7 +392,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
   Widget _targetBadge() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
-          color: const Color(0x2EA89868),
+          color: JsColors.accent.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: JsColors.gold),
         ),
@@ -415,7 +415,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
           ...labels.map((l) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0x2EA89868),
+                  color: JsColors.accent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: JsColors.gold),
                 ),
@@ -770,7 +770,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0x2EA89868),
+                  color: JsColors.accent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: JsColors.gold),
                 ),
@@ -794,13 +794,13 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               onPressed: _submitting ? null : _submit,
               style: ElevatedButton.styleFrom(
                 backgroundColor: JsColors.gold,
-                foregroundColor: Colors.black,
+                foregroundColor: JsPalette.onAccent,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: _submitting
                   ? const SizedBox(
                       width: 22, height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black))
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: JsPalette.onAccent))
                   : const Text('修正して再提出する',
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ),

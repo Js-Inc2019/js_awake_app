@@ -1,5 +1,6 @@
 // lib/screens/pending_approval_screen.dart
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 import 'home_screen.dart';
 
 class PendingApprovalScreen extends StatelessWidget {
@@ -8,7 +9,7 @@ class PendingApprovalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E14),
+      backgroundColor: JsColors.background,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -21,7 +22,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '承認待ちです',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: JsColors.textStrong,
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
                   ),
@@ -30,7 +31,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '管理者が承認すると\nフル機能が使えます',
                   style: TextStyle(
-                    color: Color(0xFF8A9BA8),
+                    color: JsColors.textMid,
                     fontSize: 15,
                     height: 1.8,
                   ),
@@ -40,7 +41,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '現在は日報送信のみ\nご利用いただけます',
                   style: TextStyle(
-                    color: Color(0xFF8A9BA8),
+                    color: JsColors.textMid,
                     fontSize: 15,
                     height: 1.8,
                   ),
@@ -58,9 +59,9 @@ class PendingApprovalScreen extends StatelessWidget {
                       );
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0D1B2A),
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFF8A9BA8)),
+                      backgroundColor: JsColors.surface,
+                      foregroundColor: JsColors.textStrong,
+                      side: const BorderSide(color: JsColors.border),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

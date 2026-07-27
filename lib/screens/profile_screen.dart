@@ -442,7 +442,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Text(
                 'ログアウトしました',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: JsColors.textStrong,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
@@ -451,7 +451,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Text(
                 'またのご利用をお待ちしています',
                 style: TextStyle(
-                  color: Colors.white54,
+                  color: JsColors.textMid,
                   fontSize: 13,
                 ),
               ),
@@ -506,9 +506,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF252525),
+          color: JsColors.surface,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: JsColors.border),
         ),
         child: const Row(
           children: [
@@ -549,9 +549,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF252525),
+          color: JsColors.surface,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: JsColors.border),
         ),
         child: const Row(
           children: [
@@ -588,9 +588,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       margin: const EdgeInsets.fromLTRB(0, 0, 0, 0),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF252525),
+        color: JsColors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: JsColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -602,13 +602,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Text(
                 '利用規約・同意状況',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: JsColors.textStrong,
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               Spacer(),
-              Icon(Icons.lock, color: Colors.white38, size: 14),
+              Icon(Icons.lock, color: JsColors.textMid, size: 14),
             ],
           ),
           const SizedBox(height: 8),
@@ -618,7 +618,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           Text(
             _consentVersion.isEmpty ? '' : 'バージョン：$_consentVersion',
-            style: const TextStyle(color: Colors.white38, fontSize: 11),
+            style: const TextStyle(color: JsColors.textMid, fontSize: 11),
           ),
           const SizedBox(height: 10),
           GestureDetector(
@@ -1233,7 +1233,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                         decoration: const BoxDecoration(
                             color: JsColors.gold, shape: BoxShape.circle),
                         child: const Icon(Icons.camera_alt,
-                            color: Colors.black, size: 14),
+                            color: JsPalette.onAccent, size: 14),
                       ),
                     ],
                   ),
@@ -1481,7 +1481,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                       ? const SizedBox(
                           width: 20, height: 20,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2.5, color: Colors.black))
+                              strokeWidth: 2.5, color: JsPalette.onAccent))
                       : const Text('保存する'),
                 ),
               ),
@@ -1489,7 +1489,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               const Center(
                 child: Text(
                   'v$kAppVersion',
-                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                  style: TextStyle(color: JsColors.textMid, fontSize: 11),
                 ),
               ),
             ],
@@ -1797,7 +1797,7 @@ class _ToolKeyCardState extends State<_ToolKeyCard> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12),
                     backgroundColor: JsColors.gold,
-                    foregroundColor: Colors.black,
+                    foregroundColor: JsPalette.onAccent,
                   ),
                   child: const Text('保存'),
                 ),

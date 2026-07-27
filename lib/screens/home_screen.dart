@@ -1163,7 +1163,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
           content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: JsColors.textStrong, fontSize: 18, fontWeight: FontWeight.bold)),
           backgroundColor: JsColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1171,7 +1171,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           duration: const Duration(seconds: 5),
           action: SnackBarAction(
             label: '設定を開く',
-            textColor: Colors.white,
+            textColor: JsColors.textStrong,
             onPressed: () => launchUrl(Uri.parse('app-settings:')),
           ),
         ));
@@ -1593,7 +1593,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       color: JsColors.gold, shape: BoxShape.circle),
                   child: Text('$_linkCount',
                       style: const TextStyle(
-                          color: Colors.black,
+                          color: JsPalette.onAccent,
                           fontSize: 9,
                           fontWeight: FontWeight.bold)),
                 ),
@@ -1631,7 +1631,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     _unreadCount > 99 ? '99+' : '$_unreadCount',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: Colors.black,
+                        color: JsPalette.onAccent,
                         fontSize: 10,
                         fontWeight: FontWeight.bold),
                   ),
@@ -2609,7 +2609,7 @@ class _BottomTabItem extends StatelessWidget {
                 // 暗色 onAccent なら 8.75:1。
                 // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
                 // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
-                color: c == JsColors.success ? JsPalette.onAccent : Colors.white,
+                color: c == JsColors.success ? JsPalette.onAccent : JsColors.textStrong,
                 fontSize: 9,
                 fontWeight: FontWeight.bold)),
       );
@@ -3249,7 +3249,7 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF0C0C0A),
+      color: JsColors.background,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -3532,7 +3532,7 @@ class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
           height: h,
           width: w,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: _anim.value),
+            color: JsColors.textStrong.withValues(alpha: _anim.value),
             borderRadius: BorderRadius.circular(radius),
           ),
         ),

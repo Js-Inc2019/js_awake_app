@@ -11,12 +11,12 @@ import 'rest_day_screen.dart';
 import 'rest_day_done_screen.dart';
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
-const _bg     = Color(0xFF080806);
-const _card   = Color(0xFF181810);
-const _gold   = Color(0xFFA89868);
+const _bg     = JsColors.background;
+const _card   = JsColors.surface;
+const _gold   = JsColors.accent;
 const _text   = JsPalette.textBody;
-const _label  = Color(0xFF686040);
-const _border = Color(0xFF242418);
+const _label  = JsColors.textMid;
+const _border = JsColors.border;
 
 // ── file-level helpers ────────────────────────────────────────────────────────
 String _hhmm(String? iso) {

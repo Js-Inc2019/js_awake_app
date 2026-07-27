@@ -1,8 +1,9 @@
 // lib/widgets/slide_to_confirm.dart
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 
-const _sliderGold = Color(0xFFA89868);
-const _sliderDark = Color(0xFF080806);
+const _sliderGold = JsColors.accent;
+const _sliderDark = JsPalette.onAccent;
 
 class SlideToConfirm extends StatefulWidget {
   const SlideToConfirm({

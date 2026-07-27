@@ -332,7 +332,7 @@ class _NotificationSettingsScreenState
             onPressed: _saving ? null : _save,
             style: ElevatedButton.styleFrom(
               backgroundColor: JsColors.accent,
-              foregroundColor: Colors.black,
+              foregroundColor: JsPalette.onAccent,
               disabledBackgroundColor:
                   JsColors.accent.withValues(alpha: 0.5),
               shape: RoundedRectangleBorder(
@@ -344,7 +344,7 @@ class _NotificationSettingsScreenState
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2.5, color: Colors.black),
+                        strokeWidth: 2.5, color: JsPalette.onAccent),
                   )
                 : const Text('保存する',
                     style: TextStyle(

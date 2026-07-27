@@ -2,6 +2,7 @@
 // 機種変更・再インストール後の端末再接続（会社コード＋worker_id＋PIN）
 // POST /auth/recover-by-code で既存 person へ device_id を再紐付けする。
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -13,11 +14,7 @@ import 'consent_screen.dart';
 // 現行の利用規約バージョン（BE の CURRENT_CONSENT_VERSION と同値・当ファイル内 private 定数）。
 const String _kCurrentConsentVersion = '1.0';
 
-// login_screen.dart と同一配色（当ファイル内 private 定数）
-const _bgColor     = Color(0xFF0A0E14);
-const _goldColor   = Color(0xFFC9A84C);
-const _navyColor   = Color(0xFF0D1B2A);
-const _silverColor = Color(0xFF8A9BA8);
+// 配色は lib/core/theme/js_colors.dart のトークンへ統一（画面ローカル定数は撤去）
 
 class RecoveryScreen extends StatefulWidget {
   const RecoveryScreen({super.key});
@@ -216,24 +213,24 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
           TextInputFormatter.withFunction(
               (old, n) => n.copyWith(text: n.text.toUpperCase())),
       ],
-      style: const TextStyle(color: Colors.white),
+      style: const TextStyle(color: JsColors.textStrong),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: _silverColor, fontSize: 13),
-        prefixIcon: Icon(icon, color: _silverColor),
+        labelStyle: const TextStyle(color: JsColors.textMid, fontSize: 13),
+        prefixIcon: Icon(icon, color: JsColors.textMid),
         filled: true,
-        fillColor: _navyColor,
+        fillColor: JsColors.surfaceAlt,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _silverColor),
+          borderSide: const BorderSide(color: JsColors.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _silverColor),
+          borderSide: const BorderSide(color: JsColors.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _goldColor, width: 2),
+          borderSide: const BorderSide(color: JsColors.accent, width: 2),
         ),
       ),
     );
@@ -248,26 +245,26 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
       keyboardType: TextInputType.number,
       maxLength: 6,
       style: const TextStyle(
-          color: Colors.white, fontSize: 24, letterSpacing: 8),
+          color: JsColors.textStrong, fontSize: 24, letterSpacing: 8),
       textAlign: TextAlign.center,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       decoration: InputDecoration(
         counterText: '',
         hintText: '● ● ● ●',
         hintStyle: const TextStyle(
-            color: Color(0xFF242418), letterSpacing: 8),
+            color: JsColors.hint, letterSpacing: 8),
         filled: true,
-        fillColor: const Color(0xFF181810),
+        fillColor: JsColors.surfaceAlt,
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _goldColor, width: 2)),
+            borderSide: const BorderSide(color: JsColors.accent, width: 2)),
         suffixIcon: IconButton(
           icon: Icon(
               _obscurePin ? Icons.visibility_off : Icons.visibility,
-              color: const Color(0xFF484830)),
+              color: JsColors.textMid),
           onPressed: () => setState(() => _obscurePin = !_obscurePin),
         ),
       ),
@@ -277,13 +274,13 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: JsColors.background,
       appBar: AppBar(
-        backgroundColor: _bgColor,
-        foregroundColor: _goldColor,
+        backgroundColor: JsColors.background,
+        foregroundColor: JsColors.accent,
         elevation: 0,
         title: const Text('端末の復旧',
-            style: TextStyle(color: _goldColor, fontSize: 18)),
+            style: TextStyle(color: JsColors.accent, fontSize: 18)),
         // 戻る＝常にランディングへ戻れる（push 元へ pop）
       ),
       body: SafeArea(
@@ -293,12 +290,12 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Icon(Icons.phonelink_setup,
-                  color: _goldColor, size: 56),
+                  color: JsColors.accent, size: 56),
               const SizedBox(height: 16),
               const Text(
                 '機種変更・再インストール後の復旧',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: JsColors.textStrong,
                     fontSize: 18,
                     fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
@@ -306,7 +303,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
               const SizedBox(height: 8),
               const Text(
                 '会社コード・作業員ID・PIN を入力すると、\nこの端末を既存の登録に再接続します',
-                style: TextStyle(color: _silverColor, fontSize: 13, height: 1.6),
+                style: TextStyle(color: JsColors.textMid, fontSize: 13, height: 1.6),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -346,8 +343,8 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _recover,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _goldColor,
-                    foregroundColor: Colors.black,
+                    backgroundColor: JsColors.accent,
+                    foregroundColor: JsPalette.onAccent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
@@ -356,7 +353,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.black))
+                              strokeWidth: 2, color: JsPalette.onAccent))
                       : const Text('この端末で復旧',
                           style: TextStyle(
                               fontSize: 17, fontWeight: FontWeight.bold)),

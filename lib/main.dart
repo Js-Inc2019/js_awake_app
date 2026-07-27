@@ -780,7 +780,7 @@ void showJsSnackbar(BuildContext context, String msg,
   // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
   // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
   final Color fg =
-      (isError || isWarning) ? Colors.white : JsPalette.onAccent;
+      (isError || isWarning) ? JsColors.textStrong : JsPalette.onAccent;
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
@@ -819,7 +819,7 @@ Future<bool> showConfirmDialog(
         ),
         ElevatedButton(
           style: isDanger ? ElevatedButton.styleFrom(
-              backgroundColor: JsColors.error, foregroundColor: Colors.white) : null,
+              backgroundColor: JsColors.error, foregroundColor: JsColors.textStrong) : null,
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(confirmText),
         ),
@@ -873,8 +873,8 @@ class _GateScreenState extends State<GateScreen> {
   }
   @override
   Widget build(BuildContext context) => const Scaffold(
-    backgroundColor: Color(0xFF1A1A1A),
-    body: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))));
+    backgroundColor: JsColors.background,
+    body: Center(child: CircularProgressIndicator(color: JsColors.accent)));
   Future<void> _pushWorker(BuildContext context) async {
     if (!context.mounted) return;
 
@@ -1036,7 +1036,7 @@ class _OvertimeDialogState extends State<OvertimeDialog> {
             style: const TextStyle(color: JsColors.offWhite),
             decoration: const InputDecoration(
               hintText: '例：2階配線追加工事',
-              hintStyle: TextStyle(color: Color(0xFF666666)),
+              hintStyle: TextStyle(color: JsColors.hint),
             ),
           ),
         ],
@@ -1051,7 +1051,7 @@ class _OvertimeDialogState extends State<OvertimeDialog> {
         onPressed: _submitting ? null : _submit,
         child: _submitting
             ? const SizedBox(width: 18, height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                child: CircularProgressIndicator(strokeWidth: 2, color: JsPalette.onAccent))
             : const Text('送信'),
       ),
     ],
@@ -1502,7 +1502,7 @@ class _PhotoPreview extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: Colors.black,
+        backgroundColor: JsColors.background,
         child: Stack(
           alignment: Alignment.topRight,
           children: [
@@ -1511,7 +1511,7 @@ class _PhotoPreview extends StatelessWidget {
             ),
             IconButton(
               onPressed: () => Navigator.pop(ctx),
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              icon: const Icon(Icons.close, color: JsColors.textStrong, size: 28),
             ),
           ],
         ),
@@ -1609,7 +1609,7 @@ class _ReportCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: Colors.black,
+        backgroundColor: JsColors.background,
         child: Stack(
           alignment: Alignment.topRight,
           children: [
@@ -1618,7 +1618,7 @@ class _ReportCard extends StatelessWidget {
             ),
             IconButton(
               onPressed: () => Navigator.pop(ctx),
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              icon: const Icon(Icons.close, color: JsColors.textStrong, size: 28),
             ),
           ],
         ),
