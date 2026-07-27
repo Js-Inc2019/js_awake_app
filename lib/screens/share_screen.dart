@@ -4,6 +4,7 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 import '../services/share_service.dart';
 import '../services/company_service.dart';
 
@@ -108,16 +109,16 @@ class _ShareScreenState extends State<ShareScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF111111),
+      backgroundColor: JsColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF111111),
-        foregroundColor: const Color(0xFFD4AF37),
+        backgroundColor: JsColors.background,
+        foregroundColor: JsColors.accent,
         title: const Text('他社に報告送信'),
       ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(
-                  color: Color(0xFFD4AF37)))
+                  color: JsColors.accent))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -128,7 +129,7 @@ class _ShareScreenState extends State<ShareScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2A2A2A),
+                      color: JsColors.surface,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -136,13 +137,13 @@ class _ShareScreenState extends State<ShareScreen> {
                       children: [
                         const Text('送信する日報',
                             style: TextStyle(
-                                color: Color(0xFF9E9E9E),
+                                color: JsColors.textMid,
                                 fontSize: 12)),
                         const SizedBox(height: 8),
                         Text(
                           widget.workerName,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: JsColors.textStrong,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -150,7 +151,7 @@ class _ShareScreenState extends State<ShareScreen> {
                         Text(
                           widget.reportDate,
                           style: const TextStyle(
-                              color: Color(0xFF9E9E9E)),
+                              color: JsColors.textMid),
                         ),
                       ],
                     ),
@@ -161,19 +162,19 @@ class _ShareScreenState extends State<ShareScreen> {
                   // 送信先選択
                   const Text('送信先を選択 *',
                       style: TextStyle(
-                          color: Color(0xFF9E9E9E), fontSize: 12)),
+                          color: JsColors.textMid, fontSize: 12)),
                   const SizedBox(height: 8),
 
                   if (_companies.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
+                        color: JsColors.surface,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Text(
                         '繋がっている会社がありません\n管理者に確認してください',
-                        style: TextStyle(color: Color(0xFF9E9E9E)),
+                        style: TextStyle(color: JsColors.textMid),
                       ),
                     )
                   else
@@ -192,12 +193,12 @@ class _ShareScreenState extends State<ShareScreen> {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF3A3020)
-                                : const Color(0xFF2A2A2A),
+                                ? JsColors.surfaceAlt
+                                : JsColors.surface,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: isSelected
-                                  ? const Color(0xFFD4AF37)
+                                  ? JsColors.accent
                                   : Colors.transparent,
                               width: 1.5,
                             ),
@@ -209,8 +210,8 @@ class _ShareScreenState extends State<ShareScreen> {
                                     ? Icons.check_circle
                                     : Icons.business,
                                 color: isSelected
-                                    ? const Color(0xFFD4AF37)
-                                    : const Color(0xFF9E9E9E),
+                                    ? JsColors.accent
+                                    : JsColors.textMid,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -222,15 +223,15 @@ class _ShareScreenState extends State<ShareScreen> {
                                       company['company_name'] as String,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? const Color(0xFFD4AF37)
-                                            : Colors.white,
+                                            ? JsColors.accent
+                                            : JsColors.textStrong,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     Text(
                                       company['company_code'] as String,
                                       style: const TextStyle(
-                                          color: Color(0xFF9E9E9E),
+                                          color: JsColors.textMid,
                                           fontSize: 12),
                                     ),
                                   ],
@@ -247,7 +248,7 @@ class _ShareScreenState extends State<ShareScreen> {
                   // 送信方法
                   const Text('送信方法',
                       style: TextStyle(
-                          color: Color(0xFF9E9E9E), fontSize: 12)),
+                          color: JsColors.textMid, fontSize: 12)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -282,18 +283,18 @@ class _ShareScreenState extends State<ShareScreen> {
                   // メモ
                   const Text('メモ（任意）',
                       style: TextStyle(
-                          color: Color(0xFF9E9E9E), fontSize: 12)),
+                          color: JsColors.textMid, fontSize: 12)),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _memoCtrl,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: JsColors.textStrong),
                     maxLines: 3,
                     decoration: InputDecoration(
                       hintText: '送信先へのメモを入力...',
                       hintStyle:
-                          const TextStyle(color: Color(0xFF9E9E9E)),
+                          const TextStyle(color: JsColors.textMid),
                       filled: true,
-                      fillColor: const Color(0xFF2A2A2A),
+                      fillColor: JsColors.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide.none,
@@ -301,7 +302,7 @@ class _ShareScreenState extends State<ShareScreen> {
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(
-                            color: Color(0xFFD4AF37)),
+                            color: JsColors.accent),
                       ),
                     ),
                   ),
@@ -314,8 +315,8 @@ class _ShareScreenState extends State<ShareScreen> {
                     height: 52,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4AF37),
-                        foregroundColor: Colors.black,
+                        backgroundColor: JsColors.accent,
+                        foregroundColor: JsPalette.onAccent,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -326,7 +327,7 @@ class _ShareScreenState extends State<ShareScreen> {
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
-                                color: Colors.black,
+                                color: JsPalette.onAccent,
                                 strokeWidth: 2,
                               ),
                             )
@@ -376,12 +377,12 @@ class _ShareTypeButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: isSelected
-                ? const Color(0xFF3A3020)
-                : const Color(0xFF2A2A2A),
+                ? JsColors.surfaceAlt
+                : JsColors.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isSelected
-                  ? const Color(0xFFD4AF37)
+                  ? JsColors.accent
                   : Colors.transparent,
             ),
           ),
@@ -389,15 +390,15 @@ class _ShareTypeButton extends StatelessWidget {
             children: [
               Icon(icon,
                   color: isSelected
-                      ? const Color(0xFFD4AF37)
-                      : const Color(0xFF9E9E9E),
+                      ? JsColors.accent
+                      : JsColors.textMid,
                   size: 20),
               const SizedBox(height: 4),
               Text(label,
                   style: TextStyle(
                     color: isSelected
-                        ? const Color(0xFFD4AF37)
-                        : const Color(0xFF9E9E9E),
+                        ? JsColors.accent
+                        : JsColors.textMid,
                     fontSize: 12,
                   )),
             ],

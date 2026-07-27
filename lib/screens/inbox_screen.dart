@@ -4,6 +4,7 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
+ import '../core/theme/js_colors.dart';
 import '../services/share_service.dart';
 
 class InboxScreen extends StatefulWidget {
@@ -73,15 +74,15 @@ class _InboxScreenState extends State<InboxScreen>
       context: context,
       barrierDismissible: false,
       builder: (_) => const AlertDialog(
-        backgroundColor: Color(0xFF2A2A2A),
+        backgroundColor: JsColors.surface,
         content: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            CircularProgressIndicator(color: JsColors.accent),
             SizedBox(width: 20),
             Expanded(
               child: Text('改ざんチェック中…',
-                  style: TextStyle(color: Colors.white)),
+                  style: TextStyle(color: JsColors.textStrong)),
             ),
           ],
         ),
@@ -103,7 +104,7 @@ class _InboxScreenState extends State<InboxScreen>
       titleColor = Colors.red;
     } else if (status == 'ok') {
       title = '✅ 正常';
-      titleColor = const Color(0xFFD4AF37);
+      titleColor = JsColors.accent;
     } else {
       title = '⚠️ 確認できませんでした';
       titleColor = Colors.orange;
@@ -112,11 +113,11 @@ class _InboxScreenState extends State<InboxScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
+        backgroundColor: JsColors.surface,
         title: Text(title, style: TextStyle(color: titleColor)),
         content: Text(
           result['message'] ?? 'チェック完了',
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(color: JsColors.textStrong),
         ),
         actions: [
           if (status == 'error')
@@ -126,12 +127,12 @@ class _InboxScreenState extends State<InboxScreen>
                 _checkTamper(shareId); // 再試行の道
               },
               child: const Text('再試行',
-                  style: TextStyle(color: Color(0xFFD4AF37))),
+                  style: TextStyle(color: JsColors.accent)),
             ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('閉じる',
-                style: TextStyle(color: Color(0xFFD4AF37))),
+                style: TextStyle(color: JsColors.accent)),
           ),
         ],
       ),
@@ -145,7 +146,7 @@ class _InboxScreenState extends State<InboxScreen>
   void _showDetail(Map<String, dynamic> share, bool isInbox) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF2A2A2A),
+      backgroundColor: JsColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -161,7 +162,7 @@ class _InboxScreenState extends State<InboxScreen>
                 Text(
                   share['worker_name'] ?? '不明',
                   style: const TextStyle(
-                    color: Color(0xFFD4AF37),
+                    color: JsColors.accent,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
@@ -198,8 +199,8 @@ class _InboxScreenState extends State<InboxScreen>
                   Expanded(
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4AF37),
-                        foregroundColor: Colors.black,
+                        backgroundColor: JsColors.accent,
+                        foregroundColor: JsPalette.onAccent,
                       ),
                       onPressed: () {
                         Navigator.pop(context);
@@ -212,8 +213,8 @@ class _InboxScreenState extends State<InboxScreen>
                 Expanded(
                   child: OutlinedButton(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFD4AF37),
-                      side: const BorderSide(color: Color(0xFFD4AF37)),
+                      foregroundColor: JsColors.accent,
+                      side: const BorderSide(color: JsColors.accent),
                     ),
                     onPressed: () {
                       Navigator.pop(context);
@@ -240,10 +241,10 @@ class _InboxScreenState extends State<InboxScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.inbox, color: Color(0xFF9E9E9E), size: 64),
+            Icon(Icons.inbox, color: JsColors.textMid, size: 64),
             SizedBox(height: 16),
             Text('受信した日報はありません',
-                style: TextStyle(color: Color(0xFF9E9E9E))),
+                style: TextStyle(color: JsColors.textMid)),
           ],
         ),
       );
@@ -261,14 +262,14 @@ class _InboxScreenState extends State<InboxScreen>
         return ListTile(
           tileColor: isTampered
               ? const Color(0xFF3D1515)
-              : const Color(0xFF2A2A2A),
+              : JsColors.surface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
             side: BorderSide(
               color: isTampered
                   ? Colors.red
                   : isUnread
-                      ? const Color(0xFFD4AF37)
+                      ? JsColors.accent
                       : Colors.transparent,
               width: isTampered || isUnread ? 1 : 0,
             ),
@@ -276,30 +277,30 @@ class _InboxScreenState extends State<InboxScreen>
           leading: CircleAvatar(
             backgroundColor: isTampered
                 ? Colors.red
-                : const Color(0xFF3A3A3A),
+                : JsColors.surfaceAlt,
             child: Icon(
               isTampered ? Icons.warning : Icons.inbox,
               color: isTampered
                   ? Colors.white
-                  : const Color(0xFFD4AF37),
+                  : JsColors.accent,
             ),
           ),
           title: Text(
             share['worker_name'] ?? '不明',
             style: TextStyle(
-              color: Colors.white,
+              color: JsColors.textStrong,
               fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
             ),
           ),
           subtitle: Text(
             '${share['sender_company_name'] ?? '-'} | ${share['report_date'] ?? '-'}',
-            style: const TextStyle(color: Color(0xFF9E9E9E)),
+            style: const TextStyle(color: JsColors.textMid),
           ),
           trailing: isTampered
               ? const Text('⚠️', style: TextStyle(fontSize: 20))
               : isUnread
                   ? const Icon(Icons.circle,
-                      color: Color(0xFFD4AF37), size: 10)
+                      color: JsColors.accent, size: 10)
                   : null,
           onTap: () => _showDetail(share, true),
         );
@@ -317,10 +318,10 @@ class _InboxScreenState extends State<InboxScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.outbox, color: Color(0xFF9E9E9E), size: 64),
+            Icon(Icons.outbox, color: JsColors.textMid, size: 64),
             SizedBox(height: 16),
             Text('送信した日報はありません',
-                style: TextStyle(color: Color(0xFF9E9E9E))),
+                style: TextStyle(color: JsColors.textMid)),
           ],
         ),
       );
@@ -333,21 +334,21 @@ class _InboxScreenState extends State<InboxScreen>
       itemBuilder: (_, i) {
         final share = _outbox[i] as Map<String, dynamic>;
         return ListTile(
-          tileColor: const Color(0xFF2A2A2A),
+          tileColor: JsColors.surface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
           leading: const CircleAvatar(
-            backgroundColor: Color(0xFF3A3A3A),
-            child: Icon(Icons.outbox, color: Color(0xFFD4AF37)),
+            backgroundColor: JsColors.surfaceAlt,
+            child: Icon(Icons.outbox, color: JsColors.accent),
           ),
           title: Text(
             share['worker_name'] ?? '不明',
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: JsColors.textStrong),
           ),
           subtitle: Text(
             '${share['receiver_company_name'] ?? '-'} | ${share['report_date'] ?? '-'}',
-            style: const TextStyle(color: Color(0xFF9E9E9E)),
+            style: const TextStyle(color: JsColors.textMid),
           ),
           trailing: _StatusChip(status: share['share_status'] as String?),
           onTap: () => _showDetail(share, false),
@@ -359,10 +360,10 @@ class _InboxScreenState extends State<InboxScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF111111),
+      backgroundColor: JsColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF111111),
-        foregroundColor: const Color(0xFFD4AF37),
+        backgroundColor: JsColors.background,
+        foregroundColor: JsColors.accent,
         title: Row(
           children: [
             const Text('報告トレイ'),
@@ -392,9 +393,9 @@ class _InboxScreenState extends State<InboxScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: const Color(0xFFD4AF37),
-          unselectedLabelColor: const Color(0xFF9E9E9E),
-          indicatorColor: const Color(0xFFD4AF37),
+          labelColor: JsColors.accent,
+          unselectedLabelColor: JsColors.textMid,
+          indicatorColor: JsColors.accent,
           tabs: [
             Tab(
               child: Row(
@@ -422,7 +423,7 @@ class _InboxScreenState extends State<InboxScreen>
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(
-                  color: Color(0xFFD4AF37)))
+                  color: JsColors.accent))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -453,11 +454,11 @@ class _DetailRow extends StatelessWidget {
           SizedBox(
             width: 80,
             child: Text(label,
-                style: const TextStyle(color: Color(0xFF9E9E9E))),
+                style: const TextStyle(color: JsColors.textMid)),
           ),
           Expanded(
             child: Text(value,
-                style: const TextStyle(color: Colors.white)),
+                style: const TextStyle(color: JsColors.textStrong)),
           ),
         ],
       ),
