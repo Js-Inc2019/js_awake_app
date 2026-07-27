@@ -10,9 +10,10 @@ import '../core/theme/js_colors.dart';
 import 'rest_day_screen.dart';
 
 class RestDayDoneScreen extends StatefulWidget {
-  const RestDayDoneScreen({super.key, this.reason});
+  const RestDayDoneScreen({super.key, this.reason, this.portion = 'full'});
 
   final String? reason; // paid_leave / absence / company_closed / personal / null
+  final String portion; // full / am_half / pm_half
 
   @override
   State<RestDayDoneScreen> createState() => _RestDayDoneScreenState();
@@ -43,6 +44,13 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
   }
 
   String get _message {
+    // 半休は「働く日」なので portion 優先で分岐（full のみ従来のカテゴリ別文言）。
+    switch (widget.portion) {
+      case 'am_half':
+        return '午後からもよろしくお願いします';
+      case 'pm_half':
+        return '午前おつかれさまでした';
+    }
     switch (_cat) {
       case 'yukyu':
         return 'よい休日をお過ごしください';
@@ -113,6 +121,7 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
                       builder: (_) => RestDayScreen(
                         editMode: true,
                         initialReason: widget.reason,
+                        initialPortion: widget.portion,
                       ),
                     ),
                   );

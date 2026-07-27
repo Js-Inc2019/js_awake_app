@@ -212,6 +212,8 @@ class ReportsService {
           'success': true,
           'rested':  data['rested'] == true,
           'reason':  data['reason'],
+          // portion（半休）。BE未対応の間は欠落し得るため 'full' 後方互換。
+          'portion': (data['portion'] as String?) ?? 'full',
         };
       }
       return {
@@ -225,14 +227,15 @@ class ReportsService {
     }
   }
 
-  // POST /rest-days body {reason?} → 201 成功 / 409 ALREADY_RESTED
-  Future<Map<String, dynamic>> createRestDay({String? reason}) async {
+  // POST /rest-days body {reason?, portion} → 201 成功 / 409 ALREADY_RESTED
+  // portion（full/am_half/pm_half）は BE 並行実装中＝未対応の間は無視されるだけで害なし。
+  Future<Map<String, dynamic>> createRestDay({String? reason, String portion = 'full'}) async {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.post(
         Uri.parse('$kApiBaseUrl/rest-days'),
         headers: headers,
-        body: jsonEncode({'reason': reason}),
+        body: jsonEncode({'reason': reason, 'portion': portion}),
       ).timeout(const Duration(seconds: 15));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -254,14 +257,14 @@ class ReportsService {
     }
   }
 
-  // PATCH /rest-days/today body {reason} → 200 成功 / 404 NOT_RESTED
-  Future<Map<String, dynamic>> updateRestDay({String? reason}) async {
+  // PATCH /rest-days/today body {reason, portion} → 200 成功 / 404 NOT_RESTED
+  Future<Map<String, dynamic>> updateRestDay({String? reason, String portion = 'full'}) async {
     try {
       final headers = await _auth.getAuthHeaders();
       final response = await http.patch(
         Uri.parse('$kApiBaseUrl/rest-days/today'),
         headers: headers,
-        body: jsonEncode({'reason': reason}),
+        body: jsonEncode({'reason': reason, 'portion': portion}),
       ).timeout(const Duration(seconds: 15));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;

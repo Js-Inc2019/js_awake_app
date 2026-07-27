@@ -18,6 +18,13 @@ const List<Map<String, String>> _kReasons = [
   {'key': 'personal',       'label': '私用'},
 ];
 
+// 区分3値（既定=full）。単一選択・解除不可（必ずどれか1つ）。
+const List<Map<String, String>> _kPortions = [
+  {'key': 'full',    'label': '終日'},
+  {'key': 'am_half', 'label': '午前休'},
+  {'key': 'pm_half', 'label': '午後休'},
+];
+
 const List<String> _kWeekdayJa = ['月', '火', '水', '木', '金', '土', '日'];
 
 class RestDayScreen extends StatefulWidget {
@@ -25,10 +32,12 @@ class RestDayScreen extends StatefulWidget {
     super.key,
     this.editMode = false,
     this.initialReason,
+    this.initialPortion = 'full',
   });
 
-  final bool editMode;         // false=新規登録 / true=修正
-  final String? initialReason; // 修正モードの初期 reason（null許容）
+  final bool editMode;          // false=新規登録 / true=修正
+  final String? initialReason;  // 修正モードの初期 reason（null許容）
+  final String initialPortion;  // 修正モードの初期 portion（full/am_half/pm_half）
 
   @override
   State<RestDayScreen> createState() => _RestDayScreenState();
@@ -38,6 +47,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
   final ReportsService _svc = ReportsService();
 
   String? _selectedReason;
+  String _selectedPortion = 'full';
   bool _busy = false;
 
   @override
@@ -45,6 +55,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
     super.initState();
     // 新規=未選択 / 修正=現在のreason
     _selectedReason = widget.editMode ? widget.initialReason : null;
+    // 区分: 新規=終日(full) / 修正=現在のportion
+    _selectedPortion = widget.editMode ? widget.initialPortion : 'full';
   }
 
   String _dateLabel() {
@@ -58,8 +70,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
     setState(() => _busy = true);
     try {
       final res = widget.editMode
-          ? await _svc.updateRestDay(reason: _selectedReason)
-          : await _svc.createRestDay(reason: _selectedReason);
+          ? await _svc.updateRestDay(reason: _selectedReason, portion: _selectedPortion)
+          : await _svc.createRestDay(reason: _selectedReason, portion: _selectedPortion);
 
       final ok = res['success'] == true;
       // 新規登録で 409 ALREADY_RESTED は「既に休み」なので成功扱い（ねぎらい画面へ）。
@@ -70,7 +82,10 @@ class _RestDayScreenState extends State<RestDayScreen> {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => RestDayDoneScreen(reason: _selectedReason),
+            builder: (_) => RestDayDoneScreen(
+              reason: _selectedReason,
+              portion: _selectedPortion,
+            ),
           ),
         );
         return;
@@ -155,6 +170,38 @@ class _RestDayScreenState extends State<RestDayScreen> {
                     fontSize: 22,
                     fontWeight: FontWeight.bold),
               ),
+              const SizedBox(height: 24),
+
+              // 区分チップ3択（単一選択・解除不可＝必ずどれか1つ。既定=終日）
+              const Text('区分',
+                  style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _kPortions.map((p) {
+                  final selected = _selectedPortion == p['key'];
+                  return ChoiceChip(
+                    label: Text(p['label']!),
+                    selected: selected,
+                    showCheckmark: false,
+                    backgroundColor: JsColors.surface,
+                    selectedColor: JsFormTokens.chipSelected,
+                    side: BorderSide(
+                        color: selected
+                            ? JsFormTokens.chipSelected
+                            : JsFormTokens.chipBorder),
+                    labelStyle: TextStyle(
+                      color: selected ? JsColors.textStrong : JsColors.textMid,
+                      fontWeight:
+                          selected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    // 解除不可: 常に選択キーを設定（再タップでも維持）
+                    onSelected: (_) => setState(() => _selectedPortion = p['key']!),
+                  );
+                }).toList(),
+              ),
+
               const SizedBox(height: 24),
 
               const Text('理由（任意）',

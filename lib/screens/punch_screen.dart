@@ -72,6 +72,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   bool _restLoading = true;
   bool _rested      = false;
   String? _restReason;
+  String _restPortion = 'full'; // full / am_half / pm_half（応答に無ければ full）
 
   @override
   void initState() {
@@ -87,20 +88,23 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     setState(() {
       _restLoading = false;
       if (res['success'] == true) {
-        _rested     = res['rested'] == true;
-        _restReason = res['reason'] as String?;
+        _rested      = res['rested'] == true;
+        _restReason  = res['reason'] as String?;
+        _restPortion = (res['portion'] as String?) ?? 'full';
       } else {
-        _rested     = false; // fail-open
-        _restReason = null;
+        _rested      = false; // fail-open
+        _restReason  = null;
+        _restPortion = 'full';
       }
     });
   }
 
-  // 日報報告への遷移ゲート。休み登録済み(rested)なら確認ダイアログを挟み、
+  // 日報報告への遷移ゲート。終日休み(rested かつ portion=full)なら確認ダイアログを挟み、
   // 「取り消して続行」時のみ DELETE 成功後に従来遷移する（失敗は SnackBar で可視化）。
-  // rested=false のときは従来どおり即遷移（挙動不変）。
+  // 半休(am_half/pm_half)は「働く日」なので日報は必要＝ゲートせず従来どおり即遷移。
+  // rested=false のときも従来どおり即遷移（挙動不変）。
   Future<void> _onReportTap() async {
-    if (!_rested) {
+    if (!_rested || _restPortion != 'full') {
       widget.onNavigateToReport?.call();
       return;
     }
@@ -378,6 +382,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     _RestDayButton(
                       rested:    _rested,
                       reason:    _restReason,
+                      portion:   _restPortion,
                       loading:   _restLoading,
                       onChanged: _loadRestStatus,
                     ),
@@ -698,19 +703,31 @@ class _RestDayButton extends StatelessWidget {
   const _RestDayButton({
     required this.rested,
     required this.reason,
+    required this.portion,
     required this.loading,
     required this.onChanged,
   });
 
   final bool rested;
   final String? reason;
+  final String portion; // full / am_half / pm_half
   final bool loading;
   final Future<void> Function() onChanged; // 遷移から戻った後に親が状態を取り直す
+
+  // 登録済みボタン文言。半休は「午前休/午後休」を明示。
+  String get _label {
+    if (!rested) return '本日休み';
+    switch (portion) {
+      case 'am_half': return '本日午前休 登録済み';
+      case 'pm_half': return '本日午後休 登録済み';
+      default:        return '本日休み 登録済み';
+    }
+  }
 
   Future<void> _onTap(BuildContext context) async {
     if (rested) {
       await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => RestDayDoneScreen(reason: reason)));
+        builder: (_) => RestDayDoneScreen(reason: reason, portion: portion)));
     } else {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => const RestDayScreen()));
@@ -731,7 +748,7 @@ class _RestDayButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         child: Text(
-          rested ? '本日休み 登録済み' : '本日休み',
+          _label,
           style: const TextStyle(fontSize: 15),
         ),
       ),
