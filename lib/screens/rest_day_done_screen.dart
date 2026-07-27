@@ -1,0 +1,149 @@
+// ============================================================
+// lib/screens/rest_day_done_screen.dart - 本日休み（ねぎらい画面）
+// 色は必ず js_colors.dart のトークンを使う。Color(0x 直書き・Colors.* は使わない。
+// ★イラスト画像は未存在。Image.asset の errorBuilder でフォールバック表示を必ず出す。
+// ============================================================
+
+import 'dart:math';
+import 'package:flutter/material.dart';
+import '../core/theme/js_colors.dart';
+import 'rest_day_screen.dart';
+
+class RestDayDoneScreen extends StatefulWidget {
+  const RestDayDoneScreen({super.key, this.reason});
+
+  final String? reason; // paid_leave / absence / company_closed / personal / null
+
+  @override
+  State<RestDayDoneScreen> createState() => _RestDayDoneScreenState();
+}
+
+class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
+  late final String _cat;   // yasumi / yukyu / kyugyo
+  late final int _n;        // 1..5（表示時ランダム）
+
+  @override
+  void initState() {
+    super.initState();
+    _cat = _categoryOf(widget.reason);
+    _n = Random().nextInt(5) + 1; // 1..5
+  }
+
+  // reason → イラスト/文言カテゴリ。
+  //   yukyu = paid_leave / kyugyo = company_closed / yasumi = absence・personal・null
+  static String _categoryOf(String? reason) {
+    switch (reason) {
+      case 'paid_leave':
+        return 'yukyu';
+      case 'company_closed':
+        return 'kyugyo';
+      default:
+        return 'yasumi';
+    }
+  }
+
+  String get _message {
+    switch (_cat) {
+      case 'yukyu':
+        return 'よい休日をお過ごしください';
+      case 'kyugyo':
+        return '本日は休業日です。おつかれさまです';
+      default:
+        return 'ゆっくり休んでください';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imgSize = MediaQuery.of(context).size.width * 0.7;
+
+    return Scaffold(
+      backgroundColor: JsColors.background,
+      appBar: AppBar(
+        backgroundColor: JsColors.surface,
+        foregroundColor: JsColors.textStrong,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Text('本日休み'),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+          child: Column(
+            children: [
+              const Spacer(),
+
+              // イラスト枠（画面幅の約70%・中央）。画像未存在時は errorBuilder で
+              // Icons.self_improvement（accentDeep・大）にフォールバック。
+              SizedBox(
+                width: imgSize,
+                height: imgSize,
+                child: Image.asset(
+                  'assets/rest/rest_${_cat}_$_n.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Icons.self_improvement,
+                      size: imgSize * 0.6,
+                      color: JsPalette.accentDeep,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              // ねぎらい文言（カテゴリ別・textStrong・中央）
+              Text(
+                _message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: JsColors.textStrong,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold),
+              ),
+
+              const Spacer(),
+
+              // 取消・修正（修正モードで rest_day_screen を開く）
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RestDayScreen(
+                        editMode: true,
+                        initialReason: widget.reason,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('取消・修正',
+                    style: TextStyle(color: JsColors.textMid)),
+              ),
+
+              const SizedBox(height: 8),
+
+              // ホームへ（スタックを畳んで最初のルートへ）
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: () =>
+                      Navigator.of(context).popUntil((r) => r.isFirst),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: JsColors.textMid,
+                    side: const BorderSide(color: JsColors.textMid),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('ホームへ',
+                      style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

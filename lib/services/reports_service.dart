@@ -191,4 +191,123 @@ class ReportsService {
       return {'success': false, 'error': e.toString()};
     }
   }
+
+  // ============================================================
+  // 本日休み（rest_days）— GET/POST/PATCH/DELETE の4本。
+  // 非200は握り潰さず success:false + statusCode + code(BE error_code) を返す。
+  // ============================================================
+
+  // GET /rest-days/today → { rested: bool, reason: string|null }
+  Future<Map<String, dynamic>> getRestDayToday() async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/today'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'rested':  data['rested'] == true,
+          'reason':  data['reason'],
+        };
+      }
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'code':       data['code'],
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  // POST /rest-days body {reason?} → 201 成功 / 409 ALREADY_RESTED
+  Future<Map<String, dynamic>> createRestDay({String? reason}) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/rest-days'),
+        headers: headers,
+        body: jsonEncode({'reason': reason}),
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 201) {
+        return {
+          'success':   true,
+          'rest_date': data['rest_date'],
+          'reason':    data['reason'],
+        };
+      }
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'code':       data['code'],
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  // PATCH /rest-days/today body {reason} → 200 成功 / 404 NOT_RESTED
+  Future<Map<String, dynamic>> updateRestDay({String? reason}) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.patch(
+        Uri.parse('$kApiBaseUrl/rest-days/today'),
+        headers: headers,
+        body: jsonEncode({'reason': reason}),
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success':   true,
+          'rest_date': data['rest_date'],
+          'reason':    data['reason'],
+        };
+      }
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'code':       data['code'],
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  // DELETE /rest-days/today → 200 成功 / 404 NOT_RESTED
+  Future<Map<String, dynamic>> deleteRestDay() async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.delete(
+        Uri.parse('$kApiBaseUrl/rest-days/today'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success':   true,
+          'rest_date': data['rest_date'],
+          'cancelled': data['cancelled'] == true,
+        };
+      }
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'code':       data['code'],
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
 }

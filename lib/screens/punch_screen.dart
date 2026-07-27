@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
+import '../services/reports_service.dart';
 import '../widgets/slide_to_confirm.dart';
 import '../core/theme/js_colors.dart';
 import '../utils/business_date.dart';
+import 'rest_day_screen.dart';
+import 'rest_day_done_screen.dart';
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
 const _bg     = Color(0xFF080806);
@@ -280,13 +283,29 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             // ── 操作エリア（親指ゾーン・固定） ───────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: _OperationZone(
-                isActual:          isActual,
-                punchedIn:         _punchedIn,
-                punchedOut:        _punchedOut,
-                busy:              _busy,
-                onPunch:           _doPunch,
-                onNavigateToReport: widget.onNavigateToReport,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _OperationZone(
+                    isActual:          isActual,
+                    punchedIn:         _punchedIn,
+                    punchedOut:        _punchedOut,
+                    busy:              _busy,
+                    onPunch:           _doPunch,
+                    onNavigateToReport: widget.onNavigateToReport,
+                  ),
+                  // 「本日休み」ボタン（序列を下げた OutlinedButton・textMid系）。
+                  // 表示条件（裁定）:
+                  //   ・みなしモード(!isActual): 日報報告ボタンの直下（現状どおり）
+                  //   ・実打刻モード(isActual): 未出勤(!_punchedIn＝出勤スライド前)のみ表示。
+                  //     出勤中・退勤済(=_punchedIn)は非表示（働いた日に休み登録は矛盾）。
+                  //   ※ _punchedIn は _PunchScreenState の状態(:60)。出勤中判定 :99
+                  //     `_punchedIn && !_punchedOut` と同じ状態変数を参照（判定式は複製しない）。
+                  if (!isActual || !_punchedIn) ...[
+                    const SizedBox(height: 10),
+                    const _RestDayButton(),
+                  ],
+                ],
               ),
             ),
           ],
@@ -588,6 +607,77 @@ class _OperationZone extends StatelessWidget {
       label:     isCheckin ? 'スライドで出勤' : 'スライドで退勤',
       busy:      busy,
       onConfirm: () => onPunch(isCheckin ? 'in' : 'out'),
+    );
+  }
+}
+
+// ── _RestDayButton ────────────────────────────────────────────────────────────
+// 「本日休み」ボタン（自己完結）。表示時に GET /rest-days/today を照会し、
+//   rested=true → 「本日休み 登録済み」＋タップでねぎらい画面
+//   rested=false（or 照会失敗=fail-open）→ 「本日休み」＋タップで休み登録画面
+// 序列は日報報告より下（OutlinedButton・textMid系の控えめ配色）。
+class _RestDayButton extends StatefulWidget {
+  const _RestDayButton();
+
+  @override
+  State<_RestDayButton> createState() => _RestDayButtonState();
+}
+
+class _RestDayButtonState extends State<_RestDayButton> {
+  final ReportsService _svc = ReportsService();
+  bool _loading = true;
+  bool _rested  = false; // 照会失敗時は false（fail-open＝通常表示）
+  String? _reason;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final res = await _svc.getRestDayToday();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (res['success'] == true) {
+        _rested = res['rested'] == true;
+        _reason = res['reason'] as String?;
+      } else {
+        _rested = false; // fail-open
+        _reason = null;
+      }
+    });
+  }
+
+  Future<void> _onTap() async {
+    if (_rested) {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RestDayDoneScreen(reason: _reason)));
+    } else {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const RestDayScreen()));
+    }
+    if (mounted) _load(); // 戻ったら状態を取り直す
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton(
+        onPressed: _loading ? null : _onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: JsColors.textMid,
+          side: const BorderSide(color: JsColors.textMid),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        child: Text(
+          _rested ? '本日休み 登録済み' : '本日休み',
+          style: const TextStyle(fontSize: 15),
+        ),
+      ),
     );
   }
 }
