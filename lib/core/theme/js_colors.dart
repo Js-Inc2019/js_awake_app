@@ -32,7 +32,7 @@ class JsPalette {
   static const Color outlineStrong = Color(0xFF3A4048); // 枠線(強)
 
   // ─── 文字 ────────────────────────────────────────────────
-  static const Color textBody      = Color(0xFFE3D9BE); // 本文（生成り）
+  static const Color textBody      = Color(0xFFEAE3D0); // 本文（生成り）
   static const Color textSupport   = Color(0xFF7B7567); // 補助文字（温グレー）
   static const Color textFaint     = Color(0xFF635F55); // 弱い補助（温グレー弱）
 
