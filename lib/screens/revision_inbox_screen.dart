@@ -191,6 +191,15 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
           const SizedBox(height: 24),
           ElevatedButton.icon(
             onPressed: _load,
+            // 生成り抜き（画面内の主ボタン）
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              foregroundColor: JsFormTokens.outlineButtonBorder,
+              side: const BorderSide(
+                  color: JsFormTokens.outlineButtonBorder, width: 1.5),
+              elevation: 0,
+              shadowColor: Colors.transparent,
+            ),
             icon: const Icon(Icons.refresh),
             label: const Text('再試行'),
           ),

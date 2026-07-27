@@ -1477,11 +1477,31 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saving ? null : _save,
+                  // 生成り抜き（画面内の主ボタン）
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor:
+                        JsFormTokens.outlineButtonDisabled,
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
+                  ).copyWith(
+                    side: WidgetStateProperty.resolveWith((states) =>
+                        BorderSide(
+                          color: states.contains(WidgetState.disabled)
+                              ? JsFormTokens.outlineButtonDisabled
+                              : JsFormTokens.outlineButtonBorder,
+                          width: 1.5,
+                        )),
+                  ),
                   child: _saving
                       ? const SizedBox(
                           width: 20, height: 20,
+                          // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
-                              strokeWidth: 2.5, color: JsPalette.onAccent))
+                              strokeWidth: 2.5,
+                              color: JsFormTokens.outlineButtonDisabled))
                       : const Text('保存する'),
                 ),
               ),
@@ -1792,12 +1812,17 @@ class _ToolKeyCardState extends State<_ToolKeyCard> {
                 const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: _saveManualKey,
+                  // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(56, 40),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12),
-                    backgroundColor: JsColors.gold,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    side: const BorderSide(
+                        color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                   ),
                   child: const Text('保存'),
                 ),

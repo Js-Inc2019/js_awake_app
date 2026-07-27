@@ -175,13 +175,28 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
                 icon: _submitting
                     ? const SizedBox(
                         width: 18, height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: JsPalette.onAccent))
+                        // 面が透明になったのでスピナーも枠色（生成り）へ
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: JsFormTokens.outlineButtonDisabled))
                     : const Icon(Icons.add_location_alt),
                 label: Text(_submitting ? '登録中…' : '仮登録して紐づけ'),
+                // 生成り抜き（画面内の主ボタン）
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: JsColors.success,
-                  foregroundColor: JsPalette.onAccent,
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  disabledBackgroundColor: Colors.transparent,
+                  disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+                  elevation: 0,
+                  shadowColor: Colors.transparent,
                   textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ).copyWith(
+                  side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                        color: states.contains(WidgetState.disabled)
+                            ? JsFormTokens.outlineButtonDisabled
+                            : JsFormTokens.outlineButtonBorder,
+                        width: 1.5,
+                      )),
                 ),
               ),
             ),

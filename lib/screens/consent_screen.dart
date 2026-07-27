@@ -238,13 +238,28 @@ class _ConsentScreenState extends State<ConsentScreen> {
                               Navigator.of(context).pop();
                             } : null)
                           : _nextPage,
+                      // 生成り抜き（画面内の主ボタン）: 面は透明・枠1.5px・
+                      // 無効時は枠と文字を outlineButtonDisabled へ。
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            isLast && !_agreed ? JsColors.border : JsColors.gold,
-                        foregroundColor: JsPalette.onAccent,
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: isLast && !_agreed
+                            ? JsFormTokens.outlineButtonDisabled
+                            : JsFormTokens.outlineButtonBorder,
                         minimumSize: const Size(0, 48),
-                        disabledBackgroundColor: JsColors.border,
-                        disabledForegroundColor: JsColors.textMid,
+                        disabledBackgroundColor: Colors.transparent,
+                        disabledForegroundColor:
+                            JsFormTokens.outlineButtonDisabled,
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                      ).copyWith(
+                        side: WidgetStateProperty.resolveWith((states) =>
+                            BorderSide(
+                              color: states.contains(WidgetState.disabled) ||
+                                      (isLast && !_agreed)
+                                  ? JsFormTokens.outlineButtonDisabled
+                                  : JsFormTokens.outlineButtonBorder,
+                              width: 1.5,
+                            )),
                       ),
                       child: Text(
                         isLast ? '同意して続ける' : '次へ',

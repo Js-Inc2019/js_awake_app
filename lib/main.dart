@@ -1150,7 +1150,14 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
           ElevatedButton(
             onPressed: _add,
             style: ElevatedButton.styleFrom(
-                minimumSize: const Size(56, 52), padding: EdgeInsets.zero),
+                minimumSize: const Size(56, 52), padding: EdgeInsets.zero,
+                // 生成り抜き（画面内の主ボタン）: 面は透明・枠1.5px・文字はトークン
+                backgroundColor: Colors.transparent,
+                foregroundColor: JsFormTokens.outlineButtonBorder,
+                side: const BorderSide(
+                    color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                elevation: 0,
+                shadowColor: Colors.transparent),
             child: const Icon(Icons.add),
           ),
         ]),
@@ -1478,6 +1485,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
               flex: 2,
               child: ElevatedButton.icon(
                 onPressed: _shareReport,
+                // 生成り抜き（画面内の主ボタン）
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  side: const BorderSide(
+                      color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                  elevation: 0,
+                  shadowColor: Colors.transparent,
+                ),
                 icon:  const Icon(Icons.share),
                 label: const Text('共有する'),
               ),

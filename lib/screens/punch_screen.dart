@@ -651,10 +651,18 @@ class _OperationZone extends StatelessWidget {
         height: 56,
         child: OutlinedButton(
           onPressed: onNavigateToReport,
+          // 生成り抜き（画面内の主ボタン）: accent 枠→生成り枠1.5px
           style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: _gold),
-            foregroundColor: _gold,
+            foregroundColor: JsFormTokens.outlineButtonBorder,
+            disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ).copyWith(
+            side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                  color: states.contains(WidgetState.disabled)
+                      ? JsFormTokens.outlineButtonDisabled
+                      : JsFormTokens.outlineButtonBorder,
+                  width: 1.5,
+                )),
           ),
           child: const Text(
             '日報報告',

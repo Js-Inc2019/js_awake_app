@@ -165,4 +165,14 @@ class JsFormTokens {
   static const Color chipSelected = JsPalette.outlineStrong;
   static const Color chipBorder   = JsPalette.outline;       // 未選択チップの枠
   static const Color accentAlert  = JsPalette.statusWarning; // 未入力バッジのみ（枠線+文字）
+
+  // ─── 生成り抜きボタン（画面内の主ボタン）────────────────────
+  // 新原則「枠＝生成り（押せるもの）／ポイント＝エメラルド（選択中・済・
+  // バッジ・つまみ）／顔＝金」に基づく。画面内の主ボタンは accent 塗りを
+  // やめ、面は透明・枠1.5px・文字を下記トークンで描く。
+  //   ・ダイアログ内の主ボタンは対象外（accent 塗りのまま＝app_theme.dart:58-66
+  //     の elevatedButtonTheme を継承する）。そのためテーマ側は変更していない。
+  //   ・値は既存の JsColors.textStrong / textWeak を指すだけで新規hexは無い。
+  static const Color outlineButtonBorder   = JsColors.textStrong; // 枠1.5px＋文字
+  static const Color outlineButtonDisabled = JsColors.textWeak;   // 無効時の枠＋文字
 }

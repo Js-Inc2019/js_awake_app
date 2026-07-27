@@ -1012,9 +1012,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: _biometricThenLogin,
                 icon: const Icon(Icons.fingerprint),
                 label: const Text('Retry'),
+                // 生成り抜き（画面内の主ボタン）
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.accent,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    side: const BorderSide(
+                        color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
               ),
               const SizedBox(height: 12),
@@ -1186,9 +1191,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       builder: (_) => RegisterScreen(initialInviteCode: code),
                     ));
                   },
+                  // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.accent,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    side: const BorderSide(
+                        color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1428,18 +1438,34 @@ class _LoginScreenState extends State<LoginScreen> {
                 height: 52,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _doLoginWithPin,
+                  // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.accent,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor:
+                        JsFormTokens.outlineButtonDisabled,
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
+                  ).copyWith(
+                    side: WidgetStateProperty.resolveWith((states) =>
+                        BorderSide(
+                          color: states.contains(WidgetState.disabled)
+                              ? JsFormTokens.outlineButtonDisabled
+                              : JsFormTokens.outlineButtonBorder,
+                          width: 1.5,
+                        )),
                   ),
                   child: _isLoading
                       ? const SizedBox(
                           height: 20,
                           width: 20,
+                          // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsPalette.onAccent))
+                              strokeWidth: 2,
+                              color: JsFormTokens.outlineButtonDisabled))
                       : const Text('ログイン',
                           style: TextStyle(
                               fontSize: 17, fontWeight: FontWeight.bold)),
@@ -1554,18 +1580,34 @@ class _LoginScreenState extends State<LoginScreen> {
                 height: 52,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _setupPin,
+                  // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.accent,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor:
+                        JsFormTokens.outlineButtonDisabled,
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8)),
+                  ).copyWith(
+                    side: WidgetStateProperty.resolveWith((states) =>
+                        BorderSide(
+                          color: states.contains(WidgetState.disabled)
+                              ? JsFormTokens.outlineButtonDisabled
+                              : JsFormTokens.outlineButtonBorder,
+                          width: 1.5,
+                        )),
                   ),
                   child: _isLoading
                       ? const SizedBox(
                           height: 20,
                           width: 20,
+                          // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsPalette.onAccent))
+                              strokeWidth: 2,
+                              color: JsFormTokens.outlineButtonDisabled))
                       : const Text('PINを設定してはじめる',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),

@@ -342,18 +342,34 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
                 height: 52,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _recover,
+                  // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.accent,
-                    foregroundColor: JsPalette.onAccent,
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor:
+                        JsFormTokens.outlineButtonDisabled,
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
+                  ).copyWith(
+                    side: WidgetStateProperty.resolveWith((states) =>
+                        BorderSide(
+                          color: states.contains(WidgetState.disabled)
+                              ? JsFormTokens.outlineButtonDisabled
+                              : JsFormTokens.outlineButtonBorder,
+                          width: 1.5,
+                        )),
                   ),
                   child: _isLoading
                       ? const SizedBox(
                           height: 20,
                           width: 20,
+                          // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsPalette.onAccent))
+                              strokeWidth: 2,
+                              color: JsFormTokens.outlineButtonDisabled))
                       : const Text('この端末で復旧',
                           style: TextStyle(
                               fontSize: 17, fontWeight: FontWeight.bold)),
