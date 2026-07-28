@@ -500,6 +500,41 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // （S4-②: 送信成否がtoday_work_statusに永続化されていないため復元時の実態は不明。今回は未修正）
   bool _lastSentOk = true;
 
+  // ─── 日報フォームのステップ（現場→移動→作業→確認）───
+  // 1=現場 / 2=移動 / 3=作業。確認(=4)は既存の別画面 _ConfirmSendScreen が担うため
+  // このフィールドは 1〜3 しか取らない（_onCheckContent → Navigator.push の経路は不変）。
+  int _reportStep = 1;
+  // ステップ切替時にスクロールを先頭へ戻すためのコントローラ。
+  final ScrollController _reportScrollCtrl = ScrollController();
+
+  /// スクロール位置を先頭へ。まだ描画されていない（hasClients=false）ときは何もしない。
+  void _scrollReportTop() {
+    if (_reportScrollCtrl.hasClients) _reportScrollCtrl.jumpTo(0);
+  }
+
+  /// フォーム内のステップ移動（「次へ」「戻る」）。
+  /// ★ブロックしない＝バリデーションは一切足さない（送信中断3件は _submit のまま）。
+  void _goStep(int s) {
+    setState(() => _reportStep = s);
+    _scrollReportTop();
+  }
+
+  /// エラー時の自動ジャンプ。確認画面(_ConfirmSendScreen)を1枚 pop してフォームへ戻り、
+  /// 指定ステップを開いてスクロールを先頭へ戻す。
+  ///   ・_submit の呼び手は確認画面の onSend のみ（実測・:1473 が唯一）。
+  ///     よって pop 対象は常に確認画面1枚。
+  ///   ・pop 後も _ConfirmSendScreenState は退場アニメ中 mounted のままだが、
+  ///     ②③の中断経路は _todayReportDone が false のため
+  ///     :2515 `if (widget.isDone()) Navigator.pop(context);` は発火せず二重popしない。
+  void _jumpToStep(int s) {
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) nav.pop();
+    setState(() => _reportStep = s);
+    // pop 直後はまだ旧ルートが載っているため、次フレームでスクロールを戻す。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollReportTop());
+  }
+
   // ★裁定A+引き継ぎ: 現場は常にデフォルトが入っている（初回=「対象なし」／以降は前回選択）。
   //   よって「未選択で止める」場面が構造的に存在せず、必須判定・琥珀バッジ・
   //   スクロール対象（_alertSite / _secSiteKey）は全て撤去した。嘘の記号を残さない。
@@ -849,6 +884,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _carpoolCompanyCtrl.dispose();
     _carpoolCompanyDebounce?.cancel();
     _transportMemoCtrl.dispose();
+    _reportScrollCtrl.dispose();   // 4ステップ化で新設したスクロール制御
     ReportTabNavigator.unregister(_openReportTabCb);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -1232,6 +1268,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
     if (_transports.isEmpty) {
       showJsSnackbar(context, '移動手段を選択してください', isError: true);
+      _jumpToStep(2);   // 直せる場所（移動ステップ）へ戻す。条件式・文言は不変
       return;
     }
     setState(() => _submitting = true);
@@ -1255,6 +1292,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       );
       if (proceed != true) {
         if (mounted) setState(() => _submitting = false);
+        _jumpToStep(2);   // 駐車場写真の帯は移動ステップにある。条件式・ダイアログ本文は不変
         return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
       }
     }
@@ -1852,6 +1890,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             // 現場移動：現場選択は「対象なし」にリセット
             _selectedSiteId = null;
             _selectedSiteName = null;
+            // 4ステップ化：次の現場は「現場」ステップから入り直す
+            _reportStep = 1;
           });
           _fetchGps();
         },
@@ -1867,6 +1907,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             _todayReportDone = false;
             _workPhotoPaths = [];
             _parkingPhotoPaths = [];
+            // 4ステップ化：新しいシフトも「現場」ステップから入り直す
+            _reportStep = 1;
           });
           await _saveShiftType(next);
           await _saveWorkStatus('working');   // 新シフトの業務日で working を刻む
@@ -1913,10 +1955,24 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // コンテンツエリア
         Expanded(
           child: SingleChildScrollView(
+            controller: _reportScrollCtrl,   // ステップ切替で先頭へ戻すため
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ── ステップインジケータ（全ステップ共通・切替の外）──
+                _StepIndicator(current: _reportStep),
+                const SizedBox(height: 18),
+
+                // 健康診断警告（表示条件は不変: _buildHealthBannerMsg() != null）
+                // ★全ステップ共通のためステップ切替の外に置く（条件式は1文字も変えていない）
+                if (_buildHealthBannerMsg() != null) ...[
+                  _HealthCheckBanner(message: _buildHealthBannerMsg()!),
+                  const SizedBox(height: 18),
+                ],
+
+                // ═══════ ステップ1 = 日付・シフト見出し ＋「現場」 ═══════
+                if (_reportStep == 1) ...[
                 // ── ヘッダ（日付・シフト / 今日の報告）──
                 Text('$_formDateLabel・$_shiftLabel',
                     style: const TextStyle(
@@ -1928,12 +1984,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         fontSize: 19,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 18),
-
-                // 健康診断警告（表示条件は不変: _buildHealthBannerMsg() != null）
-                if (_buildHealthBannerMsg() != null) ...[
-                  _HealthCheckBanner(message: _buildHealthBannerMsg()!),
-                  const SizedBox(height: 18),
-                ],
 
                 // ═══ ① 今日の現場 ═══
                 Column(
@@ -1955,7 +2005,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   ],
                 ),
                 const SizedBox(height: 18),
+                ],
 
+                // ═══════ ステップ2 =「移動」セクション全部 ═══════
+                //   条件表示4件（補足テキスト／車種2択／相乗り2欄／駐車料金+写真）は
+                //   条件式を1文字も変えずこの中に入っている。
+                if (_reportStep == 2) ...[
                 // ═══ ② 現場までの移動 ═══
                 const _SectionHeader('移動'),
                 _FormCard(
@@ -2207,7 +2262,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(height: 18),
+                ],
 
+                // ═══════ ステップ3 =「作業」セクション ═══════
+                if (_reportStep == 3) ...[
                 // ═══ ③ 今日の作業 ═══（任意入力＝必須バッジなし）
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2237,6 +2295,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     ),
                   ],
                 ),
+                ],
                 // ⑥ 残業入力は撤去（提出後の残業報告導線=OvertimeDialogに一本化）
               ],
             ),
@@ -2252,15 +2311,48 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _OutlineActionButton(
-                label: '内容を確認する',
-                busy:  _submitting,
-                onTap: _onCheckContent,
-              ),
-              const SizedBox(height: 7),
-              const Text('※次の画面で見直してから送信します',
-                  style: TextStyle(
-                      color: JsFormTokens.textMuted, fontSize: 11)),
+              // ステップ1: 「次へ」だけ（ブロックなし＝バリデーションは足さない）
+              if (_reportStep == 1)
+                _OutlineActionButton(
+                  label: '次へ',
+                  onTap: () async => _goStep(2),
+                ),
+              // ステップ2: 「戻る」＋「次へ」
+              if (_reportStep == 2)
+                Row(
+                  children: [
+                    Expanded(child: _StepBackButton(onTap: () => _goStep(1))),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: _OutlineActionButton(
+                        label: '次へ',
+                        onTap: () async => _goStep(3),
+                      ),
+                    ),
+                  ],
+                ),
+              // ステップ3: 「戻る」＋既存の「内容を確認する」（_onCheckContent 呼出は不変）
+              if (_reportStep == 3) ...[
+                Row(
+                  children: [
+                    Expanded(child: _StepBackButton(onTap: () => _goStep(2))),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: _OutlineActionButton(
+                        label: '内容を確認する',
+                        busy:  _submitting,
+                        onTap: _onCheckContent,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                const Text('※次の画面で見直してから送信します',
+                    style: TextStyle(
+                        color: JsFormTokens.textMuted, fontSize: 11)),
+              ],
             ],
           ),
         ),
@@ -2393,6 +2485,81 @@ class _OutlineActionButton extends StatelessWidget {
                           color: JsFormTokens.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ),
+      );
+}
+
+// ─────────────────────────────────────────────
+// ステップインジケータ（現場 → 移動 → 作業 → 確認）
+//   ・数字が主役: 1〜4 の番号を大きく置き、ラベルはその下の小さい文字にする
+//   ・色は意味だけ: 現在ステップ = JsPalette.brand(#D9C08A) /
+//     それ以外 = JsFormTokens.textSub(= JsPalette.textSupport #7B7567・補助色)
+//   ・カード・枠・塗り・線は一切持たない。区切りは Expanded による余白のみ
+//   ・「確認」(4) は別画面 _ConfirmSendScreen。フォーム内で current=4 にはならない。
+// ─────────────────────────────────────────────
+class _StepIndicator extends StatelessWidget {
+  const _StepIndicator({required this.current});
+
+  /// 1=現場 / 2=移動 / 3=作業 / 4=確認
+  final int current;
+
+  static const List<String> _labels = ['現場', '移動', '作業', '確認'];
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: List.generate(_labels.length, (i) {
+          final n = i + 1;
+          final isCurrent = n == current;
+          final c = isCurrent ? JsPalette.brand : JsFormTokens.textSub;
+          return Expanded(
+            child: Column(
+              children: [
+                Text('$n',
+                    style: TextStyle(
+                        color: c,
+                        fontSize: 20,
+                        fontWeight:
+                            isCurrent ? FontWeight.bold : FontWeight.normal)),
+                const SizedBox(height: 2),
+                Text(_labels[i],
+                    style: TextStyle(
+                        color: c,
+                        fontSize: 12,
+                        fontWeight:
+                            isCurrent ? FontWeight.bold : FontWeight.normal)),
+              ],
+            ),
+          );
+        }),
+      );
+}
+
+/// ステップの「戻る」＝二次ボタン。暗枠1px（chipBorder=#2E333A）＋補助色の文字。
+/// 主ボタン(_OutlineActionButton)と高さ56を揃え、面は塗らない＝序列を枠と色だけで示す。
+class _StepBackButton extends StatelessWidget {
+  const _StepBackButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: JsFormTokens.chipBorder),
+            ),
+            child: const Center(
+              child: Text('戻る',
+                  style: TextStyle(
+                      color: JsFormTokens.textSub,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold)),
             ),
           ),
         ),
