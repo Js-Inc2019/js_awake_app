@@ -17,50 +17,115 @@ import '../core/theme/js_colors.dart';
 import 'home_screen.dart' show CalendarTab, ReviewTab, ForemanManagementBody;
 import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 
-class ManagementHistoryScreen extends StatelessWidget {
-  const ManagementHistoryScreen({super.key, required this.isForeman});
+class ManagementHistoryScreen extends StatefulWidget {
+  const ManagementHistoryScreen({
+    super.key,
+    required this.isForeman,
+    this.initialSegment,
+    this.segmentRequestId = 0,
+  });
 
   /// 職長かどうか。JsMainShell.isForeman(home_screen.dart:359) をそのまま下ろす。
   final bool isForeman;
 
+  /// 開きたいセグメントを「ラベル」で指定する（'カレンダー'|'履歴'|'承認'|'管理'）。
+  /// 未指定・および存在しないラベルのときは先頭＝カレンダー（従来と同じ）。
+  ///
+  /// ★index の直指定にしない理由（実コード上の事実）: セグメントの枚数と並びが
+  ///   職人＝2枚（カレンダー/履歴）・職長＝4枚（+承認/管理）で異なる(:76-80)。
+  ///   index を直に渡すと職人側で意図しないタブが開く。ラベルで引き当て、
+  ///   引き当たらなければ 0 へフォールバックする＝安全側に倒す。
+  final String? initialSegment;
+
+  /// 「今もう一度 initialSegment を開いてほしい」という要求の通し番号。
+  ///
+  /// ★この画面は IndexedStack(home_screen.dart:1561) の子として生かされ続けるため、
+  ///   同じ initialSegment を渡し直しても State は作り直されず切り替わらない。
+  ///   呼び出し側が要求のたびに +1 することで2回目以降のタップにも追従させる。
+  ///   既定 0 のまま渡さなければ、この画面は従来どおり一切自動切替をしない。
+  final int segmentRequestId;
+
   @override
-  Widget build(BuildContext context) {
+  State<ManagementHistoryScreen> createState() => _ManagementHistoryScreenState();
+}
+
+class _ManagementHistoryScreenState extends State<ManagementHistoryScreen>
+    with SingleTickerProviderStateMixin {
+  /// セグメントのラベル（＝並びの単一の出所）。tabs も views もこの並びに従う。
+  late final List<String> _labels;
+  late final TabController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
     // 職人: カレンダー / 履歴
     // 職長: カレンダー / 履歴 / 承認 / 管理
-    final tabs = <Tab>[
-      const Tab(text: 'カレンダー'),
-      const Tab(text: '履歴'),
-      if (isForeman) ...[
-        const Tab(text: '承認'),
-        const Tab(text: '管理'),
-      ],
+    _labels = <String>[
+      'カレンダー',
+      '履歴',
+      if (widget.isForeman) ...['承認', '管理'],
     ];
+    _ctrl = TabController(
+      length: _labels.length,
+      vsync: this,
+      initialIndex: _resolve(widget.initialSegment),
+    );
+  }
+
+  /// ラベル → index。未指定、または並びに存在しないラベル（職人が'承認'を
+  /// 要求した等）は 0（カレンダー）を返す。範囲外の index は決して返さない。
+  int _resolve(String? label) {
+    if (label == null) return 0;
+    final i = _labels.indexOf(label);
+    return i >= 0 ? i : 0;
+  }
+
+  @override
+  void didUpdateWidget(covariant ManagementHistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 要求番号が進んだときだけ追従する（通常の再描画では現在のタブを動かさない）。
+    if (widget.segmentRequestId != oldWidget.segmentRequestId) {
+      final i = _resolve(widget.initialSegment);
+      if (i != _ctrl.index) _ctrl.index = i;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 見た目は従来どおり（Container(gunmetal) + 既定 TabBar / TabBarView）。
+    // DefaultTabController を明示の TabController へ置き換えただけで、
+    // 各セグメントの中身は1行も変更していない。
+    final tabs = _labels.map((t) => Tab(text: t)).toList();
 
     final views = <Widget>[
       const CalendarTab(),
       const MonthlyHistoryBody(),
-      if (isForeman) ...[
+      if (widget.isForeman) ...[
         const ReviewTab(),
         const ForemanManagementBody(),
       ],
     ];
 
-    return DefaultTabController(
-      length: tabs.length,
-      child: Column(
-        children: [
-          Container(
-            color: JsColors.gunmetal,
-            child: TabBar(
-              isScrollable: false,
-              tabs: tabs,
-            ),
+    return Column(
+      children: [
+        Container(
+          color: JsColors.gunmetal,
+          child: TabBar(
+            controller: _ctrl,
+            isScrollable: false,
+            tabs: tabs,
           ),
-          Expanded(
-            child: TabBarView(children: views),
-          ),
-        ],
-      ),
+        ),
+        Expanded(
+          child: TabBarView(controller: _ctrl, children: views),
+        ),
+      ],
     );
   }
 }

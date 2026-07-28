@@ -375,6 +375,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ─── タブ ───
   int _tabIndex = 0;
 
+  // 「管理・履歴」タブ(index1)の中で開きたいセグメントの指定。
+  //   ・ラベルで指定する（management_history_screen.dart:38-45 の理由による。
+  //     枚数と並びが職人2枚/職長4枚で異なるため index は渡さない）。
+  //   ・_mgmtSegmentRequestId は「今もう一度開いてほしい」の通し番号。
+  //     管理・履歴画面は IndexedStack(:1561) の子で作り直されないため、
+  //     同じラベルを渡し直すだけでは切り替わらない。要求のたびに +1 する。
+  //   ★ボトムバッジからのタブ切替(:1741 onTap)はこの2値を触らない＝挙動不変。
+  String? _mgmtSegment;
+  int _mgmtSegmentRequestId = 0;
+
   // ─── ユーザー情報 ───
   bool _initialLoading = true;
   String _companyName = "";
@@ -1538,8 +1548,37 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           loading:       _weatherLoading,
           seasonWarning: _seasonWarning,
         ),
+        // ── 要対応の件数（取得処理は既存のものをそのまま使う。新APIは作っていない）──
+        //   差し戻し   = _revisionCount        (:382 / 取得 :1010 _loadRevisionCount)
+        //   承認待ち   = _pendingApprovalCount (:383 / 取得 :1033 _loadPendingApprovalCount)
+        //     ※職長のみ。isForeman の掛け方はボトムバッジ :1745 と同一の流儀。
+        revisionCount: _revisionCount,
+        pendingApprovalCount: widget.isForeman ? _pendingApprovalCount : 0,
+        // 遷移先も既存のものを使う:
+        //   差し戻し → RevisionInboxScreen（notification_list_screen.dart:130 /
+        //              monthly_history_screen.dart:327 / fcm_service.dart:118 と同一）
+        onOpenRevisions: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+          );
+          if (mounted) _loadRevisionCount();
+        },
+        //   承認待ち → 「管理・履歴」タブへ切替し、そのまま「承認」セグメントを開く。
+        //     セグメントはラベルで要求する（index直指定はしない）。職長以外は
+        //     '承認' が並びに存在せず、受け手側(_resolve)が 0=カレンダーへ倒す。
+        onOpenPendingApprovals: () {
+          setState(() {
+            _mgmtSegment = '承認';
+            _mgmtSegmentRequestId++;
+          });
+          _setTab(1);
+        },
       ),
-      ManagementHistoryScreen(isForeman: widget.isForeman),
+      ManagementHistoryScreen(
+        isForeman:        widget.isForeman,
+        initialSegment:   _mgmtSegment,
+        segmentRequestId: _mgmtSegmentRequestId,
+      ),
       // 通知・設定は Scaffold なしの Body を使う（各画面の自前 AppBar と二重にならない）。
       // AppBar のアクション（すべて既読 / 編集）はシェルの AppBar 側から
       // GlobalKey 経由で呼ぶ＝機能を落とさない。
@@ -1739,10 +1778,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           label: '管理・履歴',
           active: _tabIndex == 1,
           onTap: () => _setTab(1),
-          // 職長のときのみバッジ点灯（職人は承認セグメントを持たないため 0＝非表示）
+          // badge（承認待ち）は職長のときのみ点灯（職人は承認セグメントを持たないため 0＝非表示）
           badge: widget.isForeman ? _pendingApprovalCount : 0,
           badgeColor: JsColors.success,
-          badge2: widget.isForeman ? _revisionCount : 0,
+          // badge2（差し戻し）は職人にも点灯させる。差し戻しは「自分の日報が
+          // 突き返された」通知で、直すのは本人（RevisionEditScreen は本人のみ・
+          // revision_inbox_screen.dart:131-135）。ホームの差し戻し行(:1553)も
+          // 既に職人へ出しているため、バッジと表示条件を揃える。
+          // ※ _revisionCount の取得(_loadRevisionCount :1019)は元から
+          //   isForeman で絞っていない（初期 :914 / タブ進入 :829）ため、
+          //   値はそのまま使える＝取得ロジックは1文字も変更していない。
+          badge2: _revisionCount,
           badge2Color: JsColors.warning,
         ),
         divider,
@@ -3279,9 +3325,12 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
 
   @override
   Widget build(BuildContext context) {
+    // カード撤去: 箱で囲まず、区切りは1pxの線と余白だけで表す。
+    // 横padding は PunchScreen 本体（punch_screen.dart:314 の horizontal:20）と
+    // 揃えて、1pxの線が本文の区切り線と同じ位置で始まるようにする。
     return Container(
       color: JsColors.background,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -3298,14 +3347,14 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
                 ? _PunchForecastStrip(forecast: widget.forecast)
                 : const SizedBox.shrink(),
           ),
+          const Divider(color: JsColors.divider, thickness: 1, height: 1),
           if (widget.weather != null) ...[
-            const SizedBox(height: 4),
             _PunchWbgtRow(
               weather:       widget.weather!,
               seasonWarning: widget.seasonWarning,
             ),
+            const Divider(color: JsColors.divider, thickness: 1, height: 1),
           ],
-          const SizedBox(height: 4),
         ],
       ),
     );
@@ -3326,15 +3375,13 @@ class _PunchWeatherRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 箱なし（背景色・角丸・枠を撤去）。気温/降水/風速/天気を横4分割で並べるだけ。
+    // 折りたたみトグル（onToggle）は従来どおり行全体タップで動く。
     return GestureDetector(
       onTap: onToggle,
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: JsColors.gunmetal,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsColors.divider),
-        ),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 56,
         child: loading
             ? const Center(
                 child: SizedBox(
@@ -3350,26 +3397,25 @@ class _PunchWeatherRow extends StatelessWidget {
                     children: [
                       _PunchWeatherItem(
                           label: '気温',
-                          value: '${weather!.tempC.round()}°C'),
-                      _PunchVd(),
+                          value: '${weather!.tempC.round()}',
+                          unit:  '°C'),
                       _PunchWeatherItem(
                           label: '降水',
-                          value: '${weather!.precipPct}%',
+                          value: '${weather!.precipPct}',
+                          unit:  '%',
                           valueColor: weather!.precipPct >= 50
                               ? const Color(0xFF64B5F6)
                               : null),
-                      _PunchVd(),
                       _PunchWeatherItem(
                           label: '風速',
                           value: weather!.windSpeed != null
-                              ? '${weather!.windSpeed!.toStringAsFixed(1)}m/s'
-                              : '--'),
-                      _PunchVd(),
+                              ? weather!.windSpeed!.toStringAsFixed(1)
+                              : '--',
+                          unit:  'm/s'),
                       _PunchWeatherItem(
                           label: '天気',
                           value: weather!.icon,
                           isEmoji: true),
-                      const SizedBox(width: 4),
                       Icon(
                         expanded
                             ? Icons.keyboard_arrow_up
@@ -3377,7 +3423,6 @@ class _PunchWeatherRow extends StatelessWidget {
                         color: JsColors.silver,
                         size: 18,
                       ),
-                      const SizedBox(width: 6),
                     ],
                   ),
       ),
@@ -3389,16 +3434,19 @@ class _PunchWeatherItem extends StatelessWidget {
   const _PunchWeatherItem({
     required this.label,
     required this.value,
+    this.unit,
     this.valueColor,
     this.isEmoji = false,
   });
   final String label;
   final String value;
+  final String? unit;   // 数字と分けて小さく描く（単位は情報を落とさず脇役にする）
   final Color? valueColor;
   final bool isEmoji;
 
   @override
   Widget build(BuildContext context) {
+    // 数字が主役: 値20px / 単位10px / ラベル9px。
     return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -3407,25 +3455,28 @@ class _PunchWeatherItem extends StatelessWidget {
               style: const TextStyle(color: JsColors.silver, fontSize: 9)),
           const SizedBox(height: 2),
           isEmoji
-              ? Text(value, style: const TextStyle(fontSize: 18))
-              : Text(value,
-                  style: TextStyle(
-                      color: valueColor ?? JsColors.offWhite,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600)),
+              ? Text(value, style: const TextStyle(fontSize: 22))
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(value,
+                        style: TextStyle(
+                            color: valueColor ?? JsColors.offWhite,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            height: 1.0)),
+                    if (unit != null)
+                      Text(unit!,
+                          style: const TextStyle(
+                              color: JsColors.silver, fontSize: 10)),
+                  ],
+                ),
         ],
       ),
     );
   }
-}
-
-class _PunchVd extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 28,
-        color: JsColors.divider,
-      );
 }
 
 class _PunchForecastStrip extends StatelessWidget {
@@ -3434,13 +3485,11 @@ class _PunchForecastStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 箱撤去: 上に1pxの線を置き、余白だけで週間予報の帯を区切る。
     return Container(
-      margin: const EdgeInsets.only(top: 4),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: JsColors.gunmetal,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: JsColors.divider),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: JsColors.divider)),
       ),
       child: Row(
         children: forecast.map((day) {
@@ -3494,37 +3543,52 @@ class _PunchWbgtRow extends StatelessWidget {
     final level = _wbgtLevel(wbgt);
     final color = _wbgtColor(wbgt);
 
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: color.withValues(alpha: 0.6)),
+    // 塗り面を撤去し「枠付きバッジ」だけにする。説明文(seasonWarning)は同じ1行に置く。
+    // 数字が主役: WBGT の値18px / ラベル10px。
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: color),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                const Text('WBGT ',
+                    style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                Text('${wbgt.round()}',
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        height: 1.0)),
+                const SizedBox(width: 6),
+                Text(level,
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold)),
+              ],
+            ),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('⚠️ WBGT ${wbgt.round()}',
-                style: const TextStyle(color: JsColors.offWhite, fontSize: 11)),
-            const SizedBox(width: 6),
-            Text(level,
-                style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold)),
-          ]),
-        ),
-        if (seasonWarning != null) ...[
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(seasonWarning!,
-                style: const TextStyle(
-                    color: Color(0xFFFFCC80), fontSize: 10),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
+          if (seasonWarning != null) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(seasonWarning!,
+                  style: const TextStyle(
+                      color: Color(0xFFFFCC80), fontSize: 10),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

@@ -42,9 +42,20 @@ class PunchScreen extends StatefulWidget {
     this.weatherPanel,
     required this.shiftType,
     required this.onShiftTypeChanged,
+    this.revisionCount = 0,
+    this.pendingApprovalCount = 0,
+    this.onOpenRevisions,
+    this.onOpenPendingApprovals,
   });
   final VoidCallback? onNavigateToReport;
   final Widget? weatherPanel;
+  // ── 要対応の件数と遷移（値も遷移先も親 JsMainShell の既存資産をそのまま下ろす）──
+  //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart:1535-1560 を参照）。
+  //   0件のときは行そのものを描画しない＝「無いものは見せない」。
+  final int revisionCount;          // 差し戻し（home_screen.dart:382 _revisionCount）
+  final int pendingApprovalCount;   // 承認待ち（同 :383・職長のときのみ非0が渡る）
+  final VoidCallback? onOpenRevisions;
+  final VoidCallback? onOpenPendingApprovals;
   // 勤務区分（日勤/夜勤）は親(JsMainShell)が真実を保持し、値+変更通知を下ろす。
   // 送信時の report_date 補正・shift_type 送出は親側で行う。
   final String shiftType;                       // 'day'|'night'
@@ -339,9 +350,25 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ]),
-                    const SizedBox(height: 16),
-                    const Divider(color: _border, thickness: 1),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
+                    const Divider(color: _border, thickness: 1, height: 1),
+                    // ── 要対応行（0件の行は描画しない）────────────────
+                    //   件数・遷移先は親から下ろした既存の値だけを使う。
+                    if (widget.revisionCount > 0)
+                      _AttentionRow(
+                        accent: JsColors.warning,          // 差し戻し = warning系
+                        label:  '差し戻し',
+                        count:  widget.revisionCount,
+                        onTap:  widget.onOpenRevisions,
+                      ),
+                    if (widget.pendingApprovalCount > 0)
+                      _AttentionRow(
+                        accent: JsColors.accent,           // 承認待ち = accent系
+                        label:  '承認待ち',
+                        count:  widget.pendingApprovalCount,
+                        onTap:  widget.onOpenPendingApprovals,
+                      ),
+                    const SizedBox(height: 28),
                     // 状態表示
                     _StatusSection(
                       isActual:      isActual,
@@ -350,8 +377,13 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       record:        _record,
                       breakLabel:    _breakLabel(),
                       onChangeBreak: _openBreakRequestSheet,
+                      // みなしモードの表示に使う値。WorkModeService の取得ロジックは
+                      // 一切変えず、既に _settings(:58) が持っている値を下ろすだけ。
+                      deemedStart:   _settings.deemedStart,
+                      deemedEnd:     _settings.deemedEnd,
+                      breakMinutes:  _settings.breakMinutes,
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 28),
                     // 勤務区分（日勤/夜勤・1タップ）＋ 送信される業務日
                     // isActual の分岐外＝みなし/実打刻の両モードで同一位置に出る
                     _ShiftTypeSelector(
@@ -367,42 +399,69 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             // ── 操作エリア（親指ゾーン・固定） ───────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _OperationZone(
-                    isActual:          isActual,
-                    punchedIn:         _punchedIn,
-                    punchedOut:        _punchedOut,
-                    busy:              _busy,
-                    onPunch:           _doPunch,
-                    // 日報報告への全経路（!isActual の「日報報告」／退勤済の「追加で日報を出す」）
-                    // を単一のゲート _onReportTap 経由にする。
-                    onNavigateToReport: _onReportTap,
-                  ),
-                  // 「本日休み」ボタン（序列を下げた OutlinedButton・textMid系）。
-                  // 表示条件（裁定）:
-                  //   ・みなしモード(!isActual): 日報報告ボタンの直下（現状どおり）
-                  //   ・実打刻モード(isActual): 未出勤(!_punchedIn＝出勤スライド前)のみ表示。
-                  //     出勤中・退勤済(=_punchedIn)は非表示（働いた日に休み登録は矛盾）。
-                  //   ※ _punchedIn は _PunchScreenState の状態(:60)。出勤中判定 :99
-                  //     `_punchedIn && !_punchedOut` と同じ状態変数を参照（判定式は複製しない）。
-                  if (!isActual || !_punchedIn) ...[
-                    const SizedBox(height: 10),
-                    _RestDayButton(
-                      rested:    _rested,
-                      reason:    _restReason,
-                      portion:   _restPortion,
-                      loading:   _restLoading,
-                      onChanged: _loadRestStatus,
-                    ),
-                  ],
-                ],
-              ),
+              child: _buildOperationArea(isActual),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ── 操作エリアの組み立て ─────────────────────────────────────────────
+  // 「本日休み」ボタンの表示条件は旧 build 内 :390 の式をそのまま使う。
+  // 式は1文字も変えていない（`!isActual || !_punchedIn` を変数へ束ねただけ）:
+  //   ・みなしモード(!isActual): 表示（横2分割の右側）
+  //   ・実打刻モード(isActual): 未出勤(!_punchedIn＝出勤スライド前)のみ表示。
+  //     出勤中・退勤済(=_punchedIn)は非表示（働いた日に休み登録は矛盾）。
+  //   ※ _punchedIn は _PunchScreenState の状態(:60)。出勤中判定
+  //     `_punchedIn && !_punchedOut` と同じ状態変数を参照（判定式は複製しない）。
+  Widget _buildOperationArea(bool isActual) {
+    final showRestDay = !isActual || !_punchedIn;
+
+    final opZone = _OperationZone(
+      isActual:          isActual,
+      punchedIn:         _punchedIn,
+      punchedOut:        _punchedOut,
+      busy:              _busy,
+      onPunch:           _doPunch,
+      // 日報報告への全経路（!isActual の「日報を報告」／出勤中・退勤済の「日報を報告」）
+      // を単一のゲート _onReportTap 経由にする。
+      onNavigateToReport: _onReportTap,
+    );
+
+    final restBtn = _RestDayButton(
+      rested:    _rested,
+      reason:    _restReason,
+      portion:   _restPortion,
+      loading:   _restLoading,
+      onChanged: _loadRestStatus,
+      // みなしは日報ボタンと横並びになるので高さを合わせる（実打刻は従来の48のまま）
+      height:    isActual ? 48 : 56,
+    );
+
+    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］
+    if (!isActual) {
+      return Row(
+        children: [
+          Expanded(child: opZone),
+          if (showRestDay) ...[
+            const SizedBox(width: 10),
+            Expanded(child: restBtn),
+          ],
+        ],
+      );
+    }
+
+    // 実勤務モード: 従来どおり縦積み（スライダー等の下に「本日休み」）
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        opZone,
+        if (showRestDay) ...[
+          const SizedBox(height: 10),
+          restBtn,
+        ],
+      ],
     );
   }
 }
@@ -519,6 +578,9 @@ class _StatusSection extends StatelessWidget {
     required this.record,
     required this.breakLabel,
     required this.onChangeBreak,
+    required this.deemedStart,
+    required this.deemedEnd,
+    required this.breakMinutes,
   });
 
   final bool isActual;
@@ -527,30 +589,35 @@ class _StatusSection extends StatelessWidget {
   final Map<String, dynamic>? record;
   final String breakLabel;
   final VoidCallback onChangeBreak;
+  // みなし表示用。WorkModeSettings(work_mode_service.dart:16-18) の値をそのまま受け取る。
+  final String deemedStart;   // 'HH:mm'
+  final String deemedEnd;     // 'HH:mm'
+  final int    breakMinutes;
 
   @override
   Widget build(BuildContext context) {
     if (!isActual) {
-      return const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'みなし労働時間制（参考集計）',
-            style: TextStyle(color: _text, fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 6),
-          Text(
-            '実際の勤務状況に応じて修正されます',
-            style: TextStyle(color: _label, fontSize: 12),
-          ),
-        ],
+      // みなしモード（案Z）: 時刻が主役（28px・中央）。
+      return _ClockBlock(
+        label:    'みなし勤務',
+        time:     '$deemedStart − $deemedEnd',
+        timeSize: 28,
+        support: Text(
+          '休憩 $breakMinutes分　実際の勤務に応じて修正されます',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: _label, fontSize: 12),
+        ),
       );
     }
 
     if (!punchedIn) {
-      return const Text(
-        '今日はまだ出勤していません',
-        style: TextStyle(color: _text, fontSize: 16, fontWeight: FontWeight.w600),
+      return const SizedBox(
+        width: double.infinity,
+        child: Text(
+          '今日はまだ出勤していません',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: _label, fontSize: 14),
+        ),
       );
     }
 
@@ -558,34 +625,150 @@ class _StatusSection extends StatelessWidget {
     final punchOutIso = record?['punch_out'] as String?;
 
     if (punchedOut) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '本日終了  ${_hhmm(punchInIso)} – ${_hhmm(punchOutIso)}',
-            style: const TextStyle(
-              color: _text, fontSize: 17, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
+      return _ClockBlock(
+        label:    '本日終了',
+        time:     '${_hhmm(punchInIso)} − ${_hhmm(punchOutIso)}',
+        timeSize: 34,
+        support: _SupportLine(children: [
           _BreakInfoRow(label: breakLabel, onChange: onChangeBreak),
-        ],
+        ]),
       );
     }
 
     // 出勤中
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${_hhmm(punchInIso)}  出勤を記録しました',
-          style: const TextStyle(
-            color: _gold, fontSize: 17, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
+    return _ClockBlock(
+      label:    '出勤中',
+      time:     '${_hhmm(punchInIso)} −',
+      timeSize: 34,
+      support: _SupportLine(children: [
         _InfoRow(label: '経過', value: _elapsed(punchInIso)),
-        const SizedBox(height: 4),
         _BreakInfoRow(label: breakLabel, onChange: onChangeBreak),
-      ],
+      ]),
+    );
+  }
+}
+
+// ── _ClockBlock ───────────────────────────────────────────────────────────────
+// 「ラベル（小・字間広め）＋ 時刻（最大の文字・中央）＋ 補助行」の共通の型。
+// 色は意味だけに使う原則により、時刻は本文色(_text)固定＝状態はラベルで示す。
+class _ClockBlock extends StatelessWidget {
+  const _ClockBlock({
+    required this.label,
+    required this.time,
+    required this.timeSize,
+    this.support,
+  });
+  final String label;
+  final String time;
+  final double timeSize;
+  final Widget? support;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: _label,
+              fontSize: 10,
+              letterSpacing: 2.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            time,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _text,
+              fontSize: timeSize,
+              fontWeight: FontWeight.w300,
+              letterSpacing: 1.5,
+              height: 1.1,
+            ),
+          ),
+          if (support != null) ...[
+            const SizedBox(height: 12),
+            support!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── _SupportLine ──────────────────────────────────────────────────────────────
+// 時刻の下の補助行。Wrap なので長い休憩ラベルでも溢れず折り返す。
+class _SupportLine extends StatelessWidget {
+  const _SupportLine({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 4,
+        children: children,
+      );
+}
+
+// ── _AttentionRow ─────────────────────────────────────────────────────────────
+// 要対応の1行。左に2pxの縦線・右に件数＋「›」。箱で囲まず、下は1pxの線で区切る。
+// ★件数が0のときは呼び出し側で行ごと描画しない（punch_screen.dart の build を参照）。
+class _AttentionRow extends StatelessWidget {
+  const _AttentionRow({
+    required this.accent,
+    required this.label,
+    required this.count,
+    required this.onTap,
+  });
+  final Color accent;       // 意味の色（差し戻し=warning / 承認待ち=accent）
+  final String label;
+  final int count;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _border)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 56,
+          child: Row(
+            children: [
+              Container(width: 2, height: 28, color: accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(color: _label, fontSize: 13),
+                ),
+              ),
+              // 数字が主役: 件数20px / 単位11px
+              Text(
+                '$count',
+                style: const TextStyle(
+                  color: _text,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  height: 1.0,
+                ),
+              ),
+              const Text('件',
+                  style: TextStyle(color: _label, fontSize: 11)),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, color: _label, size: 18),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -597,8 +780,9 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(children: [
-      Text('$label  ', style: const TextStyle(color: _label, fontSize: 13)),
+    // 補助行(_SupportLine=Wrap)の子になるため mainAxisSize は min 固定。
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text('$label  ', style: const TextStyle(color: _label, fontSize: 12)),
       Text(value,
           style: const TextStyle(
             color: _text, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -613,13 +797,13 @@ class _BreakInfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(children: [
-      const Text('休憩  ', style: TextStyle(color: _label, fontSize: 13)),
-      Expanded(
-        child: Text(label,
-            style: const TextStyle(
-              color: _text, fontSize: 13, fontWeight: FontWeight.w600)),
-      ),
+    // 補助行(_SupportLine=Wrap)の子になるため Expanded をやめ mainAxisSize は min 固定。
+    // ★label（値）の取得元は変えていない: 親から渡る _breakLabel()(:246-253) のまま。
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(label,
+          style: const TextStyle(
+            color: _text, fontSize: 13, fontWeight: FontWeight.w600)),
+      const SizedBox(width: 8),
       GestureDetector(
         onTap: onChange,
         child: const Text(
@@ -656,48 +840,11 @@ class _OperationZone extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!isActual) {
-      return SizedBox(
-        width: double.infinity,
-        height: 56,
-        child: OutlinedButton(
-          onPressed: onNavigateToReport,
-          // 生成り抜き（画面内の主ボタン）: accent 枠→生成り枠1.5px
-          style: OutlinedButton.styleFrom(
-            foregroundColor: JsFormTokens.outlineButtonBorder,
-            disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          ).copyWith(
-            side: WidgetStateProperty.resolveWith((states) => BorderSide(
-                  color: states.contains(WidgetState.disabled)
-                      ? JsFormTokens.outlineButtonDisabled
-                      : JsFormTokens.outlineButtonBorder,
-                  width: 1.5,
-                )),
-          ),
-          child: const Text(
-            '日報報告',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-        ),
-      );
+      return _ReportOutlineButton(onPressed: onNavigateToReport);
     }
 
     if (punchedIn && punchedOut) {
-      return SizedBox(
-        width: double.infinity,
-        height: 56,
-        child: TextButton(
-          onPressed: onNavigateToReport,
-          style: TextButton.styleFrom(
-            foregroundColor: _label,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: const BorderSide(color: _border),
-            ),
-          ),
-          child: const Text('日報を報告', style: TextStyle(fontSize: 15)),
-        ),
-      );
+      return _ReportOutlineButton(onPressed: onNavigateToReport);
     }
 
     final isCheckin = !punchedIn;
@@ -707,13 +854,61 @@ class _OperationZone extends StatelessWidget {
     //   punchedIn:false→true でラベルだけ退勤へ変わり、State は出勤時の
     //   確定済みのまま再利用されて退勤スライドが操作不能になる。
     //   同一用途の間は key が不変なので「いったきり」は維持される。
-    return SlideToConfirm(
+    final slider = SlideToConfirm(
       key:       ValueKey(isCheckin ? 'punch-in' : 'punch-out'),
       filled:    isCheckin,
       icon:      isCheckin ? Icons.login : Icons.logout,
       label:     isCheckin ? 'スライドで出勤' : 'スライドで退勤',
       busy:      busy,
       onConfirm: () => onPunch(isCheckin ? 'in' : 'out'),
+    );
+
+    // 未出勤: 出勤スライダーだけ（1画面1主行動）
+    if (isCheckin) return slider;
+
+    // 出勤中: 退勤スライダー ＋「日報を報告」（生成り枠）
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        slider,
+        const SizedBox(height: 10),
+        _ReportOutlineButton(onPressed: onNavigateToReport),
+      ],
+    );
+  }
+}
+
+// ── _ReportOutlineButton ──────────────────────────────────────────────────────
+// 「日報を報告」＝生成り抜きの主ボタン（accent 塗りではなく枠1.5px）。
+// 押下先は呼び出し側から渡る単一のゲート _onReportTap(:106) のみ。
+class _ReportOutlineButton extends StatelessWidget {
+  const _ReportOutlineButton({required this.onPressed});
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: JsFormTokens.outlineButtonBorder,
+          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ).copyWith(
+          side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                color: states.contains(WidgetState.disabled)
+                    ? JsFormTokens.outlineButtonDisabled
+                    : JsFormTokens.outlineButtonBorder,
+                width: 1.5,
+              )),
+        ),
+        child: const Text(
+          '日報を報告',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
     );
   }
 }
@@ -731,6 +926,7 @@ class _RestDayButton extends StatelessWidget {
     required this.portion,
     required this.loading,
     required this.onChanged,
+    this.height = 48,
   });
 
   final bool rested;
@@ -738,6 +934,7 @@ class _RestDayButton extends StatelessWidget {
   final String portion; // full / am_half / pm_half
   final bool loading;
   final Future<void> Function() onChanged; // 遷移から戻った後に親が状態を取り直す
+  final double height; // みなしは日報ボタンと横並びになるため呼び出し側で高さを揃える
 
   // 登録済みボタン文言。半休は「午前休/午後休」を明示。
   String get _label {
@@ -764,16 +961,21 @@ class _RestDayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 48,
+      height: height,
       child: OutlinedButton(
+        // 暗枠1px・textMid系（日報＝生成り枠より一段下の序列）
         onPressed: loading ? null : () => _onTap(context),
         style: OutlinedButton.styleFrom(
           foregroundColor: JsColors.textMid,
           side: const BorderSide(color: JsColors.textMid),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: EdgeInsets.zero,
         ),
         child: Text(
           _label,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 15),
         ),
       ),
