@@ -118,6 +118,90 @@ class WorkModeService {
     }
   }
 
+  // ── 会社休日カレンダー（/attendance 系のためこのサービスに置く）─────────
+  // GET /attendance/holidays/my → { weekly: {"0".."6": 'legal'|'scheduled'},
+  //                                 dates:  {"YYYY-MM-DD": 'legal'|'scheduled'} }
+  // BE: routes/attendance.js:533（employee 限定・cooperation は 403 COOPERATION_FORBIDDEN）。
+  // 戻り値は punch(:149)/breakRequest(:192) と同じ ok 付きレコード流儀。
+  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、ok:false で呼び出し側へ返す
+  //（weekly/dates は空マップになるため「取れなかった」と「休日ゼロ」を ok で区別できる）。
+  Future<({bool ok, Map<String, String> weekly, Map<String, String> dates,
+            int statusCode, String? errorMessage})> fetchCompanyHolidays() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        debugPrint('attendance/holidays/my: トークンがありません');
+        return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
+                statusCode: 0, errorMessage: 'トークンがありません');
+      }
+      final res = await http.get(
+        Uri.parse('$_apiBase/attendance/holidays/my'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (
+          ok:         true,
+          weekly:     _asStringMap(body['weekly']),
+          dates:      _asStringMap(body['dates']),
+          statusCode: res.statusCode,
+          errorMessage: null,
+        );
+      }
+      debugPrint('attendance/holidays/my 非200: status=${res.statusCode} body=${res.body}');
+      return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
+              statusCode: res.statusCode, errorMessage: '会社休日を取得できませんでした');
+    } catch (e) {
+      debugPrint('attendance/holidays/my 取得失敗: $e');
+      return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
+              statusCode: 0, errorMessage: e.toString());
+    }
+  }
+
+  // GET /attendance/holidays/jp?year=YYYY → { dates: {"YYYY-MM-DD": 祝日名}, year, count }
+  // BE: routes/attendance.js:636。★/holidays/my の dates は値が 'legal'|'scheduled' だが、
+  //     こちらの dates は値が【祝日名の文字列】。用途が違うので混同しないこと
+  //     （こちらは文字色＝朱の判定にのみ使い、会社の休業設定とは無関係）。
+  // 取得は年単位（月ではない）。失敗時は ok:false・dates 空で返し、呼び出し側は
+  // 祝日色なしで描画を続行できる。
+  Future<({bool ok, Map<String, String> dates, int statusCode, String? errorMessage})>
+      fetchJpHolidays(int year) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        debugPrint('attendance/holidays/jp: トークンがありません');
+        return (ok: false, dates: <String, String>{}, statusCode: 0, errorMessage: 'トークンがありません');
+      }
+      final res = await http.get(
+        Uri.parse('$_apiBase/attendance/holidays/jp?year=$year'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (ok: true, dates: _asStringMap(body['dates']),
+                statusCode: res.statusCode, errorMessage: null);
+      }
+      debugPrint('attendance/holidays/jp 非200: year=$year status=${res.statusCode} body=${res.body}');
+      return (ok: false, dates: <String, String>{},
+              statusCode: res.statusCode, errorMessage: '祝日情報を取得できませんでした');
+    } catch (e) {
+      debugPrint('attendance/holidays/jp 取得失敗: year=$year $e');
+      return (ok: false, dates: <String, String>{}, statusCode: 0, errorMessage: e.toString());
+    }
+  }
+
+  // JSON の Map を Map<String,String> へ正規化（値が文字列でないキーは捨てる）。
+  static Map<String, String> _asStringMap(dynamic v) {
+    if (v is! Map) return <String, String>{};
+    final out = <String, String>{};
+    v.forEach((k, val) {
+      if (val is String) out['$k'] = val;
+    });
+    return out;
+  }
+
   Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut,
             int? standardBreakMin, int legalBreak6h, int legalBreak8h})?> fetchToday() async {
     try {

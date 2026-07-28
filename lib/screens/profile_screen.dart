@@ -21,6 +21,7 @@ import '../config/constants.dart';
 import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'notification_settings_screen.dart';
+import 'company_link_screen.dart';
 
 // ─── 経験年数 → バッジ色 ───────────────────────────────────
 Color experienceColor(int? years) {
@@ -117,13 +118,33 @@ Widget _profileAvatarImage(String url, {double iconSize = 48}) {
 // ─────────────────────────────────────────────
 // ProfileScreen — 表示画面
 // ─────────────────────────────────────────────
-class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+// ProfileBody — Scaffold なし（シェルのタブとして使う実体）
+//   monthly_history_screen.dart の MonthlyHistoryBody(:17) / MonthlyHistoryScreen(:233) と同流儀。
+//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart:49 と同じ既存流儀）。
+//   AppBar の「編集」アイコンは表示側（Screen ラッパー / シェル）から
+//   GlobalKey<ProfileBodyState> 経由で canEdit / openEdit() を使う。
+//   ★中身（項目・並び・色）は1行も変更していない。Scaffold と AppBar を剥がしただけ。
+class ProfileBody extends StatefulWidget {
+  const ProfileBody({super.key, this.onStateChanged});
+
+  /// プロフィール読込などで内部状態が変わったときに呼ぶ。
+  /// 表示側の AppBar（編集アイコンの有無）を追随させるためだけに使う。
+  final VoidCallback? onStateChanged;
+
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<ProfileBody> createState() => ProfileBodyState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class ProfileBodyState extends State<ProfileBody> {
+  /// 「編集」アイコンの表示判定（旧 :264 の `p != null` と同一の値）。
+  bool get canEdit => _profile != null;
+
+  /// 「編集」実行（旧 :268 の onPressed と同一の実体）。
+  void openEdit() {
+    final p = _profile;
+    if (p != null) _openEdit(p);
+  }
+
   _ProfileData? _profile;
   bool _loading = true;
   String _token = '';
@@ -251,25 +272,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (e) {
       debugPrint('プロフィール取得エラー: $e');
     }
+    // 表示側の AppBar「編集」アイコンの有無を追随させる（描画内容には影響しない）
+    widget.onStateChanged?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final p = _profile;
-    return Scaffold(
-      backgroundColor: JsColors.black,
-      appBar: AppBar(
-        title: const Text('設定・プロフィール'),
-        actions: [
-          if (p != null)
-            IconButton(
-              icon: const Icon(Icons.edit, color: JsColors.gold),
-              tooltip: '編集',
-              onPressed: () => _openEdit(p),
-            ),
-        ],
-      ),
-      body: _loading
+    return _loading
           ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
           : p == null
               ? const Center(
@@ -290,6 +300,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         // 通知設定・プライバシーポリシー・利用規約/同意状況はログアウト直上ブロックへ
                         const SizedBox(height: 16),
                         _buildNotificationSettingsTile(),
+                        // 協力申請は職長のみ（p.role の判定は :82/:91/:650 と同じ既存の値を使う）
+                        if (p.role == 'boss') ...[
+                          const SizedBox(height: 12),
+                          _buildCooperationTile(),
+                        ],
                         const SizedBox(height: 12),
                         _buildPrivacyTile(),
                         const SizedBox(height: 12),
@@ -320,8 +335,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
-                ),
-    );
+                );
   }
 
   Future<void> _confirmLogout() async {
@@ -583,6 +597,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // 協力申請（職長のみ表示・呼び出し側 :294 で p.role=='boss' を判定）。
+  // 旧 home_screen.dart の AppBar 🤝 アイコンが唯一の導線だったため、その代替。
+  // レイアウト・色・余白・フォントは直上の _buildNotificationSettingsTile と完全に同一
+  // （padding 14/12・radius 10・icon size 18・ラベル 10/letterSpacing 0.5・本文 14/w500）。
+  Widget _buildCooperationTile() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const CompanyLinkScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: JsColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JsColors.border),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.handshake_outlined,
+                color: JsColors.gold, size: 18),
+            SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('協力会社',
+                      style: TextStyle(
+                          color: JsColors.silver,
+                          fontSize: 10,
+                          letterSpacing: 0.5)),
+                  SizedBox(height: 2),
+                  Text('協力申請',
+                      style: TextStyle(
+                          color: JsColors.offWhite,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildConsentCard() {
     return Container(
       margin: const EdgeInsets.fromLTRB(0, 0, 0, 0),
@@ -826,6 +887,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+}
+
+// ─────────────────────────────────────────────
+// ProfileScreen — 単体プッシュ用（Scaffold ラッパー）
+//   monthly_history_screen.dart:233 の MonthlyHistoryScreen と同流儀。
+//   AppBar（タイトル・編集アイコンの色/tooltip）は切り出し前（旧 :261-271）と同一。
+// ─────────────────────────────────────────────
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _bodyKey = GlobalKey<ProfileBodyState>();
+
+  @override
+  Widget build(BuildContext context) {
+    final canEdit = _bodyKey.currentState?.canEdit ?? false;
+    return Scaffold(
+      backgroundColor: JsColors.black,
+      appBar: AppBar(
+        title: const Text('設定・プロフィール'),
+        actions: [
+          if (canEdit)
+            IconButton(
+              icon: const Icon(Icons.edit, color: JsPalette.brand),
+              tooltip: '編集',
+              onPressed: () => _bodyKey.currentState?.openEdit(),
+            ),
+        ],
+      ),
+      body: ProfileBody(
+        key: _bodyKey,
+        onStateChanged: () { if (mounted) setState(() {}); },
+      ),
+    );
+  }
 }
 
 // ─── 健康診断警告テキスト ───

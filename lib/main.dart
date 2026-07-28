@@ -1012,7 +1012,7 @@ class _OvertimeDialogState extends State<OvertimeDialog> {
   Widget build(BuildContext context) => AlertDialog(
     backgroundColor: JsColors.gunmetal,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    title: const Text('⏰ 残業報告', style: TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold)),
+    title: const Text('⏰ 残業報告', style: TextStyle(color: JsPalette.brand, fontWeight: FontWeight.bold)),
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,

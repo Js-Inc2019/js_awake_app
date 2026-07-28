@@ -48,6 +48,13 @@ class JsPalette {
   //   accent(エメラルド) と役割を分けるために新設した。
   static const Color brand         = Color(0xFFD9C08A); // ブランド色(淡い金): タイトル・顔。押せるものには使わない
 
+  // ─── カレンダー専用 ──────────────────────────────────────
+  // 「その日の性質」を表す文字色。休日設定（会社の休業日）とは無関係に固定で、
+  // セル塗り（会社休業日）とは意味が別（両方同時に出てよい）。
+  // 文字色の優先順は 日曜(statusError) ＞ 祝日(holidayText) ＞ 土曜(saturday) ＞ 平日(textBody)。
+  static const Color holidayText   = Color(0xFFD9705F); // 祝日の文字色（朱）。OFFICE と同値
+  static const Color saturday      = Color(0xFF6FA8D9); // 土曜の文字色（水色）
+
   // ─── 状態 ────────────────────────────────────────────────
   static const Color statusSuccess = Color(0xFF6FD6B4); // 成功/済（accent と同値）
   static const Color statusWarning = Color(0xFFE0603A); // 未提出/警告

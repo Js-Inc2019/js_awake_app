@@ -211,11 +211,11 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
       backgroundColor: JsColors.black,
       appBar: AppBar(
         backgroundColor: JsColors.black,
-        iconTheme: const IconThemeData(color: JsColors.gold),
+        iconTheme: const IconThemeData(color: JsPalette.brand),
         title: Text(
           '${d.month}月${d.day}日の日報',
           style: const TextStyle(
-              color: JsColors.gold,
+              color: JsPalette.brand,
               fontSize: 18,
               fontWeight: FontWeight.bold),
         ),

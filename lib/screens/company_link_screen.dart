@@ -122,7 +122,7 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
       appBar: AppBar(
         backgroundColor: JsColors.black,
         title: const Text('協力申請',
-            style: TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: JsPalette.brand, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: JsColors.silver),
         actions: [
           IconButton(

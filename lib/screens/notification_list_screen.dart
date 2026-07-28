@@ -9,14 +9,32 @@ import '../services/notification_service.dart';
 import 'home_screen.dart' show ReportTabNavigator;
 import 'revision_inbox_screen.dart';
 
-class NotificationListScreen extends StatefulWidget {
-  const NotificationListScreen({super.key});
+// ─────────────────────────────────────────────
+// NotificationListBody — Scaffold なし（シェルのタブとして使う実体）
+//   monthly_history_screen.dart の MonthlyHistoryBody(:17) / MonthlyHistoryScreen(:233) と同流儀。
+//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart:49 と同じ既存流儀）。
+//   AppBar の「すべて既読」は表示側（Screen ラッパー / シェル）から
+//   GlobalKey<NotificationListBodyState> 経由で hasItems / markAllRead() を使う。
+//   ★中身（項目・並び・色）は1行も変更していない。Scaffold と AppBar を剥がしただけ。
+// ─────────────────────────────────────────────
+class NotificationListBody extends StatefulWidget {
+  const NotificationListBody({super.key, this.onStateChanged});
+
+  /// 一覧の読み込み・既読化で内部状態が変わったときに呼ぶ。
+  /// 表示側の AppBar（すべて既読の活性/非活性）を追随させるためだけに使う。
+  final VoidCallback? onStateChanged;
 
   @override
-  State<NotificationListScreen> createState() => _NotificationListScreenState();
+  State<NotificationListBody> createState() => NotificationListBodyState();
 }
 
-class _NotificationListScreenState extends State<NotificationListScreen> {
+class NotificationListBodyState extends State<NotificationListBody> {
+  /// 「すべて既読」ボタンの活性判定（旧 :123 の `_items.isEmpty` と同一の値）。
+  bool get hasItems => _items.isNotEmpty;
+
+  /// 「すべて既読」実行（旧 :123 の onPressed と同一の実体）。
+  Future<void> markAllRead() => _markAllRead();
+
   final _svc = NotificationService();
 
   bool _loading = true;
@@ -51,6 +69,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         _error = true;
       });
     }
+    // 表示側の AppBar「すべて既読」の活性/非活性を追随させる（描画内容には影響しない）
+    widget.onStateChanged?.call();
   }
 
   Future<void> _markAllRead() async {
@@ -94,8 +114,12 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   }
 
   // 展開部アクション: 日報を書く（一覧を閉じて日報タブへ）
+  // ★この画面はボトム「通知」タブの実体としても使われる（home_screen.dart のタブ index2）。
+  //   タブとして表示されているときは pop する相手が居らず、無条件 pop はシェルごと
+  //   閉じてしまう。canPop() で守る（push されて開かれている従来経路の挙動は不変）。
   void _goReport() {
-    Navigator.of(context).pop();
+    final nav = Navigator.of(context);
+    if (nav.canPop()) nav.pop();
     ReportTabNavigator.go();
   }
 
@@ -109,27 +133,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JsColors.background,
-      appBar: AppBar(
-        backgroundColor: JsColors.background,
-        title: const Text('お知らせ'),
-        actions: [
-          TextButton(
-            onPressed: _items.isEmpty ? null : _markAllRead,
-            child: Text(
-              'すべて既読',
-              style: TextStyle(
-                color: _items.isEmpty ? JsColors.textWeak : JsColors.accent,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: SafeArea(child: _buildBody()),
-    );
+    return SafeArea(child: _buildBody());
   }
 
   Widget _buildBody() {
@@ -195,6 +199,52 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 }
 
 // ─── 通知1行 ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// NotificationListScreen — 単体プッシュ用（Scaffold ラッパー）
+//   monthly_history_screen.dart:233 の MonthlyHistoryScreen と同流儀。
+//   AppBar（背景色・タイトル・すべて既読ボタンの文言/色/太さ/サイズ）は
+//   切り出し前（旧 :116-136）と同一。1文字も変えていない。
+// ─────────────────────────────────────────────
+class NotificationListScreen extends StatefulWidget {
+  const NotificationListScreen({super.key});
+
+  @override
+  State<NotificationListScreen> createState() => _NotificationListScreenState();
+}
+
+class _NotificationListScreenState extends State<NotificationListScreen> {
+  final _bodyKey = GlobalKey<NotificationListBodyState>();
+
+  @override
+  Widget build(BuildContext context) {
+    final hasItems = _bodyKey.currentState?.hasItems ?? false;
+    return Scaffold(
+      backgroundColor: JsColors.background,
+      appBar: AppBar(
+        backgroundColor: JsColors.background,
+        title: const Text('お知らせ'),
+        actions: [
+          TextButton(
+            onPressed: hasItems ? () => _bodyKey.currentState?.markAllRead() : null,
+            child: Text(
+              'すべて既読',
+              style: TextStyle(
+                color: hasItems ? JsColors.accent : JsColors.textWeak,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: NotificationListBody(
+        key: _bodyKey,
+        onStateChanged: () { if (mounted) setState(() {}); },
+      ),
+    );
+  }
+}
+
 class _NotificationRow extends StatelessWidget {
   const _NotificationRow({
     required this.item,

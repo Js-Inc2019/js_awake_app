@@ -31,12 +31,18 @@ import '../main.dart'
 import '../core/theme/js_colors.dart';
 import 'revision_inbox_screen.dart';
 import 'site_quick_register_screen.dart';
-import 'company_link_screen.dart';
-import 'monthly_history_screen.dart' show MonthlyHistoryBody, JsStatChip, JsReportTile;
+// company_link_screen.dart の import は撤去（AppBar の 🤝 協力申請アイコンを撤去し
+// 当ファイルからの参照が無くなったため。ファイル本体は削除していない）。
+// MonthlyHistoryBody は management_history_screen.dart（履歴セグメント）側へ移ったため
+// この show リストから外した。JsStatChip/JsReportTile は当ファイル内で使用中。
+import 'monthly_history_screen.dart' show JsStatChip, JsReportTile;
 import 'day_reports_screen.dart';
+import 'management_history_screen.dart';
 import 'profile_screen.dart';
 import 'notification_list_screen.dart';
 import '../services/notification_service.dart';
+// CalendarTab が会社休日(/attendance/holidays/my)と祝日(/attendance/holidays/jp)を取るため。
+import '../services/work_mode_service.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
 // slide_to_confirm.dart の import は撤去（v2で日報フォームのスライド送信を廃止したため）。
@@ -373,7 +379,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _userName = '';
   int _revisionCount = 0;
   int _pendingApprovalCount = 0;
-  int _linkCount     = 0;
+  // _linkCount（協力申請の未処理件数）は撤去した。
+  // 唯一の読み手だった AppBar の 🤝 アイコン（旧 :1575-1600）を撤去したため、
+  // 保持し続けると unused_field 警告になる。取得処理 _loadLinkCount() も併せて撤去
+  // （GET /company-links/my を毎起動叩くだけで誰も読まない状態を残さないため）。
+  // ※ company_link_screen.dart 本体は削除していない。
   int _unreadCount   = 0; // 通知未読件数（0=バッジ非表示・失敗時も0でfail-soft）
 
   // 日報タブ(index0)への遷移ハンドラ（ReportTabNavigator へ登録/解除する実体・
@@ -381,6 +391,27 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   late final VoidCallback _openReportTabCb = _goReportTab;
   void _goReportTab() {
     if (mounted) _setTab(0);
+  }
+
+  // 日報フォームを push した先のページを再描画するためのキー。
+  // フォームは当 State のフィールド（_transports/_workCtrl/_gpsAddress/_todayReportDone 等）を
+  // 直接読むため、push 先は当 State の setState では自動再描画されない。
+  // そこで setState をオーバーライドし、既存の setState 呼び出し（約50箇所）を1つも
+  // 書き換えずに push 先へも再描画を伝播させる。
+  final GlobalKey<_ReportFormPageState> _reportPageKey = GlobalKey<_ReportFormPageState>();
+
+  // 通知/設定タブの Body へアクセスするキー。シェルの AppBar が
+  // 「すべて既読」「編集」を各 Body の公開 State 経由で実行するために持つ
+  // （RevisionInboxBodyState を GlobalKey で使う既存流儀・:4303/:4348 と同型）。
+  final GlobalKey<NotificationListBodyState> _notifBodyKey =
+      GlobalKey<NotificationListBodyState>();
+  final GlobalKey<ProfileBodyState> _profileBodyKey =
+      GlobalKey<ProfileBodyState>();
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _reportPageKey.currentState?.refresh();
   }
 
   // ─── GPS ───
@@ -771,17 +802,24 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> _restoreTabIndex() async {
     final prefs = await SharedPreferences.getInstance();
     final key   = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
-    final saved = prefs.getInt(key) ?? 0;
+    // 4タブ化前は職長が index4 まで保存し得たため、復元時に 0..3 へ丸める
+    // （範囲外がそのまま入ると IndexedStack の clamp 任せになり「設定」に着地する）。
+    final saved = (prefs.getInt(key) ?? 0).clamp(0, 3);
     if (mounted) setState(() => _tabIndex = saved);
   }
 
   // タブ切り替え＋保存
   void _setTab(int index) {
     setState(() => _tabIndex = index);
-    // 承認・是正タブ(index3)進入時のみバッジ2値を再取得（全index一律はAPI連打になるため回避）
-    if (index == 3) {
+    // 承認セグメントを含む「管理・履歴」タブ(index1)進入時のみバッジ2値を再取得
+    // （全index一律はAPI連打になるため回避）。旧 index3=承認・是正 から付け替え。
+    if (index == 1) {
       _loadPendingApprovalCount();
       _loadRevisionCount();
+    }
+    // 通知タブ(index2)進入時は未読件数を取り直す（旧AppBarベルの then(_loadUnreadCount) 相当）
+    if (index == 2) {
+      _loadUnreadCount();
     }
     SharedPreferences.getInstance().then((p) {
       final key = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
@@ -863,7 +901,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
       _loadPendingApprovalCount(),
-      _loadLinkCount(),
       _fetchCompanyAddress(),
     ]);
     // 位置 → 通知許可 → token取得・POST の順を保証（権限衝突完全解消）
@@ -1006,27 +1043,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('承認待ち件数取得エラー: $e');
-    }
-  }
-
-  Future<void> _loadLinkCount() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http.get(
-        Uri.parse('$API_URL/company-links/my'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 15));
-      if (res.statusCode == 200 && mounted) {
-        final j = jsonDecode(res.body) as Map<String, dynamic>;
-        final links = (j['links'] as List? ?? [])
-            .map((e) => e as Map<String, dynamic>)
-            .toList();
-        final count = links.where((l) => (l['status'] as String?) == 'pending').length;
-        setState(() => _linkCount = count);
-      }
-    } catch (e) {
-      debugPrint('協力申請件数取得エラー: $e');
     }
   }
 
@@ -1477,15 +1493,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     );
   }
 
-  // ─── ページタイトル ───
+  // ─── ページタイトル（ボトム4タブと1:1・役割で変えない）───
   String get _pageTitle {
     switch (_tabIndex) {
-      case 0: return '日報';
-      case 1: return '日報';
-      case 2: return '月間履歴';
-      case 3: return widget.isForeman ? '承認・是正' : '是正依頼';
-      case 4: return '管理・集計';
-      default: return '打刻';
+      case 0: return 'ホーム';
+      case 1: return '管理・履歴';
+      case 2: return '通知';
+      case 3: return '設定';
+      default: return 'ホーム';
     }
   }
 
@@ -1500,10 +1515,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       );
     }
 
-    // IndexedStack の children リスト
+    // IndexedStack の children リスト。ボトム4タブと1:1（職長でも数・並びは同じ）。
+    //   0: ホーム(PunchScreen) / 1: 管理・履歴 / 2: 通知 / 3: 設定
+    // 日報フォーム(_buildHomeTabContent)はタブから外し、Navigator.push の全画面へ移した（_openReportForm）。
     final tabChildren = <Widget>[
       PunchScreen(
-        onNavigateToReport: () => _setTab(1),
+        // 日報フォームはタブ切替ではなく全画面 push で開く（push 先で同一の
+        // _buildHomeTabContent() をそのまま描画する＝フォームの中身は不変）。
+        onNavigateToReport: _openReportForm,
         // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {
@@ -1518,18 +1537,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           seasonWarning: _seasonWarning,
         ),
       ),
-      _buildHomeTabContent(),
-      const MonthlyHistoryBody(),
-      if (widget.isForeman) ...[
-        const _ReviewTab(),               // index3: 承認・是正
-        const _ForemanManagementBody(),   // index4: 管理・集計
-      ],
+      ManagementHistoryScreen(isForeman: widget.isForeman),
+      // 通知・設定は Scaffold なしの Body を使う（各画面の自前 AppBar と二重にならない）。
+      // AppBar のアクション（すべて既読 / 編集）はシェルの AppBar 側から
+      // GlobalKey 経由で呼ぶ＝機能を落とさない。
+      NotificationListBody(
+        key: _notifBodyKey,
+        onStateChanged: () { if (mounted) setState(() {}); },
+      ),
+      ProfileBody(
+        key: _profileBodyKey,
+        onStateChanged: () { if (mounted) setState(() {}); },
+      ),
     ];
 
     return Scaffold(
       backgroundColor: JsColors.black,
       appBar: _buildAppBar(),
       body: SafeArea(
+        // タブは常に4枚。旧foremanの index4 が prefs に残っていても clamp で 3 に収まる。
         child: IndexedStack(
           index: _tabIndex.clamp(0, tabChildren.length - 1),
           children: tabChildren,
@@ -1539,7 +1565,50 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     );
   }
 
+  // ─── 日報フォームを全画面で開く（旧: index1 のタブ） ───────────────
+  // ★フォーム本体 _buildHomeTabContent() は1行も変更していない。描画位置だけを移した。
+  //   ・_ReportFormPage は _buildHomeTabContent を呼ぶだけの器。
+  //   ・当 State の setState をオーバーライド（下記）して push 先も再描画するため、
+  //     フォーム内の全ての setState 駆動UI（チップ選択・写真帯・GPS・ルート計算結果・
+  //     _todayReportDone による AfterReportBody 差替）は従来どおり動く。
+  bool _reportFormOpen = false;
+
+  Future<void> _openReportForm() async {
+    // 二重 push 防止。同じ _reportPageKey を持つページが同時に2枚存在すると
+    // GlobalKey の重複で例外になるため（日報報告ボタンの連打対策）。
+    if (_reportFormOpen) return;
+    _reportFormOpen = true;
+    try {
+      await _pushReportForm();
+    } finally {
+      _reportFormOpen = false;
+    }
+  }
+
+  Future<void> _pushReportForm() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: JsColors.black,
+          appBar: AppBar(
+            backgroundColor: JsColors.black,
+            elevation: 0,
+            iconTheme: const IconThemeData(color: JsColors.silver),
+            title: const Text('日報',
+                style: TextStyle(
+                    color: JsPalette.brand, fontSize: 17, fontWeight: FontWeight.bold)),
+          ),
+          body: SafeArea(
+            child: _ReportFormPage(key: _reportPageKey, builder: _buildHomeTabContent),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─── 2段 AppBar ───
+  // 通知/設定は Body 化した（NotificationListBody / ProfileBody）ため自前の AppBar を持たない。
+  // よって全4タブでシェルの AppBar を出す＝_pageTitle の「通知」「設定」が実際に表示される。
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       automaticallyImplyLeading: false,
@@ -1562,95 +1631,39 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ],
       ),
       actions: [
-        // 🧮 TOOL（ARC FLASH）ボタン
+        // 🧮 TOOL（ARC FLASH）ボタン ─ AppBar に残す唯一のアイコン。
+        // 撤去したもの（いずれもボトム4タブ側へ移設 or 導線消滅）:
+        //   ・🤝 協力申請 Icons.handshake_outlined（＋_linkCount バッジ）
+        //   ・🔔 お知らせ Icons.notifications_none（＋_unreadCount バッジ）→ ボトム「通知」タブへ
+        //   ・⚙️ 設定 Icons.settings                                     → ボトム「設定」タブへ
         IconButton(
           icon: const Icon(Icons.calculate, color: Color(0xFF00E5CC)),
           tooltip: 'TOOL',
           onPressed: _launchToolApp,
         ),
-        // 🤝 協力申請ボタン
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            IconButton(
-              icon: Icon(
-                Icons.handshake_outlined,
-                color: _linkCount > 0 ? JsColors.gold : JsColors.silver,
-              ),
-              tooltip: '協力申請',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CompanyLinkScreen()),
-              ).then((_) => _loadLinkCount()),
-            ),
-            if (_linkCount > 0)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(
-                      color: JsColors.gold, shape: BoxShape.circle),
-                  child: Text('$_linkCount',
-                      style: const TextStyle(
-                          color: JsPalette.onAccent,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold)),
+        // 通知タブ(2): 旧 NotificationListScreen の AppBar アクション（文言・色・太さ・サイズは同一）
+        if (_tabIndex == 2)
+          Builder(builder: (_) {
+            final hasItems = _notifBodyKey.currentState?.hasItems ?? false;
+            return TextButton(
+              onPressed: hasItems ? () => _notifBodyKey.currentState?.markAllRead() : null,
+              child: Text(
+                'すべて既読',
+                style: TextStyle(
+                  color: hasItems ? JsColors.accent : JsColors.textWeak,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
                 ),
               ),
-          ],
-        ),
-        // 🔔 お知らせ（未読ゴールドバッジ）
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            IconButton(
-              icon: Icon(
-                Icons.notifications_none,
-                color: _unreadCount > 0 ? JsPalette.brand : JsColors.silver,
-              ),
-              tooltip: 'お知らせ',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const NotificationListScreen()),
-              ).then((_) => _loadUnreadCount()),
-            ),
-            if (_unreadCount > 0)
-              Positioned(
-                top: 6,
-                right: 4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  constraints: const BoxConstraints(minWidth: 18),
-                  decoration: BoxDecoration(
-                    color: JsColors.gold,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Text(
-                    _unreadCount > 99 ? '99+' : '$_unreadCount',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: JsPalette.onAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        // ⚙️ 設定ボタン
-        IconButton(
-          icon: const Icon(Icons.settings, color: JsColors.silver),
-          tooltip: '設定',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ProfileScreen()),
-          ).then((_) {
-            _loadCacheAndStart();
-            _loadUnreadCount();
+            );
           }),
-        ),
+        // 設定タブ(3): 旧 ProfileScreen の AppBar アクション（アイコン・色・tooltip は同一）
+        if (_tabIndex == 3 && (_profileBodyKey.currentState?.canEdit ?? false))
+          IconButton(
+            icon: const Icon(Icons.edit, color: JsPalette.brand),
+            tooltip: '編集',
+            onPressed: () => _profileBodyKey.currentState?.openEdit(),
+          ),
       ],
       // 2段目: 上段=会社名（薄・小）、下段=アイコン+氏名（メイン）
       bottom: PreferredSize(
@@ -1675,7 +1688,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               const SizedBox(height: 1),
               Row(
                 children: [
-                  const Icon(Icons.business, color: JsColors.gold, size: 13),
+                  const Icon(Icons.business, color: JsPalette.brand, size: 13),
                   const SizedBox(width: 5),
                   Expanded(
                     child: Text(
@@ -1697,7 +1710,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     );
   }
 
-  // ─── BottomBar ───
+  // ─── BottomBar（全役割共通の4タブ）───
+  // 職長かどうかでタブ数・並びを変えない＝isForeman による分岐をボトムから撤去した。
+  //   0: ホーム / 1: 管理・履歴 / 2: 通知 / 3: 設定
+  // バッジ変数は1つも削除していない。付け替え先:
+  //   _pendingApprovalCount → 「管理・履歴」1つ目（職長のときのみ。承認セグメントがそこに入るため）
+  //   _revisionCount        → 「管理・履歴」2つ目（同上）
+  //   _unreadCount          → 「通知」（AppBar のベルから移設）
+  // BottomAppBar/色/高さ/divider/_BottomTabItem は既存のまま（デザイン変更なし）。
   Widget _buildBottomBar() {
     final divider = Container(width: 1, height: 36, color: JsColors.divider);
     return BottomAppBar(
@@ -1706,50 +1726,38 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       padding: EdgeInsets.zero,
       child: Row(children: [
         _BottomTabItem(
-          icon: Icons.edit_note,
-          label: '日報',
+          icon: Icons.home_outlined,
+          label: 'ホーム',
           active: _tabIndex == 0,
           onTap: () => _setTab(0),
         ),
         divider,
-        if (widget.isForeman) ...[
-          _BottomTabItem(
-            icon: Icons.fact_check,
-            label: '承認・是正',
-            active: _tabIndex == 3,
-            onTap: () => _setTab(3),
-            badge: _pendingApprovalCount,
-            badgeColor: JsColors.success,
-            badge2: _revisionCount,
-            badge2Color: JsColors.warning,
-          ),
-          divider,
-        ],
         _BottomTabItem(
-          icon: Icons.calendar_month,
-          label: '月間履歴',
-          active: _tabIndex == 2,
-          onTap: () => _setTab(2),
+          icon: Icons.list_alt,
+          label: '管理・履歴',
+          active: _tabIndex == 1,
+          onTap: () => _setTab(1),
+          // 職長のときのみバッジ点灯（職人は承認セグメントを持たないため 0＝非表示）
+          badge: widget.isForeman ? _pendingApprovalCount : 0,
+          badgeColor: JsColors.success,
+          badge2: widget.isForeman ? _revisionCount : 0,
+          badge2Color: JsColors.warning,
         ),
         divider,
-        if (widget.isForeman)
-          _BottomTabItem(
-            icon: Icons.bar_chart,
-            label: '管理・集計',
-            active: _tabIndex == 4,
-            onTap: () => _setTab(4),
-          )
-        else
-          _BottomTabItem(
-            icon: Icons.warning_amber_rounded,
-            label: '是正依頼',
-            active: false,
-            badge: _revisionCount,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
-            ).then((_) => _loadRevisionCount()),
-          ),
+        _BottomTabItem(
+          icon: Icons.notifications_none,
+          label: '通知',
+          active: _tabIndex == 2,
+          onTap: () => _setTab(2),
+          badge: _unreadCount,
+        ),
+        divider,
+        _BottomTabItem(
+          icon: Icons.settings_outlined,
+          label: '設定',
+          active: _tabIndex == 3,
+          onTap: () => _setTab(3),
+        ),
       ]),
     );
   }
@@ -2578,6 +2586,27 @@ class ForemanHomeScreen extends StatelessWidget {
 // ─────────────────────────────────────────────
 // BottomTabItem
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 日報フォームの push 先ページ（器のみ）
+//   builder は _JsMainShellState._buildHomeTabContent。フォームの中身は一切持たない。
+//   refresh() は親 State の setState オーバーライド（:392-396）から呼ばれる。
+// ─────────────────────────────────────────────
+class _ReportFormPage extends StatefulWidget {
+  const _ReportFormPage({super.key, required this.builder});
+  final Widget Function() builder;
+  @override
+  State<_ReportFormPage> createState() => _ReportFormPageState();
+}
+
+class _ReportFormPageState extends State<_ReportFormPage> {
+  void refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder();
+}
+
 class _BottomTabItem extends StatelessWidget {
   const _BottomTabItem({
     required this.icon,
@@ -2984,7 +3013,7 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     return AlertDialog(
       backgroundColor: JsColors.surface,
       title: const Text('現場の紐づけ',
-          style: TextStyle(color: JsColors.gold, fontSize: 17)),
+          style: TextStyle(color: JsPalette.brand, fontSize: 17)),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
@@ -4251,20 +4280,23 @@ List<({String label, String? dist, String? cost})> _routeBreakdown(
 // ─────────────────────────────────────────────
 // 職長管理・集計タブ本体（3入口）
 // ─────────────────────────────────────────────
-class _ForemanManagementBody extends StatelessWidget {
-  const _ForemanManagementBody();
+// 公開化（管理・履歴タブから同一実体を呼ぶため）。中身は1行も変更していない。
+class ForemanManagementBody extends StatelessWidget {
+  const ForemanManagementBody({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // 「📅 カレンダー」は撤去した（管理・履歴タブの1つ目が同じ CalendarTab を持つため二重表示だった）。
+    // CalendarTab クラス本体は削除していない（management_history_screen.dart:39 で使用中）。
+    // 「👥 社員」「🏢 協力」の中身（_StaffTab / _CooperationTab）は1行も変更していない。
     return DefaultTabController(
-      length: 3,
+      length: 2,
       child: Column(
         children: [
           Container(
             color: JsColors.gunmetal,
             child: const TabBar(
               tabs: [
-                Tab(text: '📅 カレンダー'),
                 Tab(text: '👥 社員'),
                 Tab(text: '🏢 協力'),
               ],
@@ -4273,7 +4305,6 @@ class _ForemanManagementBody extends StatelessWidget {
           const Expanded(
             child: TabBarView(
               children: [
-                _CalendarTab(),
                 _StaffTab(),
                 _CooperationTab(),
               ],
@@ -4288,13 +4319,14 @@ class _ForemanManagementBody extends StatelessWidget {
 // ─────────────────────────────────────────────
 // 承認・是正タブ（S2）: [承認待ち / 差戻し] の2サブタブ
 // ─────────────────────────────────────────────
-class _ReviewTab extends StatefulWidget {
-  const _ReviewTab();
+// 公開化（管理・履歴タブから同一実体を呼ぶため）。中身は1行も変更していない。
+class ReviewTab extends StatefulWidget {
+  const ReviewTab({super.key});
   @override
-  State<_ReviewTab> createState() => _ReviewTabState();
+  State<ReviewTab> createState() => _ReviewTabState();
 }
 
-class _ReviewTabState extends State<_ReviewTab>
+class _ReviewTabState extends State<ReviewTab>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   // 両サブタブの State へアクセスして再読込するためのキー（同一ライブラリ内解決）。
@@ -5233,22 +5265,58 @@ class _CoopCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 // ① カレンダータブ
 // ─────────────────────────────────────────────
-class _CalendarTab extends StatefulWidget {
-  const _CalendarTab();
+// 曜日ラベル（日=0 起点）。グリッド見出しと選択日ラベルで共有する。
+const List<String> _kWeekLabels = ['日', '月', '火', '水', '木', '金', '土'];
+
+// 公開化（管理・履歴タブから同一実体を呼ぶため）。
+class CalendarTab extends StatefulWidget {
+  const CalendarTab({super.key});
 
   @override
-  State<_CalendarTab> createState() => _CalendarTabState();
+  State<CalendarTab> createState() => _CalendarTabState();
 }
 
-class _CalendarTabState extends State<_CalendarTab> {
+class _CalendarTabState extends State<CalendarTab> {
   DateTime _selectedMonth = DateTime.now();
   List<Map<String, dynamic>> _monthReports = [];
   Set<String> _submittedDates = {};
   bool _monthLoading = false;
   String _myCompanyId = '';
 
+  /// 選択中の日（'YYYY-MM-DD'）。null=未選択。
+  /// 旧実装は _DayCell へ isSelected:false を固定で渡していて選択が機能していなかった。
+  String? _selectedDate;
+
+  // ── 会社休日（GET /attendance/holidays/my）──
+  //   weekly: {"0".."6" → 'legal'|'scheduled'} / dates: {"YYYY-MM-DD" → 'legal'|'scheduled'}
+  //   セル塗り（会社がその日を休みにしているか）にのみ使う。文字色には使わない。
+  Map<String, String> _holidayWeekly = {};
+  Map<String, String> _holidayDates  = {};
+  bool _holidayFailed = false;
+
+  // ── 自分の休み（GET /rest-days/my?month=）──
+  //   'YYYY-MM-DD' → portion('full'|'am_half'|'pm_half') / reason
+  Map<String, Map<String, dynamic>> _myRestDays = {};
+  bool _restFailed = false;
+
+  // ── 日本の祝日（GET /attendance/holidays/jp?year=）──
+  //   ★値は【祝日名の文字列】。holidays/my の 'legal'|'scheduled' とは別物。
+  //   文字色（朱）の判定にのみ使い、会社の休業設定とは無関係（OFFICE
+  //   holiday_calendar_screen.dart:24-33 の裁定と同一の思想）。
+  //   取得は年単位。成功した年だけ _jpYearsLoaded に入れる＝失敗年は再訪で再試行される。
+  final Map<String, String> _jpHolidays  = {};
+  final Set<int> _jpYearsLoaded  = {};
+  final Set<int> _jpYearsLoading = {};
+  bool _jpFailed = false;
+
+  // 日報取得の失敗（旧実装は catch で握り潰して空表示だった＝沈黙障害）
+  bool _reportsFailed = false;
+
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
+
+  static String _ymd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   @override
   void initState() {
@@ -5266,6 +5334,7 @@ class _CalendarTabState extends State<_CalendarTab> {
     setState(() {
       _selectedMonth =
           DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+      _selectedDate = null; // 月をまたいだ選択は持ち越さない
     });
     _loadMonth();
   }
@@ -5279,16 +5348,40 @@ class _CalendarTabState extends State<_CalendarTab> {
     setState(() {
       _selectedMonth =
           DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+      _selectedDate = null;
     });
     _loadMonth();
   }
 
+  // ── 月切替のたびに3本を並列取得（fail-soft）──────────────────
+  //   ・日報 / 会社休日 / 自分の休み を Future.wait で同時に投げる。
+  //   ・どれか1本が失敗しても他は描画する。失敗したものは _*Failed を立て、
+  //     画面上部の注意バー（_buildFailureBar）で必ず可視化する（黙って空にしない）。
+  //   ・祝日は「年単位」なので月ではなく年が変わったときだけ追加取得する。
   Future<void> _loadMonth() async {
     setState(() {
-      _monthLoading = true;
-      _monthReports = [];
+      _monthLoading   = true;
+      _monthReports   = [];
       _submittedDates = {};
+      _reportsFailed  = false;
+      _holidayFailed  = false;
+      _restFailed     = false;
     });
+
+    await Future.wait([
+      _loadReports(),
+      _loadCompanyHolidays(),
+      _loadMyRestDays(),
+    ]);
+
+    if (!mounted) return;
+    setState(() => _monthLoading = false);
+    // 祝日は年単位（月ではない）。2026-12 → 2027-01 のような年跨ぎで追加取得される。
+    _ensureJpHolidays(_selectedMonth.year);
+  }
+
+  // 日報（既存のまま GET /reports?date=YYYY-MM&limit=300）
+  Future<void> _loadReports() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
@@ -5315,16 +5408,65 @@ class _CalendarTabState extends State<_CalendarTab> {
             .where((d) => d.isNotEmpty)
             .toSet();
         setState(() {
-          _monthReports = enriched;
+          _monthReports   = enriched;
           _submittedDates = dates;
-          _monthLoading = false;
         });
       } else {
-        setState(() => _monthLoading = false);
+        debugPrint('reports 非200: status=${res.statusCode}');
+        setState(() => _reportsFailed = true);
       }
-    } catch (_) {
-      if (mounted) setState(() => _monthLoading = false);
+    } catch (e) {
+      debugPrint('reports 取得失敗: $e');
+      if (mounted) setState(() => _reportsFailed = true);
     }
+  }
+
+  // 会社休日（GET /attendance/holidays/my）
+  Future<void> _loadCompanyHolidays() async {
+    final res = await WorkModeService.instance.fetchCompanyHolidays();
+    if (!mounted) return;
+    setState(() {
+      _holidayWeekly = res.weekly;
+      _holidayDates  = res.dates;
+      _holidayFailed = !res.ok;
+    });
+  }
+
+  // 自分の休み（GET /rest-days/my?month=）
+  Future<void> _loadMyRestDays() async {
+    final res = await ReportsService().getRestDaysMy(_monthStr);
+    if (!mounted) return;
+    if (res['success'] == true) {
+      final map = <String, Map<String, dynamic>>{};
+      for (final d in (res['days'] as List? ?? [])) {
+        final m = Map<String, dynamic>.from(d as Map);
+        final date = m['rest_date'] as String? ?? '';
+        if (date.isNotEmpty) map[date] = m;
+      }
+      setState(() {
+        _myRestDays = map;
+        _restFailed = false;
+      });
+    } else {
+      setState(() => _restFailed = true);
+    }
+  }
+
+  // 祝日（年単位・成功した年は再取得しない）
+  Future<void> _ensureJpHolidays(int year) async {
+    if (_jpYearsLoaded.contains(year) || _jpYearsLoading.contains(year)) return;
+    _jpYearsLoading.add(year);
+    final res = await WorkModeService.instance.fetchJpHolidays(year);
+    _jpYearsLoading.remove(year);
+    if (!mounted) return;
+    setState(() {
+      if (res.ok) {
+        _jpHolidays.addAll(res.dates);
+        _jpYearsLoaded.add(year);
+      } else {
+        _jpFailed = true; // 祝日色なしで描画を続行する（操作は止めない）
+      }
+    });
   }
 
   @override
@@ -5342,7 +5484,7 @@ class _CalendarTabState extends State<_CalendarTab> {
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                icon: const Icon(Icons.chevron_left, color: JsPalette.brand),
                 onPressed: _prevMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -5351,7 +5493,7 @@ class _CalendarTabState extends State<_CalendarTab> {
                   child: Text(
                     '${_selectedMonth.year}年${_selectedMonth.month}月',
                     style: const TextStyle(
-                        color: JsColors.offWhite,
+                        color: JsPalette.brand,
                         fontSize: 17,
                         fontWeight: FontWeight.bold),
                   ),
@@ -5359,7 +5501,7 @@ class _CalendarTabState extends State<_CalendarTab> {
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? JsColors.silver : JsColors.gold),
+                    color: isCurrentMonth ? JsColors.silver : JsPalette.brand),
                 onPressed: isCurrentMonth ? null : _nextMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -5372,6 +5514,8 @@ class _CalendarTabState extends State<_CalendarTab> {
             ],
           ),
         ),
+        // ② 取得失敗の可視化（黙って空にしない）
+        _buildFailureBar(),
         // ③ カレンダーグリッド
         _monthLoading
             ? const Padding(
@@ -5379,35 +5523,80 @@ class _CalendarTabState extends State<_CalendarTab> {
                 child: Center(
                     child: CircularProgressIndicator(color: JsColors.gold)))
             : _buildCalendarGrid(),
-        // ④ 日別詳細
+        // ④ 選択日の詳細（旧「日付をタップして日報を確認」のヒントを置換）
         const Divider(height: 1, color: JsColors.divider),
         Expanded(
-          child: _buildHint(),
+          child: _buildSelectedDay(),
         ),
       ],
     );
   }
 
+  // ── 取得失敗バー ────────────────────────────────────────────
+  // fail-soft の相方。取れなかったものを必ず名指しで出す（沈黙障害の禁止）。
+  Widget _buildFailureBar() {
+    final failed = <String>[
+      if (_reportsFailed) '日報',
+      if (_holidayFailed) '会社休日',
+      if (_restFailed)    '自分の休み',
+      if (_jpFailed)      '祝日',
+    ];
+    if (failed.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      color: JsColors.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(children: [
+        const Icon(Icons.error_outline, color: JsColors.warning, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text('${failed.join('・')}を取得できませんでした',
+              style: const TextStyle(color: JsColors.warning, fontSize: 12)),
+        ),
+        GestureDetector(
+          onTap: _loadMonth,
+          behavior: HitTestBehavior.opaque,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Text('再試行',
+                style: TextStyle(
+                    color: JsColors.accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  // その日が会社の休業日か（holiday_def の dates 優先 → weekly）。
+  // 返り値は 'legal'|'scheduled'|null。セル塗りの判定にのみ使う。
+  String? _companyHolidayType(String ds, int weekdayIdx) =>
+      _holidayDates[ds] ?? _holidayWeekly['$weekdayIdx'];
+
   Widget _buildCalendarGrid() {
-    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    // (a) 日曜始まり。ヘッダも日→土。
+    const weekdays = _kWeekLabels;
     final now      = DateTime.now();
     final firstDay = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
     final lastDay  =
         DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
-    final startOffset = firstDay.weekday - 1; // 月曜始まり
+    // DateTime.weekday は 月=1..日=7。%7 で 日=0..土=6 になる（OFFICE
+    // holiday_calendar_screen.dart:516 と同一の作り方）。
+    final startOffset = firstDay.weekday % 7;
     final rowCount = ((startOffset + lastDay.day) / 7).ceil();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
       child: Table(
         children: [
-          // 曜日ヘッダー
+          // 曜日ヘッダー（日=0 起点。色は本文の文字色ルールと揃える）
           TableRow(
             children: weekdays.asMap().entries.map((e) {
-              final color = e.key == 5
-                  ? const Color(0xFF90CAF9)
+              final color = e.key == 0
+                  ? JsColors.error          // 日曜=赤
                   : e.key == 6
-                      ? const Color(0xFFEF9A9A)
+                      ? JsPalette.saturday  // 土曜=水色
                       : JsColors.silver;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 5),
@@ -5432,31 +5621,27 @@ class _CalendarTabState extends State<_CalendarTab> {
                 }
                 final date = DateTime(
                     _selectedMonth.year, _selectedMonth.month, dayNum);
-                final ds =
-                    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                final ds = _ymd(date);
+                // (d) 文字色は【実曜日】で判定する。列位置(col)では判定しない。
+                //     日曜始まりなので col と一致はするが、判定の根拠を日付側に置く。
+                final weekdayIdx = date.weekday % 7; // 日=0..土=6
                 final isToday = date.year == now.year &&
                     date.month == now.month &&
                     date.day == now.day;
-                final dayReps = _monthReports
-                    .where((r) => r['report_date'] == ds)
-                    .toList();
+                final rest = _myRestDays[ds];
                 return _DayCell(
                   day: dayNum,
                   hasReport: _submittedDates.contains(ds),
-                  isSelected: false,
+                  isSelected: _selectedDate == ds,
                   isToday: isToday,
-                  isSaturday: col == 5,
-                  isSunday: col == 6,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DayReportsScreen(
-                        date: date,
-                        reports: dayReps,
-                        myCompanyId: _myCompanyId,
-                      ),
-                    ),
-                  ),
+                  isSunday:  weekdayIdx == 0,
+                  isSaturday: weekdayIdx == 6,
+                  isJpHoliday: _jpHolidays.containsKey(ds),
+                  isCompanyHoliday: _companyHolidayType(ds, weekdayIdx) != null,
+                  restPortion: rest?['portion'] as String?,
+                  // タップは「選択」。日報へは下の詳細パネルの導線から行く
+                  // （DayReportsScreen への遷移は削除していない・_buildSelectedDay 参照）。
+                  onTap: () => setState(() => _selectedDate = ds),
                 );
               }),
             ),
@@ -5465,23 +5650,132 @@ class _CalendarTabState extends State<_CalendarTab> {
     );
   }
 
-  Widget _buildHint() => const Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.touch_app_outlined, color: JsColors.silver, size: 32),
-        SizedBox(height: 8),
-        Text('日付をタップして日報を確認',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
-      ],
-    ),
-  );
+  // ── (e) 選択日の詳細 ────────────────────────────────────────
+  // 表示: 会社休み / 自分の休み（終日・午前休・午後休）/ 日報の有無。
+  // 旧「日付をタップして日報を確認」のヒント（旧 :5644-5654）はこれに置き換えた。
+  // ★DayReportsScreen への遷移は削除せず、日報がある日は必ずここから行ける。
+  Widget _buildSelectedDay() {
+    final ds = _selectedDate;
+    if (ds == null) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.touch_app_outlined, color: JsColors.silver, size: 32),
+            SizedBox(height: 8),
+            Text('日付をタップすると内容を表示します',
+                style: TextStyle(color: JsColors.silver, fontSize: 13)),
+          ],
+        ),
+      );
+    }
+
+    final parts = ds.split('-').map(int.parse).toList();
+    final date  = DateTime(parts[0], parts[1], parts[2]);
+    final weekdayIdx = date.weekday % 7;
+    final holidayType = _companyHolidayType(ds, weekdayIdx);
+    final rest = _myRestDays[ds];
+    final dayReps = _monthReports.where((r) => r['report_date'] == ds).toList();
+    final jpName = _jpHolidays[ds];
+
+    String restLabel(String? portion) {
+      switch (portion) {
+        case 'am_half': return '午前休';
+        case 'pm_half': return '午後休';
+        default:        return '終日休み';
+      }
+    }
+
+    Widget row(IconData icon, Color color, String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(
+                      color: JsColors.textStrong, fontSize: 13)),
+            ),
+          ]),
+        );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+              '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）',
+              style: const TextStyle(
+                  color: JsColors.textStrong,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+
+          // 祝日名（あれば）。会社の休業設定とは独立した「その日の性質」。
+          if (jpName != null) row(Icons.flag_outlined, JsPalette.holidayText, '祝日：$jpName'),
+
+          // 会社休み
+          if (holidayType != null)
+            row(Icons.business_outlined, JsColors.error,
+                '会社休み（${holidayType == 'legal' ? '法定休日' : '所定休日'}）')
+          else
+            row(Icons.business_outlined, JsColors.silver, '会社休み：なし'),
+
+          // 自分の休み
+          if (rest != null)
+            row(Icons.event_busy_outlined, JsColors.accent,
+                '自分の休み：${restLabel(rest['portion'] as String?)}'
+                '${(rest['reason'] as String?) != null ? '（${rest['reason']}）' : ''}')
+          else
+            row(Icons.event_available_outlined, JsColors.silver, '自分の休み：なし'),
+
+          // 日報の有無 ＋ DayReportsScreen への導線（既存遷移を維持）
+          if (dayReps.isNotEmpty) ...[
+            row(Icons.description_outlined, JsColors.gold,
+                '日報：${dayReps.length}件'),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DayReportsScreen(
+                      date: date,
+                      reports: dayReps,
+                      myCompanyId: _myCompanyId,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('日報を確認'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  side: const BorderSide(
+                      color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                ),
+              ),
+            ),
+          ] else
+            row(Icons.description_outlined, JsColors.silver, '日報：なし'),
+        ],
+      ),
+    );
+  }
 
 }
 
 // ─────────────────────────────────────────────
 // カレンダーのセル
 // ─────────────────────────────────────────────
+// 意味の役割分離（この5つは互いに独立し、同時に出てよい）:
+//   セル塗り   = 会社の休業日（isCompanyHoliday）
+//   実線リング = 自分の休み full（restPortion=='full'）
+//   破線リング = 自分の休み 半休（am_half / pm_half）
+//   ドット     = 日報提出済（hasReport）
+//   今日=金の枠 / 選択中=本文色の枠
+// 文字色は「その日の性質」であり休日設定とは無関係に固定（OFFICE
+// holiday_calendar_screen.dart:24-33 の裁定と同一）。優先順は 日曜 ＞ 祝日 ＞ 土曜 ＞ 平日。
 class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.day,
@@ -5490,6 +5784,9 @@ class _DayCell extends StatelessWidget {
     required this.isToday,
     this.isSaturday = false,
     this.isSunday = false,
+    this.isJpHoliday = false,
+    this.isCompanyHoliday = false,
+    this.restPortion,
     required this.onTap,
   });
   final int day;
@@ -5498,60 +5795,131 @@ class _DayCell extends StatelessWidget {
   final bool isToday;
   final bool isSaturday;
   final bool isSunday;
+  /// 内閣府データ由来の祝日か（文字色＝朱の判定にのみ使う）
+  final bool isJpHoliday;
+  /// 会社がその日を休みにしているか（セル塗りの判定にのみ使う）
+  final bool isCompanyHoliday;
+  /// 自分の休み。null=休みなし / 'full' / 'am_half' / 'pm_half'
+  final String? restPortion;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    // (d) 文字色: 日曜赤 ＞ 祝日朱 ＞ 土曜水色 ＞ 平日。判定は呼び出し側が実曜日で作る。
     final Color textColor = isSunday
-        ? const Color(0xFFEF9A9A)
-        : isSaturday
-            ? const Color(0xFF90CAF9)
-            : JsColors.offWhite;
+        ? JsColors.error
+        : isJpHoliday
+            ? JsPalette.holidayText
+            : isSaturday
+                ? JsPalette.saturday
+                : JsColors.offWhite;
+
+    final hasRest  = restPortion != null;
+    final fullRest = restPortion == 'full';
 
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
         height: 48,
         margin: const EdgeInsets.all(1),
         decoration: BoxDecoration(
-          color: isSelected
-              ? JsColors.gold.withValues(alpha: 0.2)
+          // セル塗り＝会社休業日のみ（選択の表現には使わない＝意味を混ぜない）
+          color: isCompanyHoliday
+              ? JsColors.error.withValues(alpha: 0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: isToday
-              ? Border.all(color: JsColors.gold, width: 1.5)
-              : null,
+          // 選択＝本文色の枠2px / 今日＝淡い金の枠1.5px（顔＝brand）
+          border: isSelected
+              ? Border.all(color: JsColors.offWhite, width: 2)
+              : isToday
+                  ? Border.all(color: JsPalette.brand, width: 1.5)
+                  : null,
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Text(
-              '$day',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 13,
-                fontWeight: (isToday || isSelected)
-                    ? FontWeight.bold
-                    : FontWeight.normal,
-              ),
-            ),
-            if (hasReport)
-              Container(
-                width: 5,
-                height: 5,
-                margin: const EdgeInsets.only(top: 2),
-                decoration: const BoxDecoration(
-                  color: JsColors.gold,
-                  shape: BoxShape.circle,
+            // 自分の休み: full=実線リング / 半休=破線リング
+            if (hasRest)
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: fullRest
+                      ? const DecoratedBox(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.fromBorderSide(
+                                BorderSide(color: JsColors.accent, width: 1.5)),
+                          ),
+                        )
+                      : const CustomPaint(
+                          painter: _DashedRingPainter(color: JsColors.accent),
+                        ),
                 ),
-              )
-            else
-              const SizedBox(height: 7),
+              ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '$day',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 13,
+                    fontWeight: (isToday || isSelected)
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                if (hasReport)
+                  Container(
+                    width: 5,
+                    height: 5,
+                    margin: const EdgeInsets.only(top: 2),
+                    // 日報提出済ドット＝【ポイント】。値は不変（gold は accent の別名）だが
+                    // 意味の正しい名前へ寄せる。
+                    decoration: const BoxDecoration(
+                      color: JsColors.accent,
+                      shape: BoxShape.circle,
+                    ),
+                  )
+                else
+                  const SizedBox(height: 7),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+// 破線リング（半休の表現）。Flutter に破線 Border が無いため最小の自前描画。
+// 色は呼び出し側から既存トークンを受け取るだけで、新しい色は定義しない。
+class _DashedRingPainter extends CustomPainter {
+  const _DashedRingPainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final path = Path()
+      ..addOval(Rect.fromLTWH(0, 0, size.width, size.height));
+    const dash = 3.0, gap = 3.0;
+    for (final metric in path.computeMetrics()) {
+      double d = 0;
+      while (d < metric.length) {
+        final end = min(d + dash, metric.length);
+        canvas.drawPath(metric.extractPath(d, end), paint);
+        d = end + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRingPainter old) => old.color != color;
 }
 
 // ─────────────────────────────────────────────
@@ -5566,14 +5934,14 @@ class ForemanManagementScreen extends StatelessWidget {
       backgroundColor: JsColors.black,
       appBar: AppBar(
         backgroundColor: JsColors.black,
-        iconTheme: const IconThemeData(color: JsColors.gold),
+        iconTheme: const IconThemeData(color: JsPalette.brand),
         title: const Text('管理・集計',
             style: TextStyle(
-                color: JsColors.gold,
+                color: JsPalette.brand,
                 fontSize: 18,
                 fontWeight: FontWeight.bold)),
       ),
-      body: const _ForemanManagementBody(),
+      body: const ForemanManagementBody(),
     );
   }
 }

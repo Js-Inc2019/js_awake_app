@@ -3,6 +3,7 @@
 // ============================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 import '../config/constants.dart';
@@ -196,6 +197,40 @@ class ReportsService {
   // 本日休み（rest_days）— GET/POST/PATCH/DELETE の4本。
   // 非200は握り潰さず success:false + statusCode + code(BE error_code) を返す。
   // ============================================================
+
+  // GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
+  // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js:276）。
+  // 取消済(cancelled_at)は BE 側で除外済み＝返るのは「いま有効な休み」だけ。
+  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、success:false で呼び出し側へ返す。
+  Future<Map<String, dynamic>> getRestDaysMy(String month) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/my?month=$month'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'days': ((data['days'] as List?) ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        };
+      }
+      debugPrint('rest-days/my 非200: status=${response.statusCode} code=${data['code']}');
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'code':       data['code'],
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      debugPrint('rest-days/my 取得失敗: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
 
   // GET /rest-days/today → { rested: bool, reason: string|null }
   Future<Map<String, dynamic>> getRestDayToday() async {

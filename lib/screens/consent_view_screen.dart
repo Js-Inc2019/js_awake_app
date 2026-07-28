@@ -70,7 +70,7 @@ class ConsentViewScreen extends StatelessWidget {
         foregroundColor: JsColors.textStrong,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: JsColors.gold),
+          icon: const Icon(Icons.arrow_back_ios, color: JsPalette.brand),
           onPressed: () => Navigator.pop(context),
         ),
       ),
