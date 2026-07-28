@@ -166,6 +166,38 @@ class ReportsService {
   // 日報一覧取得（会社スコープ・BEは {success, reports:[...]} を返す）
   // ============================================================
 
+  // GET /reports?date=YYYY-MM&limit=300 — 月指定で取得する（承認タブの日付一覧用）。
+  // 既存 getReports(:180) は limit のみで直近50件しか取れず、承認待ちが51件目以降に
+  // あると見えなかった。月指定でその構造的な取りこぼしを解消する。
+  // ★既存 getReports は1文字も変更していない（別メソッドとして追加）。
+  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、success:false で返す。
+  Future<Map<String, dynamic>> getReportsByMonth(String month, {int limit = 300}) async {
+    try {
+      final headers = await _auth.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/reports?date=$month&limit=$limit'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'reports': (data['reports'] as List?) ?? [],
+        };
+      }
+      debugPrint('reports?date=$month 非200: status=${response.statusCode}');
+      return {
+        'success':    false,
+        'error':      data['error'] ?? 'エラー',
+        'statusCode': response.statusCode,
+      };
+    } catch (e) {
+      debugPrint('reports?date=$month 取得失敗: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   Future<Map<String, dynamic>> getReports({int limit = 50}) async {
     try {
       final headers = await _auth.getAuthHeaders();

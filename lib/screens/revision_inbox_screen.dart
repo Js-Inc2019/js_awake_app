@@ -133,7 +133,7 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
                     // （編集画面へは本人のみ＝フェイルセーフ。職長が他人の差戻しを見る場合も閲覧）。
                     final isMine =
                         _myUserId != null && rev['user_id'] == _myUserId;
-                    return _RevisionCard(
+                    return RevisionCard(
                       revision: rev,
                       isMine: isMine,
                       onResubmit: () async {
@@ -209,8 +209,9 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
   }
 }
 
-class _RevisionCard extends StatelessWidget {
-  const _RevisionCard({required this.revision, required this.onResubmit, this.isMine = false});
+// 公開化（承認タブの日付一覧画面から同一実体を呼ぶため）。中身は1行も変更していない。
+class RevisionCard extends StatelessWidget {
+  const RevisionCard({super.key, required this.revision, required this.onResubmit, this.isMine = false});
   final Map<String, dynamic> revision;
   final VoidCallback onResubmit;
   final bool isMine; // 提出者本人か（本人=編集導線／他人=閲覧導線）

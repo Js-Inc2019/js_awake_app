@@ -30,6 +30,8 @@ import '../main.dart'
         API_URL;
 import '../core/theme/js_colors.dart';
 import 'revision_inbox_screen.dart';
+// 承認タブ（ReviewTab）の日付行タップで開く「その日の報告」画面。
+import 'approval_day_screen.dart';
 import 'site_quick_register_screen.dart';
 // company_link_screen.dart の import は撤去（AppBar の 🤝 協力申請アイコンを撤去し
 // 当ファイルからの参照が無くなったため。ファイル本体は削除していない）。
@@ -4317,147 +4319,271 @@ class ForemanManagementBody extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// 承認・是正タブ（S2）: [承認待ち / 差戻し] の2サブタブ
+// 承認タブ: 対応が必要な報告を「日付ごとの1行」で並べる
 // ─────────────────────────────────────────────
-// 公開化（管理・履歴タブから同一実体を呼ぶため）。中身は1行も変更していない。
+// 旧実装は [承認待ち/差戻し] の2サブタブで、承認待ち側は getReports(limit:50)＝
+// 直近50件しか取れず、承認待ちが51件目以降にあると表示されない構造だった。
+// 月指定（GET /reports?date=YYYY-MM&limit=300）に変えてこれを解消する。
+// 抽出条件（判定式）は旧実装のものをそのまま使う。
 class ReviewTab extends StatefulWidget {
   const ReviewTab({super.key});
   @override
   State<ReviewTab> createState() => _ReviewTabState();
 }
 
-class _ReviewTabState extends State<ReviewTab>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tab;
-  // 両サブタブの State へアクセスして再読込するためのキー（同一ライブラリ内解決）。
-  final GlobalKey<_PendingApprovalTabState> _pendingKey =
-      GlobalKey<_PendingApprovalTabState>();
-  final GlobalKey<RevisionInboxBodyState> _revisionKey =
-      GlobalKey<RevisionInboxBodyState>();
+class _ReviewTabState extends State<ReviewTab> {
+  DateTime _selectedMonth = DateTime.now();
+  List<Map<String, dynamic>> _targets = []; // 承認待ち＋差し戻し
+  bool _loading = false;
+  bool _failed  = false;
+
+  String get _monthStr =>
+      '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
 
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 2, vsync: this);
-    _tab.addListener(_onTabSettled);
+    _load();
   }
 
-  // (i) サブタブがアクティブになるたび、そのリストを再読込（stale 表示の防止）。
-  void _onTabSettled() {
-    if (_tab.indexIsChanging) return;
-    if (_tab.index == 0) {
-      _pendingKey.currentState?.reload();
-    } else {
-      _revisionKey.currentState?.reload();
+  // 月ナビ（CalendarTab:5333-5356 の流儀に揃える）
+  void _prevMonth() {
+    setState(() =>
+        _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
+    _load();
+  }
+
+  void _nextMonth() {
+    final now = DateTime.now();
+    if (_selectedMonth.year == now.year && _selectedMonth.month == now.month) {
+      return;
     }
+    setState(() =>
+        _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1));
+    _load();
   }
 
-  // (ii) 承認/修正依頼の操作成功後、両リストを再読込（相互の残存を解消）。
-  void _reloadBoth() {
-    _pendingKey.currentState?.reload();
-    _revisionKey.currentState?.reload();
-  }
+  // 抽出条件は旧実装の判定式をそのまま使う。
+  //   承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない（旧 _loadPending:4426-4431）
+  //   差し戻し＝revision_requested==true（旧 RevisionInboxBody の ?revision_requested=true）
+  static bool _isPending(Map<String, dynamic> r) =>
+      r['is_sent'] == true &&
+      r['approved'] != true &&
+      r['revision_requested'] != true;
+  static bool _isRevision(Map<String, dynamic> r) =>
+      r['revision_requested'] == true;
 
-  @override
-  void dispose() {
-    _tab.removeListener(_onTabSettled);
-    _tab.dispose();
-    super.dispose();
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _failed  = false;
+      _targets = [];
+    });
+    final result = await ReportsService().getReportsByMonth(_monthStr);
+    if (!mounted) return;
+    if (result['success'] == true) {
+      final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
+      final targets = raw
+          .where((r) => _isPending(r) || _isRevision(r))
+          .map((r) => {
+                ...r,
+                'status': _isRevision(r) ? 'rejected' : 'pending',
+              })
+          .toList();
+      setState(() {
+        _targets = targets;
+        _loading = false;
+      });
+    } else {
+      setState(() {
+        _loading = false;
+        _failed  = true;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrentMonth =
+        _selectedMonth.year == now.year && _selectedMonth.month == now.month;
+
+    // 日付グループ化（monthly_history_screen.dart:118-124 と同じ作り方・新しい順）
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final r in _targets) {
+      final key = r['report_date'] as String? ?? '';
+      if (key.isEmpty) continue;
+      grouped.putIfAbsent(key, () => []).add(r);
+    }
+    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
     return Column(
       children: [
+        // 月ナビ（CalendarTab:5482-5514 の流儀）
         Container(
           color: JsColors.gunmetal,
-          child: TabBar(
-            controller: _tab,
-            tabs: const [
-              Tab(text: '承認待ち'),
-              Tab(text: '差戻し'),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: JsPalette.brand),
+                onPressed: _prevMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '${_selectedMonth.year}年${_selectedMonth.month}月',
+                    style: const TextStyle(
+                        color: JsPalette.brand,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.chevron_right,
+                    color: isCurrentMonth ? JsColors.silver : JsPalette.brand),
+                onPressed: isCurrentMonth ? null : _nextMonth,
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: JsColors.silver, size: 18),
+                onPressed: _load,
+                visualDensity: VisualDensity.compact,
+              ),
             ],
           ),
         ),
         Expanded(
-          child: TabBarView(
-            controller: _tab,
-            children: [
-              _PendingApprovalTab(key: _pendingKey, onActionSuccess: _reloadBoth),
-              RevisionInboxBody(key: _revisionKey, isForeman: true),
-            ],
-          ),
+          child: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: JsColors.gold))
+              : _failed
+                  ? _failView()
+                  : sortedDates.isEmpty
+                      ? const Center(
+                          child: Text('対応が必要な報告はありません',
+                              style: TextStyle(
+                                  color: JsColors.silver, fontSize: 13)),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: sortedDates.length,
+                          itemBuilder: (_, i) {
+                            final ds = sortedDates[i];
+                            return _dayRow(ds, grouped[ds]!);
+                          },
+                        ),
         ),
       ],
     );
   }
-}
 
-// ─────────────────────────────────────────────
-// ④ 承認待ちタブ（P4-2 STEP3a: 一覧表示のみ。承認/差戻し・写真は後続STEP）
-// ─────────────────────────────────────────────
-class _PendingApprovalTab extends StatefulWidget {
-  const _PendingApprovalTab({super.key, this.onActionSuccess});
-  // 承認/修正依頼の成功後に呼ぶ（親 _ReviewTab が両リスト再読込に配線）。
-  final VoidCallback? onActionSuccess;
-  @override
-  State<_PendingApprovalTab> createState() => _PendingApprovalTabState();
-}
-
-class _PendingApprovalTabState extends State<_PendingApprovalTab> {
-  List<Map<String, dynamic>> _pending = [];
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPending();
-  }
-
-  // 親（_ReviewTab）からの再読込用に公開。
-  void reload() => _loadPending();
-
-  Future<void> _loadPending() async {
-    setState(() => _loading = true);
-    final result = await ReportsService().getReports(limit: 50);
-    if (!mounted) return;
-    if (result['success'] == true) {
-      final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
-      // 承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない
-      final pending = raw
-          .where((r) =>
-              r['is_sent'] == true &&
-              r['approved'] != true &&
-              r['revision_requested'] != true)
-          .map((r) => {...r, 'status': 'pending'})
-          .toList();
-      setState(() {
-        _pending = pending;
-        _loading = false;
-      });
-    } else {
-      setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: JsColors.gold));
-    }
-    if (_pending.isEmpty) {
-      return const Center(
-        child: Text('承認待ちの日報はありません',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+  Widget _failView() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: JsColors.warning, size: 32),
+            const SizedBox(height: 8),
+            const Text('報告を取得できませんでした',
+                style: TextStyle(color: JsColors.warning, fontSize: 13)),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('再試行'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: JsFormTokens.outlineButtonBorder,
+                side: const BorderSide(
+                    color: JsFormTokens.outlineButtonBorder, width: 1.5),
+              ),
+            ),
+          ],
+        ),
       );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _pending.length,
-      itemBuilder: (context, i) => _pendingCard(context, _pending[i]),
+
+  // 1行 = 1日。件数0の日はそもそも grouped に現れないため行が作られない。
+  //   例: 7/27（月）　3件　承認待ち2 差し戻し1
+  //   内訳は0のものを出さない。
+  Widget _dayRow(String ds, List<Map<String, dynamic>> reps) {
+    final parts = ds.split('-').map(int.parse).toList();
+    final date  = DateTime(parts[0], parts[1], parts[2]);
+    final pendingCount  = reps.where(_isPending).length;
+    final revisionCount = reps.where(_isRevision).length;
+
+    return GestureDetector(
+      onTap: () async {
+        final changed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ApprovalDayScreen(date: date, reports: reps),
+          ),
+        );
+        if (changed == true) _load(); // 旧 _reloadBoth 相当（呼び出し元も最新化）
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: JsColors.gunmetal,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Text('${date.month}/${date.day}（${_kWeekLabels[date.weekday % 7]}）',
+                style: const TextStyle(
+                    color: JsColors.offWhite,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(width: 12),
+            Text('${reps.length}件',
+                style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+            const Spacer(),
+            // 内訳は0のものを出さない
+            if (pendingCount > 0)
+              Text('承認待ち$pendingCount',
+                  style: const TextStyle(
+                      color: JsColors.silver,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            if (pendingCount > 0 && revisionCount > 0)
+              const SizedBox(width: 8),
+            if (revisionCount > 0)
+              Text('差し戻し$revisionCount',
+                  style: const TextStyle(
+                      color: JsColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          ],
+        ),
+      ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// ④ 承認待ちカード（旧 _PendingApprovalTabState._pendingCard を公開ウィジェット化）
+// ─────────────────────────────────────────────
+// ★承認/修正依頼の判定式・API 呼び出し・確認ダイアログ（OriginConfirmDialog /
+//   _SiteLinkGateDialog / RevisionReasonDialog）は1文字も変更していない。
+//   変更したのは「成功後に呼ぶ再読込コールバック」だけ:
+//     旧 (widget.onActionSuccess ?? _loadPending)()  … タブ自身が一覧を保持していたため
+//     新 onActionSuccess()                           … 一覧は呼び出し元（画面）が保持する
+//   一覧の取得（旧 _loadPending の getReports(limit: 50)）は
+//   ReviewTab / ApprovalDayScreen 側へ移した（月指定に変更）。
+class PendingApprovalCard extends StatelessWidget {
+  const PendingApprovalCard({
+    super.key,
+    required this.report,
+    required this.onActionSuccess,
+  });
+  final Map<String, dynamic> report;
+  // 承認/修正依頼の成功後に呼ぶ（呼び出し元が一覧を再読込する）。
+  final VoidCallback onActionSuccess;
 
   // 読み取り専用の日報詳細ボトムシートを開く（根因a対策：承認待ちカードの詳細導線）。
   void _openDetail(BuildContext context, Map<String, dynamic> r) {
@@ -4473,7 +4599,9 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
   }
 
   // カード1件: 共有部品 JsReportTile(非改変) に写真とアクション行を合成。
-  Widget _pendingCard(BuildContext context, Map<String, dynamic> r) {
+  @override
+  Widget build(BuildContext context) {
+    final r = report;
     final reportId = r['report_id']?.toString() ?? '';
     bool sending = false;
     // カード本体タップで詳細シートを開く。承認/修正依頼ボタンは自前でタップを消費するため干渉しない。
@@ -4572,7 +4700,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                                       ok ? JsColors.success : JsColors.error,
                                 ),
                               );
-                              if (ok) (widget.onActionSuccess ?? _loadPending)();
+                              if (ok) onActionSuccess();
                             }
                             if (context.mounted) {
                               setSending(() => sending = false);
@@ -4619,7 +4747,7 @@ class _PendingApprovalTabState extends State<_PendingApprovalTab> {
                                       ok ? JsColors.warning : JsColors.error,
                                 ),
                               );
-                              if (ok) (widget.onActionSuccess ?? _loadPending)();
+                              if (ok) onActionSuccess();
                             }
                             if (context.mounted) {
                               setSending(() => sending = false);
