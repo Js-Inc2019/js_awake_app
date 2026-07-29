@@ -125,6 +125,10 @@ class WorkerReportItem {
     this.workContent = '',
     List<String>? workPhotoPaths,
     this.gpsAddress = '',
+    // 提出時点の座標（BE: POST /reports の gps_lat / gps_lon → appendEvent の監査イベント）。
+    // null = 測位できていない＝送らない（既存の siteId と同じ流儀）。
+    this.gpsLat,
+    this.gpsLon,
     this.originType = 'home',
     this.siteId,
     this.shiftType = 'day',   // 'day'|'night'（BE: shift_type・省略時'day'扱い）
@@ -155,6 +159,8 @@ class WorkerReportItem {
   final String workContent;
   final List<String> workPhotoPaths;    // 作業(site)：複数
   final String gpsAddress;
+  final double? gpsLat;   // 提出時点の緯度（null=未測位＝送らない）
+  final double? gpsLon;   // 提出時点の経度（同上）
   final String originType;
   final String? siteId;   // 作業現場（null=対象なし／未選択）
   final String shiftType; // 'day'|'night'（業務日の夜勤補正とBE送出に使用）
@@ -195,6 +201,8 @@ class WorkerReportItem {
     'workContent':      workContent,
     'workPhotoPaths':   workPhotoPaths,
     'gpsAddress':       gpsAddress,
+    'gpsLat':           gpsLat,
+    'gpsLon':           gpsLon,
     'originType':       originType,
     'siteId':           siteId,
     'shiftType':        shiftType,
@@ -221,6 +229,9 @@ class WorkerReportItem {
     workContent:      j['workContent']      as String? ?? '',
     workPhotoPaths:   _readPaths(j['workPhotoPaths']),
     gpsAddress:       j['gpsAddress']       as String? ?? '',
+    // 旧形式JSON（欠落）は null 読み捨て＝オフライン再送待ちの行も壊さない
+    gpsLat:           (j['gpsLat'] as num?)?.toDouble(),
+    gpsLon:           (j['gpsLon'] as num?)?.toDouble(),
     originType:       j['originType']       as String? ?? 'home',
     siteId:           j['siteId']           as String?,
     // 旧形式JSON（shiftType欠落）・不正値は 'day' にフォールバック（BEの400回避・クラッシュ防止）
@@ -315,6 +326,11 @@ class ReportStore {
         };
         // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
         if (item.siteId != null) body['site_id'] = item.siteId;
+        // 提出座標：測位できているときだけ送る（site_id と同じ流儀）。
+        // BE 受け口は routes/reports.js:320-321（appendEvent の gps_lat / gps_lon）。
+        // ★reports 表の列でも content_hash の対象でもない＝既存ハッシュに影響しない。
+        if (item.gpsLat != null) body['gps_lat'] = item.gpsLat;
+        if (item.gpsLon != null) body['gps_lon'] = item.gpsLon;
         // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
         final photos = <Map<String, dynamic>>[];
         for (final p in item.workPhotoPaths) {

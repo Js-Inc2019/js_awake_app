@@ -1335,6 +1335,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
+        // 提出座標（_fetchGps:959 が置いた最新値）。null なら main.dart:328-333 が送らない。
+        // ★diffKey（差異検知の7要素）には入れない＝確認画面の判定は1文字も変えていない。
+        gpsLat: _lat,
+        gpsLon: _lon,
         originType: _originType,
         siteId: _selectedSiteId,   // 「対象なし」= null（BE側 NULL）
         shiftType: _shiftType,     // 'day'|'night'（業務日補正+BE送出）
@@ -1657,6 +1661,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     // GlobalKey の重複で例外になるため（日報報告ボタンの連打対策）。
     if (_reportFormOpen) return;
     _reportFormOpen = true;
+    // フォームを開く瞬間に現在地を取り直す（既存 _fetchGps:959 を呼ぶだけ・新しい測位ロジックは作らない）。
+    // ★await しない＝非ブロッキング。フォームは即開き、成功したら setState(:984) で
+    //   _gpsAddress が差し替わる。失敗しても保存値のまま出る＝ここで詰まらせない。
+    _fetchGps();
     try {
       await _pushReportForm();
     } finally {

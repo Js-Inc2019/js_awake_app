@@ -1,6 +1,7 @@
 // lib/screens/punch_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
@@ -234,6 +235,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       );
       if (!mounted) return;
       if (result.ok) {
+        // 出勤打刻で取れた現在地を端末にも残す（日報フォームの初期表示が読む既存3キーへ）。
+        // 新しいキーは作らない。退勤(out)では上書きしない＝現場の記録は出勤時の位置を残す。
+        if (type == 'in') await _persistPunchGps(gps);
         final today = await WorkModeService.instance.fetchToday();
         if (!mounted) return;
         setState(() {
@@ -264,6 +268,24 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       if (mounted) setState(() => _busy = false);
     }
     if (goReport && mounted) await _onReportTap();
+  }
+
+  // 出勤打刻時のGPSを端末へ保存する。保存条件は home_screen.dart:_fetchGps(971-982) と同一:
+  //   ・lat/lng は非nullのときだけ
+  //   ・住所は status=='ok'（住所の構築に成功）のときだけ
+  //     ＝'GPS取得失敗' / '位置情報の権限がありません' / 座標フォールバックを住所として焼かない
+  //       （キャッシュ焼き付きの停止。理由は home_screen.dart:978-981 のコメントと同じ）。
+  // 失敗しても打刻の成立は覆さない（例外は握って握り潰さずログのみ・秘匿値は出さない）。
+  Future<void> _persistPunchGps(
+      ({String address, double? lat, double? lon, String status}) gps) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (gps.lat != null) await prefs.setDouble('gps_lat', gps.lat!);
+      if (gps.lon != null) await prefs.setDouble('gps_lon', gps.lon!);
+      if (gps.status == 'ok') await prefs.setString('gps_address', gps.address);
+    } catch (e) {
+      debugPrint('打刻GPSの端末保存に失敗: $e');
+    }
   }
 
   String _breakLabel() {
@@ -886,24 +908,63 @@ class _OperationZone extends StatelessWidget {
     // 未出勤: 出勤スライダーだけ（1画面1主行動）
     if (isCheckin) return slider;
 
-    // 出勤中: 退勤スライダー ＋「日報を報告」（生成り枠）
+    // 出勤中: 退勤スライダー ＋「現場移動」（生成り枠）
+    // ★ラベルを変えたのはこの分岐だけ。みなし(:885)・退勤済(:889)の「日報を報告」は不変。
+    //   出勤中に日報を出す＝その現場を離れる行動なので、名前を行動に合わせる。
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         slider,
         const SizedBox(height: 10),
-        _ReportOutlineButton(onPressed: onNavigateToReport),
+        _ReportOutlineButton(
+          label: '現場移動',
+          // 誤タップ防止: ワンタップで遷移させず必ず確認を挟む。
+          // 「日報を作成」を選んだときだけ既存の単一ゲート onNavigateToReport(_onReportTap:130)
+          // へ流す＝休みゲートも二重pushガードもそのまま通る（判定式はここに複製しない）。
+          onPressed: onNavigateToReport == null
+              ? null
+              : () async {
+                  final proceed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: JsColors.surface,
+                      title: const Text('現場移動',
+                          style: TextStyle(
+                              color: JsColors.textStrong, fontSize: 16)),
+                      content: const Text(
+                          '現在地を記録して、この現場の日報を作成します。',
+                          style: TextStyle(color: JsColors.textStrong)),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('キャンセル',
+                              style: TextStyle(color: JsColors.textMid)),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('日報を作成',
+                              style: TextStyle(color: JsColors.accent)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (proceed == true) onNavigateToReport!();
+                },
+        ),
       ],
     );
   }
 }
 
 // ── _ReportOutlineButton ──────────────────────────────────────────────────────
-// 「日報を報告」＝生成り抜きの主ボタン（accent 塗りではなく枠1.5px）。
-// 押下先は呼び出し側から渡る単一のゲート _onReportTap(:106) のみ。
+// 生成り抜きの主ボタン（accent 塗りではなく枠1.5px）。
+// 押下先は呼び出し側から渡る単一のゲート _onReportTap(:130) のみ。
+// label は既定 '日報を報告'（みなし・退勤済の従来2箇所は引数を渡さない＝表示不変）。
+// 出勤中だけ '現場移動' を渡す（_OperationZone:920）。
 class _ReportOutlineButton extends StatelessWidget {
-  const _ReportOutlineButton({required this.onPressed});
+  const _ReportOutlineButton({required this.onPressed, this.label = '日報を報告'});
   final VoidCallback? onPressed;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -924,9 +985,9 @@ class _ReportOutlineButton extends StatelessWidget {
                 width: 1.5,
               )),
         ),
-        child: const Text(
-          '日報を報告',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
     );
