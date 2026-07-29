@@ -90,8 +90,11 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
   }
 
   // 休憩申請の決裁。API は WorkModeService（work_mode_service.dart:328/347/352）。
-  // 成功したらその場でカードを消し、日報と休憩が両方空になったら画面を閉じる。
-  Future<void> _decideBreak(Map<String, dynamic> req, bool approve) async {
+  // 成功したら詳細ダイアログを閉じ → 行を消し → 残0なら日付一覧へ戻る、の順で進める。
+  // ★順序が重要: 先にダイアログを閉じないと、最後の Navigator.pop がダイアログを
+  //   閉じるだけになり画面が残る。
+  Future<void> _decideBreak(Map<String, dynamic> req, bool approve,
+      {BuildContext? dialogCtx}) async {
     if (_breakBusy) return;
     final id = req['id'] as String? ?? '';
     if (id.isEmpty) return;
@@ -103,6 +106,8 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     if (!mounted) return;
     setState(() => _breakBusy = false);
     if (res.ok) {
+      if (dialogCtx != null && dialogCtx.mounted) Navigator.pop(dialogCtx);
+      if (!mounted) return;
       showJsSnackbar(context, approve ? '休憩申請を承認しました' : '休憩申請を却下しました');
       setState(() {
         _breaks = _breaks.where((b) => b['id'] != id).toList();
@@ -119,11 +124,173 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     }
   }
 
+  // ── 一覧の行データ ───────────────────────────────────────────
+  // 種別と元データだけを持つ。並びは現行踏襲: 承認待ち → 差し戻し → 休憩。
+  // 0件の種別は要素が出ないため自然に消える（見出しを持たないので空セクションも出ない）。
+  List<({String kind, Map<String, dynamic> data})> _entries() {
+    final pending  = _reports.where(_isPending).toList();
+    final revision = _reports.where(_isRevision).toList();
+    return [
+      ...pending .map((r) => (kind: 'pending',  data: r)),
+      ...revision.map((r) => (kind: 'revision', data: r)),
+      ..._breaks .map((b) => (kind: 'break',    data: b)),
+    ];
+  }
+
+  // 氏名。日報は worker_name（home_screen.dart:3353 / monthly_history_screen.dart:315 と同じキー）、
+  // 休憩は person_name（BE routes/attendance.js:1643 の `p.name AS person_name`）。
+  // 空・欠落時の文言は既存の home_screen.dart:3353 に合わせる。
+  static String _nameOf(String kind, Map<String, dynamic> m) {
+    final raw = kind == 'break'
+        ? (m['person_name'] as String? ?? '')
+        : (m['worker_name'] as String? ?? '');
+    return raw.trim().isEmpty ? '(氏名不明)' : raw.trim();
+  }
+
+  // 1行 = 左:氏名（主役） / 右:種別テキスト。カードは使わない。
+  Widget _row(({String kind, Map<String, dynamic> data}) e) {
+    final String label;
+    final Color  labelColor;
+    if (e.kind == 'pending') {
+      label = '承認待ち';
+      labelColor = JsColors.warning;
+    } else if (e.kind == 'revision') {
+      label = '差戻し';
+      labelColor = JsColors.error;
+    } else {
+      final min = e.data['break_override_min'] as int? ?? 0;
+      label = '休憩 $min分';
+      labelColor = JsColors.textMid;
+    }
+
+    return InkWell(
+      onTap: () => _openDetailDialog(e),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(_nameOf(e.kind, e.data),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: JsColors.textStrong,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(width: 12),
+            Text(label,
+                style: TextStyle(
+                    color: labelColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── 行タップで開く中央ダイアログ ──────────────────────────────
+  // 中身は既存の PendingApprovalCard / RevisionCard / 休憩詳細をそのまま置く。
+  // カード内部・判定式・API 呼び出し・確認ダイアログ（OriginConfirmDialog /
+  // _SiteLinkGateDialog / RevisionReasonDialog）には一切触れていない。
+  // それらはこのダイアログの上に重ねて開く（Flutter のネストで問題ない）。
+  Future<void> _openDetailDialog(
+      ({String kind, Map<String, dynamic> data}) e) async {
+    final d = widget.date;
+    final name = _nameOf(e.kind, e.data);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dctx) => Dialog(
+        backgroundColor: JsColors.surface,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 誰の・いつ の小見出し（どの人の詳細か迷わないため）
+              Text('$name　${d.month}/${d.day}（${_week[d.weekday % 7]}）',
+                  style: const TextStyle(
+                      color: JsColors.silver, fontSize: 12)),
+              const SizedBox(height: 10),
+              if (e.kind == 'pending')
+                PendingApprovalCard(
+                  report: e.data,
+                  // 成功時: ダイアログを閉じてから行を除去（既存 _onActionSuccess を再利用）
+                  onActionSuccess: () {
+                    if (dctx.mounted) Navigator.pop(dctx);
+                    _onActionSuccess(e.data);
+                  },
+                )
+              else if (e.kind == 'revision')
+                _revisionCardIn(dctx, e.data)
+              else
+                StatefulBuilder(
+                  builder: (_, setLocal) => _BreakApprovalCard(
+                    request: e.data,
+                    busy: _breakBusy,
+                    onApprove: () async {
+                      setLocal(() {});
+                      await _decideBreak(e.data, true, dialogCtx: dctx);
+                    },
+                    onReject: () async {
+                      setLocal(() {});
+                      await _decideBreak(e.data, false, dialogCtx: dctx);
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 差し戻しカード。本人判定・再提出/閲覧の分岐は
+  // revision_inbox_screen.dart:134-135 と同一の式で、旧実装から1文字も変えていない。
+  Widget _revisionCardIn(BuildContext dctx, Map<String, dynamic> rev) {
+    final isMine = _myUserId != null && rev['user_id'] == _myUserId;
+    return RevisionCard(
+      revision: rev,
+      isMine: isMine,
+      onResubmit: () async {
+        if (!isMine) {
+          // 本人以外 → 読み取り専用の詳細（呼び出し元と同じ挙動）。
+          showModalBottomSheet(
+            context: dctx,
+            backgroundColor: JsColors.gunmetal,
+            isScrollControlled: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            builder: (_) => ReportDetailSheet(report: rev),
+          );
+          return;
+        }
+        final result = await Navigator.push(
+          dctx,
+          MaterialPageRoute(
+            builder: (_) => RevisionEditScreen(revision: rev),
+          ),
+        );
+        if (result == true) {
+          if (dctx.mounted) Navigator.pop(dctx);
+          _onActionSuccess(rev);
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = widget.date;
-    final pending  = _reports.where(_isPending).toList();
-    final revision = _reports.where(_isRevision).toList();
+    final entries = _entries();
 
     return PopScope(
       canPop: false,
@@ -144,76 +311,20 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
                 fontWeight: FontWeight.bold),
           ),
         ),
+        // 本体は「氏名の行リスト」。カード・塗り面は使わず、
+        // 行間は1px区切り（JsFormTokens.chipBorder）＋余白のみ。
         body: SafeArea(
-          child: (pending.isEmpty && revision.isEmpty && _breaks.isEmpty)
+          child: entries.isEmpty
               ? const Center(
                   child: Text('対応が必要な報告はありません',
                       style: TextStyle(color: JsColors.silver, fontSize: 13)),
                 )
-              : ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (pending.isNotEmpty) ...[
-                      const _SectionLabel('承認待ち'),
-                      ...pending.map((r) => PendingApprovalCard(
-                            report: r,
-                            onActionSuccess: () => _onActionSuccess(r),
-                          )),
-                    ],
-                    if (revision.isNotEmpty) ...[
-                      if (pending.isNotEmpty) const SizedBox(height: 8),
-                      const _SectionLabel('差し戻し'),
-                      ...revision.map((rev) {
-                        // 本人判定は revision_inbox_screen.dart:134-135 と同一の式。
-                        final isMine =
-                            _myUserId != null && rev['user_id'] == _myUserId;
-                        return RevisionCard(
-                          revision: rev,
-                          isMine: isMine,
-                          onResubmit: () async {
-                            if (!isMine) {
-                              // 本人以外 → 読み取り専用の詳細（呼び出し元と同じ挙動）。
-                              showModalBottomSheet(
-                                context: context,
-                                backgroundColor: JsColors.gunmetal,
-                                isScrollControlled: true,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(16)),
-                                ),
-                                builder: (_) => ReportDetailSheet(report: rev),
-                              );
-                              return;
-                            }
-                            final result = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => RevisionEditScreen(revision: rev),
-                              ),
-                            );
-                            if (result == true) _onActionSuccess(rev);
-                          },
-                        );
-                      }),
-                    ],
-                    // ── 休憩申請（0件なら見出しごと出さない）──
-                    if (_breaks.isNotEmpty) ...[
-                      if (pending.isNotEmpty || revision.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        // 区切りは1px線のみ（新しい色は使わない）
-                        const Divider(
-                            height: 1, thickness: 1, color: JsColors.divider),
-                        const SizedBox(height: 16),
-                      ],
-                      const _SectionLabel('休憩申請'),
-                      ..._breaks.map((b) => _BreakApprovalCard(
-                            request: b,
-                            busy: _breakBusy,
-                            onApprove: () => _decideBreak(b, true),
-                            onReject:  () => _decideBreak(b, false),
-                          )),
-                    ],
-                  ],
+              : ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: entries.length,
+                  separatorBuilder: (_, __) => const Divider(
+                      height: 1, thickness: 1, color: JsFormTokens.chipBorder),
+                  itemBuilder: (_, i) => _row(entries[i]),
                 ),
         ),
       ),
@@ -315,18 +426,6 @@ class _BreakApprovalCard extends StatelessWidget {
   }
 }
 
-// 区分の小見出し（新しい色は使わない）
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 8, left: 2),
-        child: Text(text,
-            style: const TextStyle(
-                color: JsColors.silver,
-                fontSize: 13,
-                fontWeight: FontWeight.bold)),
-      );
-}
+// ★ 旧 _SectionLabel（区分の小見出し）は撤去した。
+//   種別の表示は各行の右側テキスト（承認待ち / 差戻し / 休憩◯分・_row:216-241）が担うため、
+//   見出しは二重の記号になる。0件の種別は行が出ないので空セクションも生じない。
