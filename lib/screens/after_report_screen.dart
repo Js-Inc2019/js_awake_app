@@ -9,6 +9,14 @@ import '../utils/business_date.dart';
 //  ・操作は全てタップ式カードに統一（旧 _SlideBtn / 円形 GestureDetector は廃止）
 //  ・アクションは3択（残業 / 現場移動 / シフト切替）
 // ※ 旧・全画面版 AfterReportScreen は S5b で削除（呼び手ゼロの死蔵クラスだった）。
+//
+// A案作り直し（カード撤去）:
+//  ・丸バッジ(_Badge)を廃止＝頭はテキストのみ。事実は文字で言う
+//  ・「今日はここまで」を主ボタンへ昇格し、見出し直下＝最上部エリアに置く
+//    （旧・末尾の案内文『今日はここまでなら、そのまま閉じてOK』はこれに置換）
+//  ・塗り面（α0.08）を全廃。枠は暗枠1px のみ。区切りは1px線＋余白
+//  ・色は意味だけ: 未送信の警告 = JsColors.warning。続行3行は単色（textStrong/textMid）
+//    ＝ JsColors.foremanBase(紫) / JsColors.actionCyan の装飾用途は撤去した
 class AfterReportBody extends StatefulWidget {
   const AfterReportBody({
     super.key,
@@ -19,6 +27,7 @@ class AfterReportBody extends StatefulWidget {
     required this.onShiftContinue,
     required this.onOvertime,
     this.onRetry,
+    this.onClose,
   });
   final String workerName;
   final bool sent;                       // 送信APIの成否（正直ゲート用）
@@ -27,6 +36,7 @@ class AfterReportBody extends StatefulWidget {
   final VoidCallback onShiftContinue;    // 現シフトの逆へ切替（day→night / night→day）
   final Future<void> Function() onOvertime;
   final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
+  final VoidCallback? onClose;           // 主ボタン「今日はここまで」＝この画面を閉じる
 
   @override
   State<AfterReportBody> createState() => _AfterReportBodyState();
@@ -53,9 +63,8 @@ class _AfterReportBodyState extends State<AfterReportBody> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // ── 頭の表示は送信成否(sent)で正直に出し分け ──
+            //    分岐条件・文言はA案でも1文字も変えていない。丸バッジだけを外した。
             if (widget.sent) ...[
-              const _Badge(icon: Icons.check, color: JsColors.success),
-              const SizedBox(height: 16),
               const Text('報告完了',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -65,8 +74,6 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: JsColors.textMid, fontSize: 12)),
             ] else ...[
-              const _Badge(icon: Icons.schedule, color: JsColors.warning),
-              const SizedBox(height: 16),
               const Text('未送信（再送待ち）',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -82,18 +89,33 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                 style: TextStyle(color: JsColors.warning, fontSize: 12),
               ),
               const SizedBox(height: 12),
-              // 再送はカード群と調和させたタップ式カードに（機能は現行のまま）
+              // 再送は続行3行と同じ新様式。ただし文字/アイコンは warning のまま
+              //（＝「まだ送れていない」という意味を色で持つ唯一の行）。機能は現行のまま。
               _ActionCard(
                 icon: Icons.refresh,
                 title: '今すぐ再送する',
                 subtitle: '保存済みの報告をもう一度送信',
-                color: JsColors.warning,
+                accent: JsColors.warning,
                 onTap: () => widget.onRetry?.call(),
               ),
             ],
 
-            const SizedBox(height: 28),
-            const Text('このあとは？',
+            const SizedBox(height: 24),
+
+            // ── 主ボタン「今日はここまで」（見出しブロック直下＝最上部エリア）──
+            //    旧UIでは末尾の小さな案内文でしかなく、閉じる導線がAppBarの戻る矢印しか
+            //    無かった。最も多い行動を最上部の主ボタンへ昇格する。
+            _PrimaryOutlineButton(
+              label: '今日はここまで',
+              onTap: () => widget.onClose?.call(),
+            ),
+
+            const SizedBox(height: 24),
+            // 区切りは1px線＋余白のみ（カード・塗り面は使わない）
+            const Divider(height: 1, thickness: 1, color: JsColors.divider),
+            const SizedBox(height: 20),
+
+            const Text('続けて報告',
                 style: TextStyle(color: JsColors.textMid, fontSize: 12)),
             const SizedBox(height: 12),
 
@@ -102,7 +124,6 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               icon: Icons.more_time,
               title: '⏰  残業を報告する',
               subtitle: '残業した時間を追加で記録',
-              color: JsColors.warning,
               onTap: () => widget.onOvertime(),
             ),
             const SizedBox(height: 10),
@@ -112,7 +133,6 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               icon: Icons.directions_car,
               title: '🚗  次の現場へ移動',
               subtitle: '現場と位置を取り直して報告',
-              color: JsColors.actionCyan,
               onTap: widget.onMoveToNextSite,
             ),
             const SizedBox(height: 10),
@@ -122,14 +142,8 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               icon: _isNight ? Icons.wb_sunny_outlined : Icons.nightlight_round,
               title: _isNight ? '☀  日勤に切り替えて続ける' : '🌙  夜勤に切り替えて続ける',
               subtitle: '勤務区分を変えて次の報告へ',
-              color: JsColors.foremanBase,
               onTap: widget.onShiftContinue,
             ),
-
-            const SizedBox(height: 20),
-            const Text('今日はここまでなら、そのまま閉じてOK',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: JsColors.textMid, fontSize: 11)),
           ],
         ),
       ),
@@ -137,61 +151,81 @@ class _AfterReportBodyState extends State<AfterReportBody> {
   }
 }
 
-// 完了/未送信を示す丸バッジ
-class _Badge extends StatelessWidget {
-  const _Badge({required this.icon, required this.color});
-  final IconData icon;
-  final Color color;
+// 主ボタン「今日はここまで」。生成り枠1.5px＋同色文字・塗りなし・高さ56・角丸10。
+// 色は JsFormTokens.outlineButtonBorder（= JsColors.textStrong = JsPalette.textBody #EAE3D0）。
+// js_colors.dart:183 がこのトークンの用途を「枠1.5px＋文字」と明記しており、
+// home_screen.dart:4728-4730 / 6112-6114 が同じ width:1.5 で使っている既存様式に揃えた。
+class _PrimaryOutlineButton extends StatelessWidget {
+  const _PrimaryOutlineButton({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Container(
-          width: 78,
-          height: 78,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color.withValues(alpha: 0.15),
-            border: Border.all(color: color, width: 2),
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: JsFormTokens.outlineButtonBorder, width: 1.5),
+            ),
+            child: Center(
+              child: Text(label,
+                  style: const TextStyle(
+                      color: JsFormTokens.outlineButtonBorder,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
+            ),
           ),
-          child: Icon(icon, color: color, size: 42),
         ),
       );
 }
 
-// 次の行動カード（3枚とも同一パターン: 枠α0.4 + 背景α0.08 + アイコンに各色）。
-// タイトルは視認性優先で textStrong 固定。危険色(error)は使わない。
+// 次の行動の1行。A案で塗り面（旧: 背景α0.08 + 枠α0.4 + 行ごとの色）を撤去した。
+//   ・面は透明。枠は暗枠1px = JsFormTokens.chipBorder(= JsPalette.outline #2E333A)
+//     ＝ home_screen.dart の二次様式 _StepBackButton:2555 と同一トークン
+//   ・アイコン/サブ/シェブロンは単色 JsColors.textMid、タイトルのみ JsColors.textStrong
+//   ・accent は「未送信の再送行」だけが渡す意味色。null のときは単色に落ちる。
 class _ActionCard extends StatelessWidget {
   const _ActionCard({
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.color,
     required this.onTap,
+    this.accent,
   });
   final IconData icon;
   final String title;
   final String subtitle;
-  final Color color;
   final VoidCallback onTap;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
+    // 単色統一。accent が来た行だけ意味色（warning）で塗り分ける。
+    final sub   = accent ?? JsColors.textMid;
+    final head  = accent ?? JsColors.textStrong;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,                                   // カード全面がタップ領域
+        onTap: onTap,                                   // 行全面がタップ領域
         borderRadius: BorderRadius.circular(10),
         child: Container(
           constraints: const BoxConstraints(minHeight: 52),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.08),
+            // 塗り面なし（透明）。枠のみで領域を示す。
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: color.withValues(alpha: 0.4)),
+            border: Border.all(color: JsFormTokens.chipBorder),
           ),
           child: Row(
             children: [
-              Icon(icon, color: color, size: 22),
+              Icon(icon, color: sub, size: 22),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -201,20 +235,19 @@ class _ActionCard extends StatelessWidget {
                     Text(title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: JsColors.textStrong,
+                        style: TextStyle(
+                            color: head,
                             fontSize: 14,
                             fontWeight: FontWeight.bold)),
                     const SizedBox(height: 2),
                     Text(subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: JsColors.textMid, fontSize: 11)),
+                        style: TextStyle(color: sub, fontSize: 11)),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right,
-                  color: color.withValues(alpha: 0.7), size: 18),
+              Icon(Icons.chevron_right, color: sub, size: 18),
             ],
           ),
         ),

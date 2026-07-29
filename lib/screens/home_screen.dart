@@ -1855,6 +1855,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return AfterReportBody(
         workerName: _userName,
         sent: _lastSentOk,
+        // 主ボタン「今日はここまで」＝日報フォームの全画面route(_pushReportForm)を閉じる。
+        // maybePop: 閉じられる route が無い場合は何もしない（袋小路もクラッシュも作らない）。
+        // ★既存7引数のクロージャは1文字も変更していない＝引数の追加のみ。
+        onClose: () => Navigator.of(context).maybePop(),
         shiftType: _shiftType,   // 継続ボタンのラベル反転（day→🌙夜勤継続 / night→☀日勤継続）
         // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
         onRetry: () async {
