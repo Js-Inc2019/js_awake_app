@@ -28,7 +28,14 @@ class AfterReportBody extends StatefulWidget {
     required this.onOvertime,
     this.onRetry,
     this.onClose,
+    this.showMoveToNextSite = true,
+    this.showShiftContinue  = true,
   });
+  // K2: アクションの出し分け（原則⑤＝disabled ではなく非表示）。
+  //   判定そのものは親(JsMainShell)が打刻状態・締め状態から作る＝ここでは受けた真偽だけを見る。
+  //   「⏰追加の申告」と「今日はここまで」は常に表示（引数を持たない）。
+  final bool showMoveToNextSite;   // 実打刻: 退勤済なら false / みなし: 締め済みなら false
+  final bool showShiftContinue;    // 実打刻: 常に false（夜勤は打刻前に選ぶ）/ みなし: 締め済みなら false
   final String workerName;
   final bool sent;                       // 送信APIの成否（正直ゲート用）
   final String shiftType;                // 'day'|'night'（切替カードのラベルを反転表示するため）
@@ -131,24 +138,27 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               subtitleMaxLines: 2,
               onTap: () => widget.onOvertime(),
             ),
-            const SizedBox(height: 10),
+            // 🚗 現場移動（退勤済・締め済みでは出さない＝押せない灰色を置かない）
+            if (widget.showMoveToNextSite) ...[
+              const SizedBox(height: 10),
+              _ActionCard(
+                icon: Icons.directions_car,
+                title: '🚗  次の現場へ移動',
+                subtitle: '現場と位置を取り直して報告',
+                onTap: widget.onMoveToNextSite,
+              ),
+            ],
 
-            // 🚗 現場移動
-            _ActionCard(
-              icon: Icons.directions_car,
-              title: '🚗  次の現場へ移動',
-              subtitle: '現場と位置を取り直して報告',
-              onTap: widget.onMoveToNextSite,
-            ),
-            const SizedBox(height: 10),
-
-            // ☀/🌙 シフト切替（現在の勤務区分の逆へ）
-            _ActionCard(
-              icon: _isNight ? Icons.wb_sunny_outlined : Icons.nightlight_round,
-              title: _isNight ? '☀  日勤に切り替えて続ける' : '🌙  夜勤に切り替えて続ける',
-              subtitle: '勤務区分を変えて次の報告へ',
-              onTap: widget.onShiftContinue,
-            ),
+            // ☀/🌙 シフト切替（実打刻では常に出さない＝夜勤は打刻前に選ぶ）
+            if (widget.showShiftContinue) ...[
+              const SizedBox(height: 10),
+              _ActionCard(
+                icon: _isNight ? Icons.wb_sunny_outlined : Icons.nightlight_round,
+                title: _isNight ? '☀  日勤に切り替えて続ける' : '🌙  夜勤に切り替えて続ける',
+                subtitle: '勤務区分を変えて次の報告へ',
+                onTap: widget.onShiftContinue,
+              ),
+            ],
           ],
         ),
       ),

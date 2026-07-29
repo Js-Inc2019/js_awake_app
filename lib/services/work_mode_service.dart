@@ -202,14 +202,21 @@ class WorkModeService {
     return out;
   }
 
+  /// 当日（業務日）の勤怠行を取る。
+  /// shiftType は 'day'|'night'。BE は未指定＝day 互換（routes/attendance.js の GET /today）
+  /// なので、送っていない旧クライアントの挙動は変わらない。
+  /// 不正値はここで 'day' に倒す（BE へ想定外の値を投げない）。
   Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut,
-            int? standardBreakMin, int legalBreak6h, int legalBreak8h})?> fetchToday() async {
+            int? standardBreakMin, int legalBreak6h, int legalBreak8h})?> fetchToday({
+    String shiftType = 'day',
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) return null;
+      final shift = shiftType == 'night' ? 'night' : 'day';
       final res = await http.get(
-        Uri.parse('$_apiBase/attendance/today'),
+        Uri.parse('$_apiBase/attendance/today?shift_type=$shift'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {

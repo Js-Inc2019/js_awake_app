@@ -59,9 +59,18 @@ class PunchScreen extends StatefulWidget {
     this.pendingApprovalCount = 0,
     this.onOpenRevisions,
     this.onOpenPendingApprovals,
+    this.onPunchStateChanged,
+    this.isReportDone,
   });
   final VoidCallback? onNavigateToReport;
   final Widget? weatherPanel;
+  // K1: 打刻状態を親(JsMainShell)へ上げる唯一の口。真実源は fetchToday(work_mode_service.dart:205)
+  //   ＝この画面が受け取った値をそのまま流すだけで、判定式は親に複製しない。
+  //   isActual も同じ便に載せる（完了ビューの出し分けが実打刻/みなしで違うため・_isActual:_設定由来）。
+  final void Function(bool isActual, bool punchedIn, bool punchedOut)? onPunchStateChanged;
+  // K5(Q9): 当日ぶんの報告が済んでいるか。親が持つ真実を読むだけ
+  //   （home_screen:1516 `isDone: () => _todayReportDone` と同じ流儀。prefs 直読みはしない）。
+  final bool Function()? isReportDone;
   // ── 要対応の件数と遷移（値も遷移先も親 JsMainShell の既存資産をそのまま下ろす）──
   //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart:1535-1560 を参照）。
   //   0件のときは行そのものを描画しない＝「無いものは見せない」。
@@ -97,6 +106,14 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   bool _rested      = false;
   String? _restReason;
   String _restPortion = 'full'; // full / am_half / pm_half（応答に無ければ full）
+
+  // 実勤務モードか。判定式はこの1本だけ（build:_isActual / K1の通知 / K5のガードが共有する）。
+  bool get _isActual => _settings.mode == WorkModeType.actual;
+
+  // K1: 現在の打刻状態を親へ通知する。setState の直後に呼ぶ（値を流すだけ・判定はしない）。
+  void _notifyPunchState() {
+    widget.onPunchStateChanged?.call(_isActual, _punchedIn, _punchedOut);
+  }
 
   @override
   void initState() {
@@ -179,7 +196,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   Future<void> _init() async {
     final (settings, today) = await (
       WorkModeService.instance.fetchFromServer(),
-      WorkModeService.instance.fetchToday(),
+      // K6: 勤怠行は (person, 業務日, shift_type) で1行。見るシフトを明示する。
+      WorkModeService.instance.fetchToday(shiftType: widget.shiftType),
     ).wait;
     if (!mounted) return;
     setState(() {
@@ -194,6 +212,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       }
       _loading = false;
     });
+    _notifyPunchState();
     if (_punchedIn && !_punchedOut) _startTimer();
     fetchGpsAddress().then((r) {
       if (mounted) setState(() => _gpsAddress = r.address);
@@ -238,7 +257,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         // 出勤打刻で取れた現在地を端末にも残す（日報フォームの初期表示が読む既存3キーへ）。
         // 新しいキーは作らない。退勤(out)では上書きしない＝現場の記録は出勤時の位置を残す。
         if (type == 'in') await _persistPunchGps(gps);
-        final today = await WorkModeService.instance.fetchToday();
+        final today = await WorkModeService.instance.fetchToday(shiftType: widget.shiftType);
         if (!mounted) return;
         setState(() {
           if (today != null) {
@@ -250,6 +269,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             _legalBreak8h     = today.legalBreak8h;
           }
         });
+        _notifyPunchState();
         if (_punchedIn && !_punchedOut) {
           _startTimer();
         } else {
@@ -324,7 +344,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   Future<void> _onBreakRequestSubmitted() async {
     showJsSnackbar(context, '申告しました（承認待ち）');
-    final today = await WorkModeService.instance.fetchToday();
+    final today = await WorkModeService.instance.fetchToday(shiftType: widget.shiftType);
     if (!mounted) return;
     setState(() {
       if (today != null) {
@@ -336,6 +356,40 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         _legalBreak8h     = today.legalBreak8h;
       }
     });
+    _notifyPunchState();
+  }
+
+  // K5(Q9): 「本日休み」を押した瞬間のガード。
+  //   みなしモードで当日ぶんの報告が済んでいる（done / closed）ときだけ確認を挟む。
+  //   ・報告済みかどうかは親の真実 widget.isReportDone を読むだけ（prefs 直読み・判定式の複製なし）
+  //   ・実打刻は締めが退勤打刻であり、そもそも出勤後は「本日休み」ボタンが出ない
+  //     （_buildOperationArea の showRestDay）ため対象外＝true を返して素通しする
+  //   ・false を返した場合、_RestDayButton は画面遷移しない（袋小路を作らずその場に留まる）
+  Future<bool> _restDayGuard() async {
+    if (_isActual) return true;
+    if (widget.isReportDone?.call() != true) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.surface,
+        title: const Text('本日は報告済みです',
+            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+        content: const Text('本日は既に日報を提出済みです。休みとして登録しますか？',
+            style: TextStyle(color: JsColors.textStrong)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('戻る', style: TextStyle(color: JsColors.textMid)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('休みとして登録',
+                style: TextStyle(color: JsColors.accent)),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   @override
@@ -427,13 +481,18 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 28),
                     // 勤務区分（日勤/夜勤・1タップ）＋ 送信される業務日
-                    // isActual の分岐外＝みなし/実打刻の両モードで同一位置に出る
-                    _ShiftTypeSelector(
-                      selected: widget.shiftType,
-                      businessDate: businessDateForShift(
-                          widget.shiftType, DateTime.now()),
-                      onChanged: widget.onShiftTypeChanged,
-                    ),
+                    // K4(Q6): 夜勤は「打刻前に選ぶ」。実打刻で出勤した後は勤務区分が確定した
+                    //   ＝選び直しは打刻とBEの行(shift_type)を裏切るので出さない。
+                    //   みなしは打刻という確定点が無いので従来どおり常時出す。
+                    //   条件は「本日休み」ボタンと同じ形（_buildOperationArea の showRestDay）。
+                    //   値の真実源も onChanged 先も親のまま＝_shiftType 機構は1文字も変えていない。
+                    if (!isActual || !_punchedIn)
+                      _ShiftTypeSelector(
+                        selected: widget.shiftType,
+                        businessDate: businessDateForShift(
+                            widget.shiftType, DateTime.now()),
+                        onChanged: widget.onShiftTypeChanged,
+                      ),
                   ],
                 ),
               ),
@@ -477,6 +536,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       portion:   _restPortion,
       loading:   _restLoading,
       onChanged: _loadRestStatus,
+      // K5(Q9): 遷移前のガード（みなし∧報告済みのときだけ確認を挟む）。
+      preTapGuard: _restDayGuard,
       // みなしは日報ボタンと横並びになるので高さを合わせる（実打刻は従来の48のまま）
       height:    isActual ? 48 : 56,
     );
@@ -1007,6 +1068,7 @@ class _RestDayButton extends StatelessWidget {
     required this.portion,
     required this.loading,
     required this.onChanged,
+    this.preTapGuard,
     this.height = 48,
   });
 
@@ -1015,6 +1077,8 @@ class _RestDayButton extends StatelessWidget {
   final String portion; // full / am_half / pm_half
   final bool loading;
   final Future<void> Function() onChanged; // 遷移から戻った後に親が状態を取り直す
+  // 遷移前のガード。false を返したら遷移しない（判定と文言は親が持つ）。null=素通し。
+  final Future<bool> Function()? preTapGuard;
   final double height; // みなしは日報ボタンと横並びになるため呼び出し側で高さを揃える
 
   // 登録済みボタン文言。半休は「午前休/午後休」を明示。
@@ -1028,6 +1092,8 @@ class _RestDayButton extends StatelessWidget {
   }
 
   Future<void> _onTap(BuildContext context) async {
+    if (preTapGuard != null && !await preTapGuard!()) return;
+    if (!context.mounted) return;
     if (rested) {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => RestDayDoneScreen(reason: reason, portion: portion)));

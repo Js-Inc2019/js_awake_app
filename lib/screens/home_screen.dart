@@ -496,6 +496,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _submitting = false;
   // 完了ビューが日報タブ(index1)を占有中か。true の間フォームへ到達不能＝二重報告防止の要
   bool _todayReportDone = false;
+  // K1: 打刻状態のミラー。真実源は PunchScreen が fetchToday から受け取った値で、
+  //   onPunchStateChanged(punch_screen.dart:66) 経由で流れてくるだけ＝ここで判定は作らない。
+  //   初期値は「実打刻でない・未打刻」＝完了ビューの出し分けが最も緩い側（従来と同じ見え方）。
+  bool _punchIsActual = false;
+  bool _punchedInToday = false;
+  bool _punchedOutToday = false;
+
+  // K3(Q8): みなしの「締め」。work_status == 'closed' の日は true。
+  //   done と同じく報告済み扱い（_readReportDone）だが、完了ビューのアクションを
+  //   「追加の申告」だけに絞るために done と区別して保持する。
+  bool _todayClosed = false;
+
   // 完了ビューに渡す送信成否。送信直後経路は実成否、復元経路は暫定true
   // （S4-②: 送信成否がtoday_work_statusに永続化されていないため復元時の実態は不明。今回は未修正）
   bool _lastSentOk = true;
@@ -596,24 +608,36 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await prefs.setString(reportDoneKey(_shiftType), '$bizDate|$status');
   }
 
-  // 現 _shiftType のキーを読み、業務日一致 AND status=='done' で「報告済み」と判定する。
+  // 現 _shiftType のキーを読み、業務日が一致するときだけ status 文字列を返す。
+  // 一致しない・欠落・不正形式はすべて null（＝当日ぶんの記録なし）。
   // 旧形式（today_date / today_work_status / report_done_shift の3キー）は読み捨て。
-  // 旧キーしか無い端末は新キーが null → false（未完了）＝フォームに落ちるだけで袋小路なし。
+  // 旧キーしか無い端末は新キーが null → 未完了＝フォームに落ちるだけで袋小路なし。
   // 送信済みデータはBEにあるため、ここで無理に移行するより開ける方を選ぶ。
-  Future<bool> _readReportDone() async {
+  Future<String?> _readWorkStatusToday() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(reportDoneKey(_shiftType));
-    if (raw == null) return false;
+    if (raw == null) return null;
     final parts = raw.split('|');
-    if (parts.length != 2) return false;   // 不正値は未完了扱い（袋小路禁止）
-    return parts[0] == businessDateForShift(_shiftType, DateTime.now()) &&
-        parts[1] == 'done';
+    if (parts.length != 2) return null;   // 不正値は記録なし扱い（袋小路禁止）
+    if (parts[0] != businessDateForShift(_shiftType, DateTime.now())) return null;
+    return parts[1];
   }
 
-  // 起動時: 現在のシフトの業務日ぶんが送信済み(done)なら完了ビューを日報タブに出す。
+  // 「報告済み」判定式はこの1本だけ。
+  // 'done'（送信済み）と 'closed'（K3: みなしの締め）はどちらも報告済み扱いにする。
+  static bool _isReportDoneStatus(String? s) => s == 'done' || s == 'closed';
+
+  // 起動時: 現在のシフトの業務日ぶんが報告済み(done/closed)なら完了ビューを日報タブに出す。
+  // closed かどうかも同時に拾う＝再起動しても「締めた日」のアクション制限が維持される。
   Future<void> _initTodayReportDone() async {
-    final done = await _readReportDone();
-    if (mounted && done) setState(() => _todayReportDone = true);
+    final s = await _readWorkStatusToday();
+    final done = _isReportDoneStatus(s);
+    if (mounted && done) {
+      setState(() {
+        _todayReportDone = true;
+        _todayClosed = s == 'closed';
+      });
+    }
   }
 
   // ✏️ 続けて日報（同一シフトで2枚目）。
@@ -636,10 +660,69 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // チップ切替など _shiftType が変わった直後に判定をやり直す。
   // 夜勤done後に日勤へ切替 → 複合キー不一致 → false → フォームが自然に開く。
   Future<void> _reevaluateReportDone() async {
-    final done = await _readReportDone();
-    if (mounted && done != _todayReportDone) {
-      setState(() => _todayReportDone = done);
+    final s = await _readWorkStatusToday();
+    final done = _isReportDoneStatus(s);
+    final closed = s == 'closed';
+    if (mounted && (done != _todayReportDone || closed != _todayClosed)) {
+      setState(() {
+        _todayReportDone = done;
+        _todayClosed = closed;   // 切替先シフトの締め状態に追随（未締めなら false へ戻る）
+      });
     }
+  }
+
+  // ─── K2: 完了ビューのアクション出し分け（判定はここ1箇所）─────────────────
+  // 原則⑤: 押せないボタンを灰色で置かず、条件を満たさないものは行ごと出さない。
+  //   実打刻 … 「🚗次の現場へ移動」は退勤済なら非表示（1日の勤務が終わっている）
+  //   みなし … 締め済み(closed)なら非表示
+  bool get _showMoveToNextSite =>
+      _punchIsActual ? !_punchedOutToday : !_todayClosed;
+
+  // 実打刻ではシフト切替を常に出さない（Q6: 夜勤は打刻前に選ぶ＝打刻後の切替は
+  //   BE の勤怠行(shift_type)と食い違う）。みなしは締めるまで出す。
+  bool get _showShiftContinue =>
+      _punchIsActual ? false : !_todayClosed;
+
+  // ─── K3(Q8): 「今日はここまで」─────────────────────────────────────────
+  //   実打刻 … 締めの真実は退勤打刻なので、従来どおり route を閉じるだけ（ダイアログなし）。
+  //   みなし … 打刻という確定点が無いので、ここで確認して 'closed' を刻む＝1日の締めにする。
+  //            締めた日は完了ビューのアクションが「追加の申告」だけになり、再起動しても維持される
+  //            （_initTodayReportDone が closed を読み直す）。
+  Future<void> _onCloseToday() async {
+    if (_punchIsActual) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsFormTokens.surfaceCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('今日の報告を締めますか？',
+            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+        content: const Text(
+            '締めると、この日は「次の現場へ移動」と「勤務区分の切替」ができなくなります。\n'
+            '残業や休憩の申告はこのあとも行えます。',
+            style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: JsFormTokens.textSub)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('締める',
+                style: TextStyle(color: JsFormTokens.accentAlert)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;                 // キャンセル＝何も変えずその場に留まる
+    await _saveWorkStatus('closed');
+    if (!mounted) return;
+    setState(() => _todayClosed = true);
+    Navigator.of(context).maybePop();
   }
 
   // 勤務区分の永続化：業務日スコープ。
@@ -1380,6 +1463,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
         _lastSentOk = sent;   // 送信直後経路は実際の送信成否を渡す
         _todayReportDone = true;
+        // K3: 直前に刻んだ work_status は 'done'（:1356）＝締め済みではない。
+        //   prefs とミラーがズレないようここでも false に揃える。
+        _todayClosed = false;
       });
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -1577,6 +1663,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 日報フォームはタブ切替ではなく全画面 push で開く（push 先で同一の
         // _buildHomeTabContent() をそのまま描画する＝フォームの中身は不変）。
         onNavigateToReport: _openReportForm,
+        // K1: 打刻状態を受け取る唯一の口。PunchScreen が fetchToday から受けた値をそのまま
+        //   流してくるだけで、こちら側に判定式は作らない（真実源の複製の禁止）。
+        //   同じ値なら setState しない＝ビルド中の無駄な再描画を作らない。
+        onPunchStateChanged: (isActual, punchedIn, punchedOut) {
+          if (!mounted) return;
+          if (_punchIsActual == isActual &&
+              _punchedInToday == punchedIn &&
+              _punchedOutToday == punchedOut) {
+            return;
+          }
+          setState(() {
+            _punchIsActual   = isActual;
+            _punchedInToday  = punchedIn;
+            _punchedOutToday = punchedOut;
+          });
+        },
+        // K5(Q9): 「本日休み」を押した瞬間のガードが読む真実（done/closed）。
+        //   isDone(:確認画面) と同じ「関数を下ろす」流儀。prefs 直読みはさせない。
+        isReportDone: () => _todayReportDone,
         // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {
@@ -1865,8 +1970,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         sent: _lastSentOk,
         // 主ボタン「今日はここまで」＝日報フォームの全画面route(_pushReportForm)を閉じる。
         // maybePop: 閉じられる route が無い場合は何もしない（袋小路もクラッシュも作らない）。
-        // ★既存7引数のクロージャは1文字も変更していない＝引数の追加のみ。
-        onClose: () => Navigator.of(context).maybePop(),
+        // K3(Q8): みなしのときだけ「締めますか？」を挟んで 'closed' を刻む（_onCloseToday）。
+        //   実打刻はそのまま maybePop＝従来の挙動のまま。
+        onClose: _onCloseToday,
+        // K2: アクションの出し分け（判定は _showMoveToNextSite / _showShiftContinue の2本だけ）
+        showMoveToNextSite: _showMoveToNextSite,
+        showShiftContinue:  _showShiftContinue,
         shiftType: _shiftType,   // 継続ボタンのラベル反転（day→🌙夜勤継続 / night→☀日勤継続）
         // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
         onRetry: () async {

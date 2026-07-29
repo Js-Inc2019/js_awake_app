@@ -907,9 +907,12 @@ class _GateScreenState extends State<GateScreen> {
     final parts      = raw.split('|');
     final savedDate  = parts.length == 2 ? parts[0] : '';
     final workStatus = parts.length == 2 ? parts[1] : 'idle';
+    // K3(Q8): 'closed'（みなしの締め）は done と同じく「その日は終わっている」状態なので、
+    //   下書きの全画面復元は行わない。完了ビューは HomeScreen 側が prefs を読んで出す。
     final shouldRestore = savedDate == bizDate &&
         workStatus != 'idle' &&
-        workStatus != 'done';
+        workStatus != 'done' &&
+        workStatus != 'closed';
 
     // 報告完了(done)状態は HomeScreen 側(日報タブ)が prefs を読んで完了ビューを出すため、
     // ここでは全画面pushによる復元を行わない（復元経路を一本化）。
