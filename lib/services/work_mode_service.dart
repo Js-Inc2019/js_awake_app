@@ -307,20 +307,24 @@ class WorkModeService {
     }
   }
 
-  // ─── 休憩申請の承認側（職長・事務/boss が使う）──────────────────────
-  //   BE: routes/attendance.js:1631(一覧) / :1660(承認) / :1707(却下)。
+  // ─── 休憩申告の確認・修正側（職長・事務/boss が使う）────────────────────
+  //   BE は承認制から申告制へ転換済み:
+  //     GET  /attendance/break-requests?month=YYYY-MM  (routes/attendance.js:1733)
+  //     POST /attendance/break-request/:id/amend       (routes/attendance.js:1787)
+  //   ★旧 /break-requests/pending・/approve・/reject は BE から撤去済み。
+  //     呼べない道を「嘘の記号」として残さないため、当メソッド群も削除した。
   //   権限は MONTHLY_ROLES(admin_office/admin_exec/boss・:1459) で、権限不足は 403。
   //   流儀は上の breakRequest(:276-308) と同一:
   //     ・token は都度 SharedPreferences から取る
   //     ・throw しない（ok 付きレコードで返す）
   //     ・失敗時は statusCode / code / error をそのまま載せて呼び手に判断させる
 
-  /// GET /attendance/break-requests/pending
-  /// 応答 {requests:[…]} の各行は BE の SELECT 列（:1641-1643）そのまま:
-  ///   id / person_id / work_date('YYYY-MM-DD') / break_override_min /
-  ///   break_override_reason / break_override_req_at / person_name
+  /// GET /attendance/break-requests?month=YYYY-MM
+  /// 応答 {month, requests:[…]} の各行は BE の SELECT 列（routes/attendance.js:1760-1765）そのまま:
+  ///   id / person_id / membership_id / work_date('YYYY-MM-DD') / break_override_min /
+  ///   break_override_reason / break_override_status / break_override_req_at / person_name
   Future<({bool ok, List<Map<String, dynamic>> requests, int statusCode, String? errorMessage})>
-      fetchPendingBreakRequests() async {
+      fetchBreakRequests({required String month}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
@@ -329,7 +333,7 @@ class WorkModeService {
                 errorMessage: 'トークンがありません');
       }
       final res = await http.get(
-        Uri.parse('$_apiBase/attendance/break-requests/pending'),
+        Uri.parse('$_apiBase/attendance/break-requests?month=$month'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
@@ -344,23 +348,17 @@ class WorkModeService {
       return (ok: false, requests: <Map<String, dynamic>>[],
               statusCode: res.statusCode, errorMessage: msg);
     } catch (e) {
-      debugPrint('attendance/break-requests/pending 取得失敗: $e');
+      debugPrint('attendance/break-requests 取得失敗: month=$month $e');
       return (ok: false, requests: <Map<String, dynamic>>[], statusCode: 0,
               errorMessage: '通信に失敗しました');
     }
   }
 
-  /// POST /attendance/break-request/:id/approve
+  /// POST /attendance/break-request/:id/amend   body:{ break_minutes }
+  /// 申告された休憩の分数を管理側が修正する。理由・申告時刻は BE 側で保持される
+  /// （routes/attendance.js:1825-1832）。
   Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      approveBreakRequest(String id) => _decideBreakRequest(id, 'approve');
-
-  /// POST /attendance/break-request/:id/reject
-  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      rejectBreakRequest(String id) => _decideBreakRequest(id, 'reject');
-
-  // 承認/却下は URL 末尾だけが違う。判定・戻り値は完全に同一なので1本にまとめる。
-  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      _decideBreakRequest(String id, String action) async {
+      amendBreakRequest(String id, int breakMinutes) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
@@ -368,8 +366,9 @@ class WorkModeService {
         return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
       }
       final res = await http.post(
-        Uri.parse('$_apiBase/attendance/break-request/$id/$action'),
+        Uri.parse('$_apiBase/attendance/break-request/$id/amend'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({'break_minutes': breakMinutes}),
       ).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         return (ok: true, statusCode: res.statusCode, errorCode: null, errorMessage: null);
@@ -383,7 +382,7 @@ class WorkModeService {
       } catch (_) {}
       return (ok: false, statusCode: res.statusCode, errorCode: code, errorMessage: msg);
     } catch (e) {
-      debugPrint('attendance/break-request/$action 送信失敗: $e');
+      debugPrint('attendance/break-request/amend 送信失敗: $e');
       return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
     }
   }

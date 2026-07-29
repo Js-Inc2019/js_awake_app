@@ -5052,7 +5052,7 @@ class _ReviewTabState extends State<ReviewTab> {
     });
     // 日報と休憩を並行取得。休憩は fail-soft＝失敗しても日報一覧は出す。
     final reportsF = ReportsService().getReportsByMonth(_monthStr);
-    final breaksF  = WorkModeService.instance.fetchPendingBreakRequests();
+    final breaksF  = WorkModeService.instance.fetchBreakRequests(month: _monthStr);
     final result   = await reportsF;
     final breakRes = await breaksF;
     if (!mounted) return;

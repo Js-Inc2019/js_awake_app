@@ -34,8 +34,8 @@ class ApprovalDayScreen extends StatefulWidget {
   /// その日の対象レポート（承認待ち＋差し戻しの両方を含む）
   final List<Map<String, dynamic>> reports;
 
-  /// その日の休憩申請（pending のみ）。空なら休憩セクションは見出しごと出さない。
-  /// 1件の形は BE の SELECT 列（routes/attendance.js:1641-1643）そのまま。
+  /// その日の休憩申告。空なら休憩セクションは見出しごと出さない。
+  /// 1件の形は BE の SELECT 列（routes/attendance.js:1760-1765）そのまま。
   final List<Map<String, dynamic>> breakRequests;
 
   @override
@@ -48,11 +48,11 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
   /// 画面内で保持する対象。承認/修正依頼の成功後はここから消して即時反映する。
   late List<Map<String, dynamic>> _reports = List.of(widget.reports);
 
-  /// 画面内で保持する休憩申請。承認/却下の成功後はここから消して即時反映する
-  /// （日報側 _reports:42 と同じ流儀）。
+  /// 画面内で保持する休憩申告。修正の成功後は分数だけを差し替えて即時反映する
+  /// （申告制では行そのものは消えない＝承認制の「消して終わり」とは挙動が違う）。
   late List<Map<String, dynamic>> _breaks = List.of(widget.breakRequests);
 
-  /// 休憩の決裁中フラグ（多重タップ防止）。日報側のカードは自前で sending を持つため独立。
+  /// 休憩の修正中フラグ（多重タップ防止）。日報側のカードは自前で sending を持つため独立。
   bool _breakBusy = false;
 
   /// 本人判定用（RevisionCard の編集/閲覧分岐は revision_inbox_screen.dart:131-135 と同じ流儀）。
@@ -89,32 +89,32 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     }
   }
 
-  // 休憩申請の決裁。API は WorkModeService（work_mode_service.dart:328/347/352）。
-  // 成功したら詳細ダイアログを閉じ → 行を消し → 残0なら日付一覧へ戻る、の順で進める。
-  // ★順序が重要: 先にダイアログを閉じないと、最後の Navigator.pop がダイアログを
-  //   閉じるだけになり画面が残る。
-  Future<void> _decideBreak(Map<String, dynamic> req, bool approve,
+  // 休憩申告の修正。API は WorkModeService.amendBreakRequest（work_mode_service.dart:353）。
+  // 申告制では「承認/却下」は無く、事実と違う申告を管理側が直す＝行は消えない。
+  // 成功したら詳細ダイアログを閉じ → 手元の行の分数を更新して表示へ即反映する。
+  // ★順序が重要: 先にダイアログを閉じないと、後続の pop がダイアログを閉じるだけになる。
+  // ★一覧の再取得は呼び出し元が行う。この画面は戻り時に必ず PopScope(:295-300) が
+  //   Navigator.pop(context, true) を投げ、ReviewTab がそれを受けて _load() し直す。
+  Future<void> _amendBreak(Map<String, dynamic> req, int minutes,
       {BuildContext? dialogCtx}) async {
     if (_breakBusy) return;
     final id = req['id'] as String? ?? '';
     if (id.isEmpty) return;
     setState(() => _breakBusy = true);
-    final svc = WorkModeService.instance;
-    final res = approve
-        ? await svc.approveBreakRequest(id)
-        : await svc.rejectBreakRequest(id);
+    final res = await WorkModeService.instance.amendBreakRequest(id, minutes);
     if (!mounted) return;
     setState(() => _breakBusy = false);
     if (res.ok) {
       if (dialogCtx != null && dialogCtx.mounted) Navigator.pop(dialogCtx);
       if (!mounted) return;
-      showJsSnackbar(context, approve ? '休憩申請を承認しました' : '休憩申請を却下しました');
+      showJsSnackbar(context, '休憩を$minutes分に修正しました');
       setState(() {
-        _breaks = _breaks.where((b) => b['id'] != id).toList();
+        _breaks = _breaks
+            .map((b) => b['id'] == id
+                ? {...b, 'break_override_min': minutes}
+                : b)
+            .toList();
       });
-      if (_reports.isEmpty && _breaks.isEmpty && mounted) {
-        Navigator.pop(context, true);
-      }
     } else {
       showJsSnackbar(
         context,
@@ -122,6 +122,64 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
         isError: true,
       );
     }
+  }
+
+  // 分チップの中央ダイアログ。決定した分数を返す（キャンセル/背景タップは null）。
+  Future<int?> _pickBreakMinutes(BuildContext ctx, int current) {
+    const presets = [0, 15, 30, 45, 60];
+    int selected = presets.contains(current) ? current : presets.first;
+    return showDialog<int>(
+      context: ctx,
+      builder: (dctx) => StatefulBuilder(
+        builder: (_, setLocal) => AlertDialog(
+          backgroundColor: JsColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Text('休憩を修正',
+              style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: presets.map((m) {
+                final on = selected == m;
+                return GestureDetector(
+                  onTap: () => setLocal(() => selected = m),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: on ? JsColors.accent : JsFormTokens.chipBorder),
+                    ),
+                    child: Text('$m 分',
+                        style: TextStyle(
+                          color: on ? JsColors.accent : JsColors.textMid,
+                          fontSize: 13,
+                          fontWeight: on ? FontWeight.w600 : FontWeight.normal,
+                        )),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('キャンセル',
+                  style: TextStyle(color: JsColors.silver)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, selected),
+              child: const Text('決定',
+                  style: TextStyle(color: JsColors.accent)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── 一覧の行データ ───────────────────────────────────────────
@@ -232,16 +290,16 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
                 _revisionCardIn(dctx, e.data)
               else
                 StatefulBuilder(
-                  builder: (_, setLocal) => _BreakApprovalCard(
+                  builder: (_, setLocal) => _BreakDeclarationCard(
                     request: e.data,
                     busy: _breakBusy,
-                    onApprove: () async {
+                    onAmend: () async {
                       setLocal(() {});
-                      await _decideBreak(e.data, true, dialogCtx: dctx);
-                    },
-                    onReject: () async {
-                      setLocal(() {});
-                      await _decideBreak(e.data, false, dialogCtx: dctx);
+                      final current =
+                          e.data['break_override_min'] as int? ?? 0;
+                      final picked = await _pickBreakMinutes(dctx, current);
+                      if (picked == null || !dctx.mounted) return;
+                      await _amendBreak(e.data, picked, dialogCtx: dctx);
                     },
                   ),
                 ),
@@ -333,30 +391,27 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
 }
 
 // ─────────────────────────────────────────────
-// 休憩申請カード（この画面専用・日報カードには一切触れていない）
+// 休憩申告カード（この画面専用・日報カードには一切触れていない）
 // ─────────────────────────────────────────────
-// 色は既存トークンのみ:
-//   承認 = JsColors.success 塗り + JsPalette.onAccent 文字
-//        （PendingApprovalCard の「承認」home_screen.dart:5070-5073 と同一様式）
-//   却下 = JsColors.error の枠+文字（塗らない＝主従を色と枠で示す）
-// ★minimumSize: Size(0, 44) を両方に明示する。
+// 申告制のため中身は「確認表示」＝氏名 / 申告◯分 / 理由 / 申告日時。
+// 操作は「修正」1個だけ（承認・却下は BE から撤去済み＝出さない）。
+// 様式は二次＝OutlinedButton（塗らない・枠と文字で示す）。
+// ★minimumSize: Size(0, 44) を明示する。
 //   app_theme.dart:62(elevatedButtonTheme) / :72(outlinedButtonTheme) が
 //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子は
 //   「幅＝無限」を要求して画面外へ逃げる（OFFICE 側で実際に発生した罠）。
 //   PendingApprovalCard は Expanded(:4987/:5077) で包んで回避しているが、
 //   ここでは内容幅のボタンにしたいので明示的に戻す。
-class _BreakApprovalCard extends StatelessWidget {
-  const _BreakApprovalCard({
+class _BreakDeclarationCard extends StatelessWidget {
+  const _BreakDeclarationCard({
     required this.request,
     required this.busy,
-    required this.onApprove,
-    required this.onReject,
+    required this.onAmend,
   });
 
   final Map<String, dynamic> request;
   final bool busy;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
+  final VoidCallback onAmend;
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +439,7 @@ class _BreakApprovalCard extends StatelessWidget {
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('申請休憩 $minutes分',
+          Text('申告休憩 $minutes分',
               style: const TextStyle(
                   color: JsColors.offWhite,
                   fontSize: 16,
@@ -393,30 +448,20 @@ class _BreakApprovalCard extends StatelessWidget {
           Text('理由：$reason',
               style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
           const SizedBox(height: 4),
-          Text(reqAtStr,
+          Text('申告日時：$reqAtStr',
               style: const TextStyle(color: JsColors.silver, fontSize: 11)),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               OutlinedButton(
-                onPressed: busy ? null : onReject,
+                onPressed: busy ? null : onAmend,
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 44),
-                  foregroundColor: JsColors.error,
-                  side: const BorderSide(color: JsColors.error),
+                  foregroundColor: JsColors.textStrong,
+                  side: const BorderSide(color: JsFormTokens.chipBorder),
                 ),
-                child: const Text('却下'),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: busy ? null : onApprove,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(0, 44),
-                  backgroundColor: JsColors.success,
-                  foregroundColor: JsPalette.onAccent,
-                ),
-                child: const Text('承認'),
+                child: const Text('修正'),
               ),
             ],
           ),
