@@ -1366,18 +1366,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       if (_reportBreakMin != null) {
         final breakWorkDate = businessDateForShift(_shiftType, DateTime.now());
         if (sent) {
+          // 理由は _onCheckContent(:1513) の新設検査で必須化済み。'日報より申請' の
+          // 自動充当は廃止し、入力された理由をそのまま送る（言っていないことを言わない）。
           final reason = _breakReasonCtrl.text.trim();
           final br = await WorkModeService.instance.breakRequest(
             breakMinutes: _reportBreakMin!,
-            reason:       reason.isEmpty ? '日報より申請' : reason,
+            reason:       reason,
             workDate:     breakWorkDate,
           );
           if (mounted) {
             showJsSnackbar(
               context,
               br.ok
-                  ? '休憩の変更申請を送信しました'
-                  : '休憩申請を送信できませんでした。出退勤画面から申請できます',
+                  ? '休憩の変更申告を送信しました'
+                  : '休憩の申告を送信できませんでした。出退勤画面から申告できます',
               isError: !br.ok,
             );
           }
@@ -1385,7 +1387,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           // 日報自体が未送信（オフライン保存＝再送待ち）。休憩申請は再送機構を持たない。
           if (mounted) {
             showJsSnackbar(
-              context, '休憩申請は未送信です。出退勤画面から申請できます',
+              context, '休憩の申告は未送信です。出退勤画面から申告できます',
               isWarning: true,
             );
           }
@@ -1512,6 +1514,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //     「未選択で止める」場面が構造的に存在しない
   Future<void> _onCheckContent() async {
     FocusScope.of(context).unfocus();   // 確認画面へ行く前にキーボードを畳む
+
+    // 実休憩の理由必須（新設＝確認画面へ進む前の検査）。分を選んだのに理由が空なら
+    // ここで止め、ステップ3に留まる（_goStep も Navigator.push もしない）。
+    // ★_submit(:1271) 内の既存の送信中断3件には一切触れていない。
+    if (_reportBreakMin != null && _breakReasonCtrl.text.trim().isEmpty) {
+      showJsSnackbar(context, '休憩の理由を入力してください', isError: true);
+      return;
+    }
 
     // ルート計算の途中なら、金額が入らないことを伝えて選ばせる（ブロックはしない＝袋小路禁止）
     if (_loadingRoutes) {
@@ -1971,33 +1981,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             next == 'night' ? '🌙 夜勤へ切り替えました' : '☀ 日勤へ切り替えました',
           );
         },
-        onOvertime: () async {
-          await showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => OvertimeDialog(
-              workerName: _userName,
-              gpsAddress: _gpsAddress,
-              onSubmit: (start, end, overtime) async {
-                final sentOt = await ReportStore.instance.addReport(WorkerReportItem(
-                  name: _userName,
-                  transport: TransportType.other,
-                  workContent: '【残業】$start〜$end $overtime',
-                  gpsAddress: _gpsAddress,
-                  shiftType: _shiftType,   // 残業報告も同じ勤務区分で業務日を揃える
-                ));
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (mounted) {
-                  showJsSnackbar(
-                  context,
-                  sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
-                  isWarning: !sentOt,
-                );
-                }
-              },
-            ),
-          );
-        },
+        // 「追加の申告」＝種別を選ばせる1段を挟むだけ。残業の実処理は build の下の
+        // _openOvertimeDialog() へ丸ごと退避しており、中身は1文字も変えていない。
+        onOvertime: _openExtraDeclarationPicker,
       );
     }
     return Container(
@@ -2386,7 +2372,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                               );
                             }).toList(),
                           ),
-                          // 理由欄は分数を選んだときだけ出す（任意入力）
+                          // 理由欄は分数を選んだときだけ出す（分を選んだら必須）
                           if (_reportBreakMin != null) ...[
                             const SizedBox(height: 10),
                             _FormInputShell(
@@ -2407,7 +2393,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           ],
                           const Padding(
                             padding: EdgeInsets.only(top: 6),
-                            child: Text('※入力した場合のみ、休憩の変更申請を送ります',
+                            child: Text('※分を選んだ場合のみ、休憩の変更を申告します（理由は必須）',
                                 style: TextStyle(
                                     color: JsFormTokens.textMuted, fontSize: 11)),
                           ),
@@ -2482,6 +2468,320 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     );
   }
 
+  // ── 「追加の申告」種別選択（残業 / 休憩の短縮）─────────────────────────
+  //   提出後画面 after_report_screen.dart:122-139 の続行1行目から onOvertime 経由で来る。
+  //   縦2行・暗枠1px・塗りなし（カードは使わない＝_ActionCard 様式は持ち込まない）。
+  Future<void> _openExtraDeclarationPicker() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsFormTokens.surfaceCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('追加の申告',
+            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DeclarationChoiceRow(
+                icon:  Icons.more_time,
+                label: '残業',
+                note:  '残業した時間を追加で記録',
+                onTap: () => Navigator.pop(ctx, 'overtime'),
+              ),
+              const SizedBox(height: 10),
+              _DeclarationChoiceRow(
+                icon:  Icons.free_breakfast_outlined,
+                label: '休憩の短縮',
+                note:  '取れなかった休憩を申告',
+                onTap: () => Navigator.pop(ctx, 'break'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('閉じる',
+                style: TextStyle(color: JsFormTokens.textSub)),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;   // 閉じる/背景タップ＝何もしない
+    if (choice == 'overtime') {
+      await _openOvertimeDialog();
+    } else {
+      await _openShortBreakSheet();
+    }
+  }
+
+  // 「休憩の短縮」申告シート。送信は既存 WorkModeService.breakRequest をそのまま使い、
+  // work_date は _submit(:1343) と完全に同一式 businessDateForShift(_shiftType, now) を渡す
+  // ＝夜勤の業務日ズレ（深夜〜午前は始業日=前日）が日報と一致する。
+  Future<void> _openShortBreakSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JsFormTokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _ShortBreakSheet(
+        workDate: businessDateForShift(_shiftType, DateTime.now()),
+        onNotify: (message, isError) {
+          if (!mounted) return;
+          showJsSnackbar(context, message, isError: isError);
+        },
+      ),
+    );
+  }
+
+  // ── 残業報告（既存処理。showDialog 以下は1文字も変えず、呼出を1段ラップしただけ）──
+  Future<void> _openOvertimeDialog() async {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => OvertimeDialog(
+              workerName: _userName,
+              gpsAddress: _gpsAddress,
+              onSubmit: (start, end, overtime) async {
+                final sentOt = await ReportStore.instance.addReport(WorkerReportItem(
+                  name: _userName,
+                  transport: TransportType.other,
+                  workContent: '【残業】$start〜$end $overtime',
+                  gpsAddress: _gpsAddress,
+                  shiftType: _shiftType,   // 残業報告も同じ勤務区分で業務日を揃える
+                ));
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  showJsSnackbar(
+                  context,
+                  sentOt ? '✅ 残業報告を送信しました' : '📋 残業報告を保存しました（再送待ち）',
+                  isWarning: !sentOt,
+                );
+                }
+              },
+            ),
+          );
+  }
+
+}
+
+// 「追加の申告」ダイアログの選択肢1行。暗枠1px・塗りなし。
+// 枠トークンは同ファイルのチップ群（:2349 ほか）と同じ JsFormTokens.chipBorder。
+class _DeclarationChoiceRow extends StatelessWidget {
+  const _DeclarationChoiceRow({
+    required this.icon,
+    required this.label,
+    required this.note,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final String note;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: JsFormTokens.chipBorder),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: JsFormTokens.textSub, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: const TextStyle(
+                              color: JsFormTokens.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 2),
+                      Text(note,
+                          style: const TextStyle(
+                              color: JsFormTokens.textMuted, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    color: JsFormTokens.textSub, size: 18),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+// 「休憩の短縮」申告シート。
+//   ・分チップ [0,15,30,45]（＝実際に取れた休憩の合計）
+//   ・理由は必須。空のまま申告を押したらシート内にエラーを出し、送信はしない
+//     （ボタンを無効化して黙る＝理由の分からない袋小路にはしない）
+//   ・送信は既存 WorkModeService.instance.breakRequest（新APIは作らない）
+class _ShortBreakSheet extends StatefulWidget {
+  const _ShortBreakSheet({required this.workDate, required this.onNotify});
+  final String workDate;   // 呼び出し側が businessDateForShift で確定させた業務日
+  final void Function(String message, bool isError) onNotify;
+
+  @override
+  State<_ShortBreakSheet> createState() => _ShortBreakSheetState();
+}
+
+class _ShortBreakSheetState extends State<_ShortBreakSheet> {
+  static const _presets = [0, 15, 30, 45];
+  int _selectedMin = 0;
+  final _reasonCtrl = TextEditingController();
+  String? _error;        // シート内エラー（理由未入力・送信失敗の両方をここに出す）
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      setState(() => _error = '休憩の理由を入力してください');
+      return;   // 送信しない
+    }
+    setState(() { _error = null; _submitting = true; });
+    final r = await WorkModeService.instance.breakRequest(
+      breakMinutes: _selectedMin,
+      reason:       reason,
+      workDate:     widget.workDate,
+    );
+    if (!mounted) return;
+    if (r.ok) {
+      Navigator.of(context).pop();
+      widget.onNotify('休憩の申告を送信しました', false);
+      return;
+    }
+    // 失敗は非ブロック: シートは開いたまま残し、理由をその場とsnackbarの両方に出す
+    //（シートが最前面のため snackbar だけだと隠れて沈黙障害になりうる）。
+    final msg = r.errorMessage ?? '休憩の申告を送信できませんでした';
+    setState(() { _submitting = false; _error = msg; });
+    widget.onNotify(msg, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('休憩の短縮を申告',
+              style: TextStyle(
+                  color: JsFormTokens.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          const _FieldLabel('実休憩'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _presets.map((m) {
+              final selected = _selectedMin == m;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedMin = m),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? JsFormTokens.chipSelected
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: selected
+                            ? JsFormTokens.textSub
+                            : JsFormTokens.chipBorder),
+                  ),
+                  child: Text('$m 分',
+                      style: TextStyle(
+                        color: selected
+                            ? JsFormTokens.textPrimary
+                            : JsFormTokens.textSub,
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.normal,
+                      )),
+                ),
+              );
+            }).toList(),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('※実際に取れた休憩の合計を選んでください',
+                style:
+                    TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+          ),
+          const SizedBox(height: 16),
+          const _FieldLabel('理由（必須）'),
+          const SizedBox(height: 8),
+          _FormInputShell(
+            icon: Icons.edit_note,
+            child: TextField(
+              // _FormInputShell は height:46 固定（:2848）なので1行のまま使う
+              controller: _reasonCtrl,
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
+              decoration: const InputDecoration(
+                hintText: '例）現場の都合で休憩を取れなかった',
+                border: InputBorder.none,
+                hintStyle:
+                    TextStyle(color: JsFormTokens.textMuted, fontSize: 12),
+                contentPadding: EdgeInsets.zero,
+              ),
+              style: const TextStyle(
+                  color: JsFormTokens.textPrimary, fontSize: 13),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.error_outline,
+                  color: JsFormTokens.accentAlert, size: 14),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(_error!,
+                    style: const TextStyle(
+                        color: JsFormTokens.accentAlert, fontSize: 12)),
+              ),
+            ]),
+          ],
+          const SizedBox(height: 20),
+          _OutlineActionButton(
+            label: '申告する',
+            busy:  _submitting,
+            onTap: _submit,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────

@@ -26,6 +26,18 @@ String _hhmm(String? iso) {
   return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 }
 
+// みなし時刻の表示整形【表示のみ・値は一切変えない】。
+// BE の /work_settings/my は TIME 列をそのまま返すため 'HH:MM:SS' で届く
+//（js-office-api/routes/work_settings.js:27-28。既定値リテラルも '08:00:00'）。
+// 'HH:MM:SS' / 'HH:MM' を受けて 'H:MM'（秒なし・先頭ゼロなし）にする。
+// パースできない値は握り潰さず生値をそのまま返す（fail-soft）。null は '--:--'。
+String _fmtTime(String? raw) {
+  if (raw == null) return '--:--';
+  final m = RegExp(r'^\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*$').firstMatch(raw);
+  if (m == null) return raw;
+  return '${int.parse(m.group(1)!)}:${m.group(2)}';
+}
+
 String _elapsed(String? punchInIso) {
   if (punchInIso == null) return '';
   final inTime = DateTime.tryParse(punchInIso)?.toLocal();
@@ -257,15 +269,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   String _breakLabel() {
     final status = _record?['break_override_status'] as String?;
     final min    = _record?['break_override_min']    as int?;
-    if (status == 'approved' && min != null) return '休憩 $min分（申請承認済み）';
-    if (status == 'pending')                return '休憩変更を申請中（${min ?? '--'}分）';
+    if (status == 'approved' && min != null) return '休憩 $min分（申告受理済み）';
+    if (status == 'pending')                return '休憩変更を申告中（${min ?? '--'}分）';
     // 却下の可視化。ここが無いと rejected は下の「会社設定」／「自動」へ黙って落ち、
-    // 申請が却下された事実がどこにも出なかった（BE: attendanceCalculator.js:83-84 で
+    // 却下された事実がどこにも出なかった（BE: attendanceCalculator.js:83-84 で
     // approved 以外は会社設定/法定値にフォールバックする＝計算からも静かに消える）。
     if (status == 'rejected') {
       return _standardBreakMin != null
-          ? '休憩申請は却下されました（会社設定 $_standardBreakMin分）'
-          : '休憩申請は却下されました';
+          ? '休憩の申告は却下されました（会社設定 $_standardBreakMin分）'
+          : '休憩の申告は却下されました';
     }
     if (_standardBreakMin != null)          return '休憩 $_standardBreakMin分（会社設定）';
     return '休憩は労働時間に応じて自動';
@@ -289,7 +301,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onBreakRequestSubmitted() async {
-    showJsSnackbar(context, '申請しました（承認待ち）');
+    showJsSnackbar(context, '申告しました（承認待ち）');
     final today = await WorkModeService.instance.fetchToday();
     if (!mounted) return;
     setState(() {
@@ -598,8 +610,8 @@ class _StatusSection extends StatelessWidget {
   final String breakLabel;
   final VoidCallback onChangeBreak;
   // みなし表示用。WorkModeSettings(work_mode_service.dart:16-18) の値をそのまま受け取る。
-  final String deemedStart;   // 'HH:mm'
-  final String deemedEnd;     // 'HH:mm'
+  final String deemedStart;   // BE の生値 'HH:MM:SS'（表示は _fmtTime(:29) で整形）
+  final String deemedEnd;     // 同上
   final int    breakMinutes;
 
   @override
@@ -608,7 +620,7 @@ class _StatusSection extends StatelessWidget {
       // みなしモード（案Z）: 時刻が主役（28px・中央）。
       return _ClockBlock(
         label:    'みなし勤務',
-        time:     '$deemedStart − $deemedEnd',
+        time:     '${_fmtTime(deemedStart)} − ${_fmtTime(deemedEnd)}',
         timeSize: 28,
         support: Text(
           '休憩 $breakMinutes分　実際の勤務に応じて修正されます',
@@ -1020,6 +1032,10 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
     super.dispose();
   }
 
+  // シート内エラー。理由未入力でボタンを無効化して黙る＝理由の分からない
+  // 袋小路になるため、押させてその場で理由を出す方式にした。
+  String? _error;
+
   int? _legalFloor() {
     final punchIn  = widget.record?['punch_in']  as String?;
     final punchOut = widget.record?['punch_out'] as String?;
@@ -1035,9 +1051,13 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     final reason = _reasonCtrl.text.trim();
-    if (reason.isEmpty || _submitting) return;
-    setState(() => _submitting = true);
+    if (reason.isEmpty) {
+      setState(() => _error = '休憩の理由を入力してください');
+      return;   // 送信しない
+    }
+    setState(() { _error = null; _submitting = true; });
     try {
       final result = await WorkModeService.instance.breakRequest(
         breakMinutes: _selectedMin,
@@ -1074,7 +1094,7 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '休憩時間の変更を申請',
+            '休憩時間の変更を申告',
             style: TextStyle(color: _text, fontSize: 17, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 20),
@@ -1123,7 +1143,9 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
           TextField(
             controller: _reasonCtrl,
             maxLines: 3,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
             style: const TextStyle(color: _text, fontSize: 14),
             decoration: InputDecoration(
               hintText: '例）現場の都合で休憩を取れなかった',
@@ -1144,12 +1166,23 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
               ),
             ),
           ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.error_outline, color: Color(0xFFE05252), size: 14),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(_error!,
+                    style: const TextStyle(color: Color(0xFFE05252), fontSize: 12)),
+              ),
+            ]),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: (_reasonCtrl.text.trim().isEmpty || _submitting) ? null : _submit,
+              onPressed: _submitting ? null : _submit,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _gold,
                 disabledBackgroundColor: _border,
@@ -1161,7 +1194,7 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
                       child: CircularProgressIndicator(color: _bg, strokeWidth: 2.5),
                     )
                   : const Text(
-                      '申請する',
+                      '申告する',
                       style: TextStyle(
                         color: _bg, fontSize: 16, fontWeight: FontWeight.bold),
                     ),

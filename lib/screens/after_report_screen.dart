@@ -119,11 +119,16 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                 style: TextStyle(color: JsColors.textMid, fontSize: 12)),
             const SizedBox(height: 12),
 
-            // ⏰ 残業（ラッチなし＝何度でも報告できる）
+            // ⏰ 追加の申告（残業／休憩の短縮。ラッチなし＝何度でも申告できる）
+            //    絵文字・アイコン・onTap（既存 onOvertime）は据え置き。呼び先の
+            //    home_screen 側で種別を選ばせる1段を挟むだけ＝ここは入口の名前だけを変える。
+            //    サブ行は既存3行で唯一2行に渡るため subtitleMaxLines: 2 を渡す
+            //    （既定は 1 のまま＝下の2行の描画は1ピクセルも変わらない）。
             _ActionCard(
               icon: Icons.more_time,
-              title: '⏰  残業を報告する',
-              subtitle: '残業した時間を追加で記録',
+              title: '⏰  追加の申告',
+              subtitle: '※残業や休憩の短縮を、あとから申告できます',
+              subtitleMaxLines: 2,
               onTap: () => widget.onOvertime(),
             ),
             const SizedBox(height: 10),
@@ -197,12 +202,16 @@ class _ActionCard extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.accent,
+    this.subtitleMaxLines = 1,
   });
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
   final Color? accent;
+  // サブ行の行数。既定 1 ＝従来の描画そのまま（現場移動・シフト切替・再送の3行は不変）。
+  // 「追加の申告」行だけが 2 を渡す＝長い注記が見切れるのを防ぐ。
+  final int subtitleMaxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +250,7 @@ class _ActionCard extends StatelessWidget {
                             fontWeight: FontWeight.bold)),
                     const SizedBox(height: 2),
                     Text(subtitle,
-                        maxLines: 1,
+                        maxLines: subtitleMaxLines,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: sub, fontSize: 11)),
                   ],
