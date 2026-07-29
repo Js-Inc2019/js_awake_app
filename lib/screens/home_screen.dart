@@ -4696,6 +4696,18 @@ class _ReviewTabState extends State<ReviewTab> {
   bool _loading = false;
   bool _failed  = false;
 
+  // ─── 休憩申請（pending のみ・月に依存せず全件が返る）───
+  // 日報の取得とは独立に扱う＝fail-soft。休憩が取れなくても日報一覧は必ず出す。
+  List<Map<String, dynamic>> _breaks = [];
+  bool _breakFailed = false;
+
+  // 休憩申請の日付キー（'YYYY-MM-DD'）。BE は work_date::text で返す
+  // （routes/attendance.js:1641）ので先頭10文字で足りる。
+  static String _breakDateKey(Map<String, dynamic> b) {
+    final raw = b['work_date'] as String? ?? '';
+    return raw.length >= 10 ? raw.substring(0, 10) : raw;
+  }
+
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
 
@@ -4738,8 +4750,17 @@ class _ReviewTabState extends State<ReviewTab> {
       _failed  = false;
       _targets = [];
     });
-    final result = await ReportsService().getReportsByMonth(_monthStr);
+    // 日報と休憩を並行取得。休憩は fail-soft＝失敗しても日報一覧は出す。
+    final reportsF = ReportsService().getReportsByMonth(_monthStr);
+    final breaksF  = WorkModeService.instance.fetchPendingBreakRequests();
+    final result   = await reportsF;
+    final breakRes = await breaksF;
     if (!mounted) return;
+    // 休憩の結果を先に反映（沈黙禁止＝失敗は _breakFailed で1行バナーに出す）
+    setState(() {
+      _breaks       = breakRes.ok ? breakRes.requests : <Map<String, dynamic>>[];
+      _breakFailed  = !breakRes.ok;
+    });
     if (result['success'] == true) {
       final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
       final targets = raw
@@ -4774,7 +4795,18 @@ class _ReviewTabState extends State<ReviewTab> {
       if (key.isEmpty) continue;
       grouped.putIfAbsent(key, () => []).add(r);
     }
-    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+    // 休憩申請の日付グループ化。日報の grouped には混ぜない＝上の作り方は1文字も変えない。
+    // 休憩APIは月に依存せず pending 全件を返すため、表示中の月だけに絞る。
+    final Map<String, List<Map<String, dynamic>>> breakGrouped = {};
+    for (final b in _breaks) {
+      final key = _breakDateKey(b);
+      if (key.isEmpty || !key.startsWith(_monthStr)) continue;
+      breakGrouped.putIfAbsent(key, () => []).add(b);
+    }
+    // 表示する日＝日報の日 ∪ 休憩の日（休憩だけの日も行にする）。
+    // 並び順は従来と同一の降順（b.compareTo(a)）のまま。
+    final sortedDates = <String>{...grouped.keys, ...breakGrouped.keys}.toList()
+      ..sort((a, b) => b.compareTo(a));
 
     return Column(
       children: [
@@ -4814,6 +4846,8 @@ class _ReviewTabState extends State<ReviewTab> {
             ],
           ),
         ),
+        // 休憩だけ取得できなかったときに1行で知らせる（日報一覧は下にそのまま出る）
+        if (_breakFailed && !_loading) _breakFailBanner(),
         Expanded(
           child: _loading
               ? const Center(
@@ -4831,13 +4865,45 @@ class _ReviewTabState extends State<ReviewTab> {
                           itemCount: sortedDates.length,
                           itemBuilder: (_, i) {
                             final ds = sortedDates[i];
-                            return _dayRow(ds, grouped[ds]!);
+                            return _dayRow(
+                              ds,
+                              grouped[ds] ?? const [],       // 休憩だけの日は日報0件
+                              breakGrouped[ds] ?? const [],
+                            );
                           },
                         ),
         ),
       ],
     );
   }
+
+  // 休憩の取得だけが失敗したときの1行バナー（沈黙禁止）。
+  // 日報一覧はそのまま出す＝fail-soft。タップで再取得。
+  Widget _breakFailBanner() => GestureDetector(
+        onTap: _load,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: JsColors.gunmetal,
+          child: const Row(
+            children: [
+              Icon(Icons.error_outline,
+                  color: JsColors.warning, size: 14),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text('休憩申請を取得できませんでした',
+                    style: TextStyle(color: JsColors.warning, fontSize: 12)),
+              ),
+              Text('再試行',
+                  style: TextStyle(
+                      color: JsColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      );
 
   Widget _failView() => Center(
         child: Column(
@@ -4862,21 +4928,25 @@ class _ReviewTabState extends State<ReviewTab> {
         ),
       );
 
-  // 1行 = 1日。件数0の日はそもそも grouped に現れないため行が作られない。
-  //   例: 7/27（月）　3件　承認待ち2 差し戻し1
-  //   内訳は0のものを出さない。
-  Widget _dayRow(String ds, List<Map<String, dynamic>> reps) {
+  // 1行 = 1日。件数0の日はそもそも grouped/breakGrouped に現れないため行が作られない。
+  //   例: 7/27（月）　4件　承認待ち2 差し戻し1 休憩1
+  //   合計 = 承認待ち + 差し戻し + 休憩。内訳は0のものを出さない。
+  Widget _dayRow(String ds, List<Map<String, dynamic>> reps,
+      List<Map<String, dynamic>> breaks) {
     final parts = ds.split('-').map(int.parse).toList();
     final date  = DateTime(parts[0], parts[1], parts[2]);
     final pendingCount  = reps.where(_isPending).length;
     final revisionCount = reps.where(_isRevision).length;
+    final breakCount    = breaks.length;
+    final totalCount    = pendingCount + revisionCount + breakCount;
 
     return GestureDetector(
       onTap: () async {
         final changed = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
-            builder: (_) => ApprovalDayScreen(date: date, reports: reps),
+            builder: (_) => ApprovalDayScreen(
+                date: date, reports: reps, breakRequests: breaks),
           ),
         );
         if (changed == true) _load(); // 旧 _reloadBoth 相当（呼び出し元も最新化）
@@ -4897,7 +4967,7 @@ class _ReviewTabState extends State<ReviewTab> {
                     fontSize: 15,
                     fontWeight: FontWeight.bold)),
             const SizedBox(width: 12),
-            Text('${reps.length}件',
+            Text('$totalCount件',
                 style: const TextStyle(color: JsColors.silver, fontSize: 13)),
             const Spacer(),
             // 内訳は0のものを出さない
@@ -4913,6 +4983,14 @@ class _ReviewTabState extends State<ReviewTab> {
               Text('差し戻し$revisionCount',
                   style: const TextStyle(
                       color: JsColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            if ((pendingCount > 0 || revisionCount > 0) && breakCount > 0)
+              const SizedBox(width: 8),
+            if (breakCount > 0)
+              Text('休憩$breakCount',
+                  style: const TextStyle(
+                      color: JsColors.silver,
                       fontSize: 12,
                       fontWeight: FontWeight.bold)),
             const SizedBox(width: 6),

@@ -306,4 +306,85 @@ class WorkModeService {
       return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
     }
   }
+
+  // ─── 休憩申請の承認側（職長・事務/boss が使う）──────────────────────
+  //   BE: routes/attendance.js:1631(一覧) / :1660(承認) / :1707(却下)。
+  //   権限は MONTHLY_ROLES(admin_office/admin_exec/boss・:1459) で、権限不足は 403。
+  //   流儀は上の breakRequest(:276-308) と同一:
+  //     ・token は都度 SharedPreferences から取る
+  //     ・throw しない（ok 付きレコードで返す）
+  //     ・失敗時は statusCode / code / error をそのまま載せて呼び手に判断させる
+
+  /// GET /attendance/break-requests/pending
+  /// 応答 {requests:[…]} の各行は BE の SELECT 列（:1641-1643）そのまま:
+  ///   id / person_id / work_date('YYYY-MM-DD') / break_override_min /
+  ///   break_override_reason / break_override_req_at / person_name
+  Future<({bool ok, List<Map<String, dynamic>> requests, int statusCode, String? errorMessage})>
+      fetchPendingBreakRequests() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        return (ok: false, requests: <Map<String, dynamic>>[], statusCode: 0,
+                errorMessage: 'トークンがありません');
+      }
+      final res = await http.get(
+        Uri.parse('$_apiBase/attendance/break-requests/pending'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (body['requests'] as List? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+        return (ok: true, requests: list, statusCode: res.statusCode, errorMessage: null);
+      }
+      String? msg;
+      try { msg = (jsonDecode(res.body) as Map<String, dynamic>)['error'] as String?; } catch (_) {}
+      return (ok: false, requests: <Map<String, dynamic>>[],
+              statusCode: res.statusCode, errorMessage: msg);
+    } catch (e) {
+      debugPrint('attendance/break-requests/pending 取得失敗: $e');
+      return (ok: false, requests: <Map<String, dynamic>>[], statusCode: 0,
+              errorMessage: '通信に失敗しました');
+    }
+  }
+
+  /// POST /attendance/break-request/:id/approve
+  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
+      approveBreakRequest(String id) => _decideBreakRequest(id, 'approve');
+
+  /// POST /attendance/break-request/:id/reject
+  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
+      rejectBreakRequest(String id) => _decideBreakRequest(id, 'reject');
+
+  // 承認/却下は URL 末尾だけが違う。判定・戻り値は完全に同一なので1本にまとめる。
+  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
+      _decideBreakRequest(String id, String action) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
+      }
+      final res = await http.post(
+        Uri.parse('$_apiBase/attendance/break-request/$id/$action'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        return (ok: true, statusCode: res.statusCode, errorCode: null, errorMessage: null);
+      }
+      String? code;
+      String? msg;
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        code = body['code']  as String?;
+        msg  = body['error'] as String?;
+      } catch (_) {}
+      return (ok: false, statusCode: res.statusCode, errorCode: code, errorMessage: msg);
+    } catch (e) {
+      debugPrint('attendance/break-request/$action 送信失敗: $e');
+      return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
+    }
+  }
 }
