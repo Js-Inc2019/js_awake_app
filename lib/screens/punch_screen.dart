@@ -259,6 +259,14 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     final min    = _record?['break_override_min']    as int?;
     if (status == 'approved' && min != null) return '休憩 $min分（申請承認済み）';
     if (status == 'pending')                return '休憩変更を申請中（${min ?? '--'}分）';
+    // 却下の可視化。ここが無いと rejected は下の「会社設定」／「自動」へ黙って落ち、
+    // 申請が却下された事実がどこにも出なかった（BE: attendanceCalculator.js:83-84 で
+    // approved 以外は会社設定/法定値にフォールバックする＝計算からも静かに消える）。
+    if (status == 'rejected') {
+      return _standardBreakMin != null
+          ? '休憩申請は却下されました（会社設定 $_standardBreakMin分）'
+          : '休憩申請は却下されました';
+    }
     if (_standardBreakMin != null)          return '休憩 $_standardBreakMin分（会社設定）';
     return '休憩は労働時間に応じて自動';
   }
