@@ -488,13 +488,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _isListening = false;
   final _speechMgr = SpeechManager();
 
-  // ─── 実休憩（日報ステップ3の任意入力）───
-  // null = 未入力＝休憩申請を送らない。値が入ったときだけ送信後に
-  // POST /attendance/break-request（work_mode_service.dart:276-308）を追加で呼ぶ。
-  // ★下書き(_saveDraft:736-744)には含めない＝既存の保存キー5本は不変。
-  int? _reportBreakMin;
-  final _breakReasonCtrl = TextEditingController();
-
   // ─── 勤務区分（日勤/夜勤）───
   // 送信データ組み立てまで保持。業務日(report_date)の夜勤補正とBEへの shift_type 送出に使う。
   String _shiftType = 'day';   // 'day'|'night'
@@ -891,7 +884,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _carpoolCompanyCtrl.dispose();
     _carpoolCompanyDebounce?.cancel();
     _transportMemoCtrl.dispose();
-    _breakReasonCtrl.dispose();    // 実休憩の理由欄
     _reportScrollCtrl.dispose();   // 4ステップ化で新設したスクロール制御
     ReportTabNavigator.unregister(_openReportTabCb);
     WidgetsBinding.instance.removeObserver(this);
@@ -1357,42 +1349,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         carpoolName:    carpoolName,
       ));
       await ReportStore.instance.retryPending();
-      // ── 実休憩の申請（②）。①=日報POSTの直後に、入力があるときだけ続けて撃つ。────
-      //   ・work_date は日報の report_date と同じ物差しを使う。
-      //     report_date は main.dart:297 で businessDateForShift(item.shiftType, item.timestamp)、
-      //     item.timestamp は未指定＝DateTime.now()（main.dart:146）。よって同式を渡す
-      //     ＝夜勤の業務日ズレ（深夜〜午前は始業日=前日）が日報と一致する。
-      //   ・非ブロック: 失敗しても日報送信の成立は覆さない。案内だけ出す。
-      if (_reportBreakMin != null) {
-        final breakWorkDate = businessDateForShift(_shiftType, DateTime.now());
-        if (sent) {
-          // 理由は _onCheckContent(:1513) の新設検査で必須化済み。'日報より申請' の
-          // 自動充当は廃止し、入力された理由をそのまま送る（言っていないことを言わない）。
-          final reason = _breakReasonCtrl.text.trim();
-          final br = await WorkModeService.instance.breakRequest(
-            breakMinutes: _reportBreakMin!,
-            reason:       reason,
-            workDate:     breakWorkDate,
-          );
-          if (mounted) {
-            showJsSnackbar(
-              context,
-              br.ok
-                  ? '休憩の変更申告を送信しました'
-                  : '休憩の申告を送信できませんでした。出退勤画面から申告できます',
-              isError: !br.ok,
-            );
-          }
-        } else {
-          // 日報自体が未送信（オフライン保存＝再送待ち）。休憩申請は再送機構を持たない。
-          if (mounted) {
-            showJsSnackbar(
-              context, '休憩の申告は未送信です。出退勤画面から申告できます',
-              isWarning: true,
-            );
-          }
-        }
-      }
       _saveWorkStatus('done');
       _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
@@ -1515,14 +1471,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> _onCheckContent() async {
     FocusScope.of(context).unfocus();   // 確認画面へ行く前にキーボードを畳む
 
-    // 実休憩の理由必須（新設＝確認画面へ進む前の検査）。分を選んだのに理由が空なら
-    // ここで止め、ステップ3に留まる（_goStep も Navigator.push もしない）。
-    // ★_submit(:1271) 内の既存の送信中断3件には一切触れていない。
-    if (_reportBreakMin != null && _breakReasonCtrl.text.trim().isEmpty) {
-      showJsSnackbar(context, '休憩の理由を入力してください', isError: true);
-      return;
-    }
-
     // ルート計算の途中なら、金額が入らないことを伝えて選ばせる（ブロックはしない＝袋小路禁止）
     if (_loadingRoutes) {
       final goAnyway = await showDialog<bool>(
@@ -1592,7 +1540,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       workContent:       _workCtrl.text.trim(),
       workPhotoCount:    _workPhotoPaths.length,
       parkingPhotoCount: _parkingPhotoPaths.length,
-      breakMin:          _reportBreakMin,   // null=未入力（確認画面で行ごと省く）
     );
   }
 
@@ -1949,9 +1896,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             _selectedSiteName = null;
             // 4ステップ化：次の現場は「現場」ステップから入り直す
             _reportStep = 1;
-            // 実休憩：現場が変われば休憩の申告もやり直し
-            _reportBreakMin = null;
-            _breakReasonCtrl.clear();
           });
           _fetchGps();
         },
@@ -1969,9 +1913,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             _parkingPhotoPaths = [];
             // 4ステップ化：新しいシフトも「現場」ステップから入り直す
             _reportStep = 1;
-            // 実休憩：シフトが変われば業務日も変わるので申告もやり直し
-            _reportBreakMin = null;
-            _breakReasonCtrl.clear();
           });
           await _saveShiftType(next);
           await _saveWorkStatus('working');   // 新シフトの業務日で working を刻む
@@ -2329,74 +2270,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                             paths: _workPhotoPaths,
                             onChanged: (v) => setState(() => _workPhotoPaths = v),
                           ),
-                          const SizedBox(height: 14),
-                          // ── 実休憩（任意入力）────────────────────────────
-                          //   未入力(_reportBreakMin == null)なら休憩申請は送らない。
-                          //   見た目の流儀は打刻画面の _BreakRequestSheet(punch_screen.dart:1081-1108)
-                          //   ＝ラベル＋角丸チップのWrap に合わせ、色は本フォームの既存トークンのみ使う。
-                          const _FieldLabel('実休憩'),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [0, 30, 45, 60, 90].map((m) {
-                              final selected = _reportBreakMin == m;
-                              return GestureDetector(
-                                // 選択中をもう一度タップ＝解除（null＝未入力に戻る）
-                                onTap: () => setState(
-                                    () => _reportBreakMin = selected ? null : m),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? JsFormTokens.chipSelected
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: selected
-                                            ? JsFormTokens.textSub
-                                            : JsFormTokens.chipBorder),
-                                  ),
-                                  child: Text('$m 分',
-                                      style: TextStyle(
-                                        color: selected
-                                            ? JsFormTokens.textPrimary
-                                            : JsFormTokens.textSub,
-                                        fontSize: 13,
-                                        fontWeight: selected
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
-                                      )),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                          // 理由欄は分数を選んだときだけ出す（分を選んだら必須）
-                          if (_reportBreakMin != null) ...[
-                            const SizedBox(height: 10),
-                            _FormInputShell(
-                              icon: Icons.edit_note,
-                              child: TextField(
-                                controller: _breakReasonCtrl,
-                                decoration: const InputDecoration(
-                                  hintText: '例）現場の都合で休憩を取れなかった',
-                                  border: InputBorder.none,
-                                  hintStyle: TextStyle(
-                                      color: JsFormTokens.textMuted, fontSize: 12),
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                style: const TextStyle(
-                                    color: JsFormTokens.textPrimary, fontSize: 13),
-                              ),
-                            ),
-                          ],
-                          const Padding(
-                            padding: EdgeInsets.only(top: 6),
-                            child: Text('※分を選んだ場合のみ、休憩の変更を申告します（理由は必須）',
-                                style: TextStyle(
-                                    color: JsFormTokens.textMuted, fontSize: 11)),
-                          ),
                         ],
                       ),
                     ),
@@ -2518,7 +2391,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // 「休憩の短縮」申告シート。送信は既存 WorkModeService.breakRequest をそのまま使い、
-  // work_date は _submit(:1343) と完全に同一式 businessDateForShift(_shiftType, now) を渡す
   // ＝夜勤の業務日ズレ（深夜〜午前は始業日=前日）が日報と一致する。
   Future<void> _openShortBreakSheet() async {
     await showModalBottomSheet<void>(
@@ -3006,7 +2878,6 @@ class _ReportSnapshot {
     required this.workContent,
     required this.workPhotoCount,
     required this.parkingPhotoCount,
-    this.breakMin,
   });
 
   final String  dateLabel;
@@ -3025,9 +2896,6 @@ class _ReportSnapshot {
   final String  workContent;
   final int     workPhotoCount;
   final int     parkingPhotoCount;
-  /// 実休憩（分）。null = 未入力＝確認画面に行ごと出さない。
-  /// ★diffKey には入れない（差異検知の7要素は不変）。
-  final int?    breakMin;
 
   String get parkingFeeLabel =>
       parkingFeeRaw.isEmpty ? '—' : '¥$parkingFeeRaw';
@@ -3155,9 +3023,6 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                           if (_snap.carpoolLabel.isNotEmpty)
                             _row('相乗り', _snap.carpoolLabel),
                           _row('作業内容', _snap.workContent, multiline: true),
-                          // 実休憩は入力があるときだけ行を出す（未入力なら行ごと省く）
-                          if (_snap.breakMin != null)
-                            _row('実休憩', '${_snap.breakMin}分'),
                           _row('写真',
                               '作業 ${_snap.workPhotoCount}枚 / 駐車 ${_snap.parkingPhotoCount}枚',
                               last: true),
