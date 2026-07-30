@@ -151,22 +151,54 @@ class NotificationService {
   // 通知設定保存 PUT /notification-settings/my
   // remind_time1/2 は null をそのまま送ると「枠OFF」。
   // health_notify_enabled は本画面の対象外のため送らない（BEはマージUPSERTで既存値保持）。
+  //
+  // 打刻のお知らせ（punch_remind_*）: BE は出勤側/退勤側それぞれに
+  //   enabled(bool) / mode('after'|'at') / after_min(int) / at('HH:00'|null) を持つ。
+  //   ★どちらの値が有効かは mode だけが決める。'after' のときは at を、
+  //     'at' のときは after_min を BE は読まない（選ばれていない側は前回値として残るだけ）。
+  //   ★mode='at' で at が null だと BE が 400 を返す（'at' に既定値が無いため）。
+  //     呼び出し側は mode='at' のとき必ず時刻を渡すこと。
   // ============================================================
   Future<Map<String, dynamic>> saveNotificationSettings({
     required bool reportRemindEnabled,
     required String? remindTime1,
     required String? remindTime2,
+    // 打刻のお知らせ（省略時は送らない＝BE のマージUPSERTで既存値を保持）
+    bool? punchRemindInEnabled,
+    String? punchRemindInMode,
+    int? punchRemindInAfterMin,
+    String? punchRemindInAt,
+    bool? punchRemindOutEnabled,
+    String? punchRemindOutMode,
+    int? punchRemindOutAfterMin,
+    String? punchRemindOutAt,
   }) async {
     try {
       final headers = await _auth.getAuthHeaders();
+      final body = <String, dynamic>{
+        'report_remind_enabled': reportRemindEnabled,
+        'remind_time1': remindTime1, // null = 枠OFF
+        'remind_time2': remindTime2, // null = 枠OFF
+      };
+      // 打刻のお知らせは「渡されたときだけ」載せる。
+      //   ★_at は null が正当な値（mode='after' のとき）なので、
+      //     mode が渡されているかどうかで「この節を編集した」と判断する。
+      if (punchRemindInMode != null) {
+        body['punch_remind_in_enabled']   = punchRemindInEnabled;
+        body['punch_remind_in_mode']      = punchRemindInMode;
+        body['punch_remind_in_after_min'] = punchRemindInAfterMin;
+        body['punch_remind_in_at']        = punchRemindInAt;
+      }
+      if (punchRemindOutMode != null) {
+        body['punch_remind_out_enabled']   = punchRemindOutEnabled;
+        body['punch_remind_out_mode']      = punchRemindOutMode;
+        body['punch_remind_out_after_min'] = punchRemindOutAfterMin;
+        body['punch_remind_out_at']        = punchRemindOutAt;
+      }
       final response = await http.put(
         Uri.parse('$kApiBaseUrl/notification-settings/my'),
         headers: headers,
-        body: jsonEncode({
-          'report_remind_enabled': reportRemindEnabled,
-          'remind_time1': remindTime1, // null = 枠OFF
-          'remind_time2': remindTime2, // null = 枠OFF
-        }),
+        body: jsonEncode(body),
       ).timeout(const Duration(seconds: 15));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
