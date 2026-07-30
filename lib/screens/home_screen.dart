@@ -1822,6 +1822,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         onBeforeMoveToNextSite: _prepareMoveToNextSite,
         // N3: 完了ビュー「今日はここまで」から退勤を打つための実行口を受け取る。
         onPunchOutHandlerReady: (fn) => _punchOutFromHome = fn,
+        // N7: ホームへ増設した「⏰ 追加の申告」（完了ビュー側の同ボタンは不変・こちらは増設）。
+        //   ・todayClosed … みなしの締め状態。判定は当State（_todayClosed）が唯一の真実源で、
+        //     PunchScreen は受けた真偽で表示を出し分けるだけ（判定式を複製しない）。
+        //     build 中に読む親所有の値なので shiftType と同じく素の値で下ろす。
+        //   ・onExtraDeclaration … 完了ビューの onOvertime(:2136) と同一の既存ハンドラ。
+        //     残業/休憩短縮の出し分けも実処理も _openExtraDeclarationPicker のまま＝入口が増えただけ。
+        todayClosed: _todayClosed,
+        onExtraDeclaration: _openExtraDeclarationPicker,
         // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {

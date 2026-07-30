@@ -65,8 +65,24 @@ class PunchScreen extends StatefulWidget {
     this.onBeforeOpenReport,
     this.onBeforeMoveToNextSite,
     this.onPunchOutHandlerReady,
+    this.todayClosed = false,
+    this.onExtraDeclaration,
   });
   final VoidCallback? onNavigateToReport;
+  // ── N7: ホームの「⏰ 追加の申告」（完了ビューの同ボタンとは別の増設・あちらは不変）──
+  // 締め済みか。真実源は home_screen の _todayClosed（'closed' を読む _readWorkStatusToday /
+  //   _initTodayReportDone / _reevaluateReportDone / _onCloseToday が唯一の書き手）。
+  //   ★ここでは判定を作らず受けた真偽だけを見る。
+  //   ★素の値で下ろす（bool Function() にしない）: この値は build 中に読むため。
+  //     isReportDone(:91) がコールバックなのは「タップした瞬間」に読む値だから＝用途が違う。
+  //     親所有かつ build で読む値は shiftType / revisionCount と同じ素の prop に揃える。
+  //   ★onPunchStateChanged(:88) には載せない: あちらは子→親（fetchToday で得た値を上げる口）で
+  //     向きが逆。親所有の値を子の通知チャネルに相乗りさせない。
+  final bool todayClosed;
+  // 「⏰ 追加の申告」の押下先。親の既存ハンドラ home_screen:_openExtraDeclarationPicker を
+  //   そのまま下ろすだけ（残業/休憩短縮の出し分けも実処理も親のまま・複製しない）。
+  //   ★2件目確認（onBeforeOpenReport）は通さない＝申告ピッカーへ直行する。
+  final Future<void> Function()? onExtraDeclaration;
   // N5: 「日報を報告」から日報フォームへ入る直前の親側ゲート。
   //   true=このまま進む / false=中止。null=素通し（＝従来の挙動）。
   //   「もう報告済みか」「締め済みか」の判定と2件目の確認ダイアログは親が持つ。
@@ -658,8 +674,30 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   未出勤 … ［出勤=生成り主］［本日休み=二次］
   //   出勤中 … ［退勤=生成り主］［現場移動=エメラルド枠 二次］
   //   退勤済 … ［日報を報告］1本（従来のまま・N5でボタン文言も据え置き）
+  //
+  // N7: 「⏰ 追加の申告」を下段へ増設する（完了ビュー側の同ボタンは不変・こちらは増設のみ）。
+  //   出すのは「1日が終わっている」2状態だけ（原則⑤＝満たさない条件は行ごと出さない）:
+  //     ・実打刻・退勤済     … _punchedIn && _punchedOut
+  //     ・みなし・締め済み   … !isActual && widget.todayClosed
+  //   未出勤・出勤中・みなし未締め では出さない（まだ主行動が残っている＝申告は完了後の行為）。
   Widget _buildOperationArea(bool isActual) {
     final showRestDay = !isActual || !_punchedIn;
+
+    // N7: 増設ボタンの表示条件。判定式はこの1本だけ（下の2分岐が同じ変数を読む）。
+    final showExtraDeclaration = isActual
+        ? (_punchedIn && _punchedOut)   // 実打刻: 退勤済
+        : widget.todayClosed;           // みなし: 締め済み
+
+    // 増設ボタン本体（二次様式＝暗枠1px・textMid系。高さは2択行と同じ 52）。
+    // 押下先は親の既存ハンドラをそのまま呼ぶだけ（判定も実処理もここには作らない）。
+    final extraBtn = _SecondaryOutlineButton(
+      label:     '⏰ 追加の申告',
+      icon:      Icons.more_time,
+      color:     JsColors.textMid,
+      onPressed: widget.onExtraDeclaration == null
+          ? null
+          : () => widget.onExtraDeclaration!(),
+    );
 
     final restBtn = _RestDayButton(
       rested:    _rested,
@@ -673,9 +711,10 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       height:    isActual ? _kOpButtonHeight : 56,
     );
 
-    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］（変更なし）
+    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］（この行は変更なし）
+    // N7: 締め済みのときだけ、その下に「⏰ 追加の申告」を縦積み（gap 8）。
     if (!isActual) {
-      return Row(
+      final deemedRow = Row(
         children: [
           Expanded(child: _ReportOutlineButton(onPressed: _onReportTap)),
           if (showRestDay) ...[
@@ -684,11 +723,30 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
           ],
         ],
       );
+      if (!showExtraDeclaration) return deemedRow;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          deemedRow,
+          const SizedBox(height: 8),
+          extraBtn,
+        ],
+      );
     }
 
-    // 実打刻・退勤済: 1日の勤務が終わっている＝主行動は日報だけ（従来どおり全幅1本）
+    // 実打刻・退勤済: 1日の勤務が終わっている＝主行動は日報だけ（全幅1本・文言も従来のまま）
+    // N7: その下に「⏰ 追加の申告」を縦積み（gap 8）。
     if (_punchedIn && _punchedOut) {
-      return _ReportOutlineButton(onPressed: _onReportTap);
+      final reportBtn = _ReportOutlineButton(onPressed: _onReportTap);
+      if (!showExtraDeclaration) return reportBtn;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          reportBtn,
+          const SizedBox(height: 8),
+          extraBtn,
+        ],
+      );
     }
 
     // 実打刻・未出勤 / 出勤中: 2択の横並び
@@ -1139,15 +1197,19 @@ class _PunchPrimaryButton extends StatelessWidget {
 // ── _SecondaryOutlineButton ───────────────────────────────────────────────────
 // N1: 2択行の右側に置く二次ボタン（枠1px＋同色文字・塗りなし）。
 //   色は呼び出し側が意味で決める（出勤中の「現場移動」= JsColors.accent＝エメラルド）。
+// N7: 任意の先頭アイコンを追加（既定 null＝従来の描画は1ピクセルも変わらない）。
+//   「⏰ 追加の申告」だけが icon: Icons.more_time / color: JsColors.textMid（暗枠）を渡す。
 class _SecondaryOutlineButton extends StatelessWidget {
   const _SecondaryOutlineButton({
     required this.label,
     required this.color,
     required this.onPressed,
+    this.icon,
   });
   final String label;
   final Color color;
   final VoidCallback? onPressed;
+  final IconData? icon;   // null＝アイコンなし（現場移動＝従来どおり文字のみ）
 
   @override
   Widget build(BuildContext context) {
@@ -1163,12 +1225,24 @@ class _SecondaryOutlineButton extends StatelessWidget {
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
         ),
       ),
     );
