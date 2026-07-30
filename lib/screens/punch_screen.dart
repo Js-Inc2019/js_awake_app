@@ -238,6 +238,39 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) _init();
   }
 
+  // ── シフト切替時の再取得 ────────────────────────────────────────────────
+  // 勤怠行は (person, 業務日, shift_type) で1行。シフトを切り替えると「見るべき行」が
+  // 別の行に変わるため、切替後の shift_type で必ず取り直す。
+  // ★これが無いと _punchedIn/_punchedOut/_record が切替前シフトの値のまま残り、
+  //   BE 上は打刻済みの行に対して出勤ボタンが出る（＝退勤済み行への出勤上書きが起きる）。
+  // shiftType は親(JsMainShell)が真実を持ち props で下ろすため、値が変わると
+  // didUpdateWidget が呼ばれる（親の setState → PunchScreen の widget 更新）。
+  //   発火元: _ShiftTypeSelector(:648) → widget.onShiftTypeChanged
+  //          → home_screen.dart:1835-1839 setState(_shiftType) → ここ。
+  //   起動時の勤務区分復元（home_screen.dart:_restoreShiftType）で値が変わる場合も同じ経路で通る。
+  @override
+  void didUpdateWidget(covariant PunchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.shiftType != oldWidget.shiftType) _reloadForShiftChange();
+  }
+
+  // 再取得そのものは既存の取得経路 _init(:241) をそのまま呼ぶ。
+  //   ＝fetchToday(shiftType: widget.shiftType) と、その戻り値を
+  //     _record/_punchedIn/_punchedOut へ入れる処理は1箇所のまま（状態のコピーを作らない）。
+  //   didUpdateWidget の時点で widget.shiftType は既に切替後の値。
+  // 競合防御: 取得が終わるまで既存の _busy を立てる。_busy は打刻の入口
+  //   （_confirmPunch:376 / _doPunch:295）と打刻ボタンの disabled(:777,:791) が
+  //   既に見ている単一のフラグなので、新しい排他機構は作らない。
+  Future<void> _reloadForShiftChange() async {
+    if (_busy) return;   // 打刻処理中は触らない（_doPunch が完了時に :318 で取り直す）
+    setState(() => _busy = true);
+    try {
+      await _init();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _init() async {
     final (settings, today) = await (
       WorkModeService.instance.fetchFromServer(),
