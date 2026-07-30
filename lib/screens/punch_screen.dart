@@ -74,7 +74,8 @@ class PunchScreen extends StatefulWidget {
   //   _initTodayReportDone / _reevaluateReportDone / _onCloseToday が唯一の書き手）。
   //   ★ここでは判定を作らず受けた真偽だけを見る。
   //   ★素の値で下ろす（bool Function() にしない）: この値は build 中に読むため。
-  //     isReportDone(:91) がコールバックなのは「タップした瞬間」に読む値だから＝用途が違う。
+  //     isReportDone(:107) は既存のコールバックのままだが N8 で build 中にも読んでいる。
+  //     書き換えが必ず親の setState 経由なので再評価はされる＝動作は正しいが、意図は素の値の方が明快。
   //     親所有かつ build で読む値は shiftType / revisionCount と同じ素の prop に揃える。
   //   ★onPunchStateChanged(:88) には載せない: あちらは子→親（fetchToday で得た値を上げる口）で
   //     向きが逆。親所有の値を子の通知チャネルに相乗りさせない。
@@ -721,6 +722,24 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         ? (_punchedIn && _punchedOut)   // 実打刻: 退勤済
         : widget.todayClosed;           // みなし: 締め済み
 
+    // N8: 報告が済んでいる日は「日報を報告」を出さない（1日の主行動が終わっているため）。
+    //   ★未報告なら日報は絶対必須なので必ず出す＝隠すのは reportDone のときだけ。
+    //   報告済みの真実は親(JsMainShell)の _todayReportDone。既存 props の
+    //   isReportDone(:107) 経由で受ける（home_screen.dart:1817 `isReportDone: () => _todayReportDone`）。
+    //   その中身は home_screen.dart:628 `_isReportDoneStatus(s) => s == 'done' || s == 'closed'`
+    //   ＝送信済み or みなしの締め。判定式はこの画面に複製しない。
+    //   ★このコールバックは build 中にも読む。_todayReportDone の書き換えは全て親の setState
+    //     経由（home_screen.dart:641 / 658 / 672 / 692 / 718 / 1598）なので、値が変われば
+    //     親が rebuild し、ここも読み直される。
+    final reportDone = widget.isReportDone?.call() == true;
+
+    // 「日報を報告」を隠す条件。対象は裁定どおり
+    //   「実打刻・退勤済」と「みなし・締め後」の2分岐だけ＝showExtraDeclaration と同一の範囲。
+    //   ★みなし・未締め（showExtraDeclaration=false）では報告済みでも隠さない。
+    //     そこは2件目作成の唯一の入口（N5: 押すと親が2件目確認→_resetForNextReport）なので、
+    //     消すと2件目が作れなくなる。
+    final hideReportButton = showExtraDeclaration && reportDone;
+
     // 増設ボタン本体（二次様式＝暗枠1px・textMid系。高さは2択行と同じ 52）＋直下の注記。
     // 押下先は親の既存ハンドラをそのまま呼ぶだけ（判定も実処理もここには作らない）。
     // ★ボタンと注記を1ブロックにまとめる: 下の2分岐はどちらも showExtraDeclaration で
@@ -761,16 +780,19 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       height:    isActual ? _kOpButtonHeight : 56,
     );
 
-    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］（この行は変更なし）
+    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］
     // N7: 締め済みのときだけ、その下に「⏰ 追加の申告」を縦積み（gap 8）。
+    // N8: 締め後かつ報告済み（hideReportButton）なら［日報を報告］を落とし［本日休み］だけ残す。
+    //   ★showRestDay(:717) は `!isActual || !_punchedIn` なので、この分岐では常に true
+    //     ＝日報を落としても行が空にならない。
     if (!isActual) {
       final deemedRow = Row(
         children: [
-          Expanded(child: _ReportOutlineButton(onPressed: _onReportTap)),
-          if (showRestDay) ...[
-            const SizedBox(width: 10),
-            Expanded(child: restBtn),
+          if (!hideReportButton) ...[
+            Expanded(child: _ReportOutlineButton(onPressed: _onReportTap)),
+            if (showRestDay) const SizedBox(width: 10),
           ],
+          if (showRestDay) Expanded(child: restBtn),
         ],
       );
       if (!showExtraDeclaration) return deemedRow;
@@ -786,7 +808,12 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
     // 実打刻・退勤済: 1日の勤務が終わっている＝主行動は日報だけ（全幅1本・文言も従来のまま）
     // N7: その下に「⏰ 追加の申告」を縦積み（gap 8）。
+    // N8: 報告済みなら［日報を報告］は出さず［⏰ 追加の申告］だけにする。
+    //   未報告のときは従来どおり［日報を報告］を出す（日報は絶対必須）。
     if (_punchedIn && _punchedOut) {
+      // この分岐では showExtraDeclaration は必ず true（条件式が同一）なので、
+      // hideReportButton == reportDone。申告ブロックは必ず残る＝袋小路にならない。
+      if (hideReportButton) return extraBlock;
       final reportBtn = _ReportOutlineButton(onPressed: _onReportTap);
       if (!showExtraDeclaration) return reportBtn;
       return Column(
