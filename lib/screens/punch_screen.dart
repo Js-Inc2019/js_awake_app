@@ -688,15 +688,32 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         ? (_punchedIn && _punchedOut)   // 実打刻: 退勤済
         : widget.todayClosed;           // みなし: 締め済み
 
-    // 増設ボタン本体（二次様式＝暗枠1px・textMid系。高さは2択行と同じ 52）。
+    // 増設ボタン本体（二次様式＝暗枠1px・textMid系。高さは2択行と同じ 52）＋直下の注記。
     // 押下先は親の既存ハンドラをそのまま呼ぶだけ（判定も実処理もここには作らない）。
-    final extraBtn = _SecondaryOutlineButton(
-      label:     '⏰ 追加の申告',
-      icon:      Icons.more_time,
-      color:     JsColors.textMid,
-      onPressed: widget.onExtraDeclaration == null
-          ? null
-          : () => widget.onExtraDeclaration!(),
+    // ★ボタンと注記を1ブロックにまとめる: 下の2分岐はどちらも showExtraDeclaration で
+    //   ゲート済みなので、これを置くだけで「ボタンが出る時だけ注記も出る」が構造的に成立する
+    //   ＝注記のための新しい表示判定は作らない。
+    final extraBlock = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SecondaryOutlineButton(
+          label:     '⏰ 追加の申告',
+          icon:      Icons.more_time,
+          color:     JsColors.textMid,
+          onPressed: widget.onExtraDeclaration == null
+              ? null
+              : () => widget.onExtraDeclaration!(),
+        ),
+        const SizedBox(height: 4),
+        // 何を申告できるのかをボタンの直下で言う。スタイルは同一ファイル内の既存注記
+        //   （:855 の「業務日 …」補足行と同じ JsColors.textSecondary / fontSize 11）を流用。
+        //   新しい色・独自トークンは定義しない。
+        const Text(
+          '※残業や休憩の短縮を、あとから申告できます',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: JsColors.textSecondary, fontSize: 11),
+        ),
+      ],
     );
 
     final restBtn = _RestDayButton(
@@ -729,7 +746,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         children: [
           deemedRow,
           const SizedBox(height: 8),
-          extraBtn,
+          extraBlock,
         ],
       );
     }
@@ -744,7 +761,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         children: [
           reportBtn,
           const SizedBox(height: 8),
-          extraBtn,
+          extraBlock,
         ],
       );
     }
@@ -854,6 +871,19 @@ class _ShiftTypeSelector extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(color: JsColors.textSecondary, fontSize: 11),
         ),
+        // 夜勤を選んでいるときだけ、業務日の切替時刻を注記する。
+        //   判定は上の chip(:803) と同じ形（selected == 'night'）＝新しい判定は作らない。
+        //   ★表示だけ。業務日の算出（businessDateForShift）には一切触れていない。
+        //   スタイルは直上の補足行をそのまま流用（JsColors.textSecondary / fontSize 11）＝
+        //   新しい色・独自トークンは定義しない。
+        if (selected == 'night') ...[
+          const SizedBox(height: 2),
+          const Text(
+            '※夜勤は正午が切替（午前中は前夜分を表示）',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: JsColors.textSecondary, fontSize: 11),
+          ),
+        ],
       ],
     );
   }
