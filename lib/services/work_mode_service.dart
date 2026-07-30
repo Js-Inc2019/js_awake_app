@@ -118,6 +118,40 @@ class WorkModeService {
     }
   }
 
+  // ── 解決済み勤怠設定（/attendance 系のためこのサービスに置く）───────────
+  // GET /attendance/settings/resolved → person→department→global を項目ごとにマージ済みの1件。
+  // BE: routes/attendance.js の GET /settings/resolved（services/attendanceSettings.js が解決）。
+  // 打刻のお知らせ（punch_remind_*）は会社が決める統治項目で、本人は変更できない。
+  //   この画面はそれを「読むだけ」＝表示用にここから取る。
+  // 戻り値は fetchCompanyHolidays(:128) と同じ ok 付きレコード流儀。
+  //   沈黙障害の禁止: 非200・例外は debugPrint で必ず出し ok:false で返す
+  //   （settings が空マップになるため「取れなかった」と「未設定」を ok で区別できる）。
+  Future<({bool ok, Map<String, dynamic> settings, int statusCode, String? errorMessage})>
+      fetchResolvedAttendanceSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        debugPrint('attendance/settings/resolved: トークンがありません');
+        return (ok: false, settings: <String, dynamic>{}, statusCode: 0, errorMessage: 'トークンがありません');
+      }
+      final res = await http.get(
+        Uri.parse('$_apiBase/attendance/settings/resolved'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (ok: true, settings: body, statusCode: res.statusCode, errorMessage: null);
+      }
+      debugPrint('attendance/settings/resolved 非200: status=${res.statusCode} body=${res.body}');
+      return (ok: false, settings: <String, dynamic>{},
+              statusCode: res.statusCode, errorMessage: '勤怠設定を取得できませんでした');
+    } catch (e) {
+      debugPrint('attendance/settings/resolved 取得失敗: $e');
+      return (ok: false, settings: <String, dynamic>{}, statusCode: 0, errorMessage: e.toString());
+    }
+  }
+
   // ── 会社休日カレンダー（/attendance 系のためこのサービスに置く）─────────
   // GET /attendance/holidays/my → { weekly: {"0".."6": 'legal'|'scheduled'},
   //                                 dates:  {"YYYY-MM-DD": 'legal'|'scheduled'} }

@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import '../main.dart' show showJsSnackbar;
 import '../core/theme/js_colors.dart';
 import '../services/notification_service.dart';
+// 打刻のお知らせは会社設定（attendance_settings）。/attendance 系はこのサービスが持つ。
+import '../services/work_mode_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -34,24 +36,14 @@ class _NotificationSettingsScreenState
   String _lastTime1 = '12:00';
   String _lastTime2 = '15:00';
 
-  // ── 打刻のお知らせ（BE: notification_settings.punch_remind_*）──────────
-  //   方式は2択: 'after'=定刻後○分（10分刻み・10〜60）/ 'at'=○時に通知（分は00固定）。
-  //   ★どちらの値が有効かは mode だけが決める（BE と同じ裁定者）。
-  //   既定は 有効ON / 'after' / 30分（BE の DEFAULTS と同値）。
-  bool   _punchInEnabled  = true;
-  String _punchInMode     = 'after';
-  int    _punchInAfterMin = 30;
-  String? _punchInAt;                 // 'HH:00'。mode='after' の間は null でよい
-  bool   _punchOutEnabled  = true;
-  String _punchOutMode     = 'after';
-  int    _punchOutAfterMin = 30;
-  String? _punchOutAt;
-  // 'at' へ切り替えたときの初期値。BE は 'at' に既定を持たないので画面側で用意する
-  //（mode='at' かつ時刻なしの PUT は BE が 400 にする）。
-  String _lastPunchInAt  = '08:00';
-  String _lastPunchOutAt = '18:00';
-
-  static const _afterPresets = [10, 20, 30, 40, 50, 60];
+  // ── 打刻のお知らせ（BE: attendance_settings.punch_remind_*）─────────────
+  //   ★会社が決める統治項目。本人は変更できない＝この画面では「読むだけ」。
+  //     取得は GET /attendance/settings/resolved（person→department→global のマージ済み値）。
+  //     変更は OFFICE の勤怠設定から行う。
+  //   ★どちらの値が有効かは mode だけが決める（BE と同じ裁定者）:
+  //     mode == 'after' なら after_min、'at' なら at を読む。
+  Map<String, dynamic> _punch = const {};
+  bool _punchLoaded = false;   // 取得できなかったときは節ごと出さない（嘘の値を見せない）
 
   @override
   void initState() {
@@ -74,17 +66,6 @@ class _NotificationSettingsScreenState
         _time2 = _asTime(s['remind_time2']);
         if (_time1 != null) _lastTime1 = _time1!;
         if (_time2 != null) _lastTime2 = _time2!;
-        // 打刻のお知らせ。BE が既定（行なし）を返す場合も同じ形で入ってくる。
-        _punchInEnabled  = s['punch_remind_in_enabled'] != false;
-        _punchInMode     = s['punch_remind_in_mode'] == 'at' ? 'at' : 'after';
-        _punchInAfterMin = _asAfterMin(s['punch_remind_in_after_min']);
-        _punchInAt       = _asTime(s['punch_remind_in_at']);
-        _punchOutEnabled  = s['punch_remind_out_enabled'] != false;
-        _punchOutMode     = s['punch_remind_out_mode'] == 'at' ? 'at' : 'after';
-        _punchOutAfterMin = _asAfterMin(s['punch_remind_out_after_min']);
-        _punchOutAt       = _asTime(s['punch_remind_out_at']);
-        if (_punchInAt  != null) _lastPunchInAt  = _punchInAt!;
-        if (_punchOutAt != null) _lastPunchOutAt = _punchOutAt!;
         _loading = false;
         _error = false;
       });
@@ -94,6 +75,35 @@ class _NotificationSettingsScreenState
         _error = true;
       });
     }
+    // 打刻のお知らせは別 API（会社設定のマージ済み値）。
+    //   ★失敗しても本画面の主機能（日報リマインダの編集）は塞がない＝節を出さないだけ。
+    await _loadPunch();
+  }
+
+  Future<void> _loadPunch() async {
+    final r = await WorkModeService.instance.fetchResolvedAttendanceSettings();
+    if (!mounted) return;
+    setState(() {
+      _punch = r.ok ? r.settings : const {};
+      _punchLoaded = r.ok;
+    });
+  }
+
+  // 適用中の設定を1行の日本語にする。読むのは mode が指している側だけ。
+  //   enabled=false → 「通知しない」／ mode='at' → 「HH:MM に通知」
+  //   mode='after'  → 「定刻の○分後に通知」／ それ以外（未設定）→ 「未設定」
+  String _punchSummary(String side) {
+    if (_punch['punch_remind_${side}_enabled'] == false) return '通知しない';
+    final mode = _punch['punch_remind_${side}_mode'];
+    if (mode == 'at') {
+      final at = _asTime(_punch['punch_remind_${side}_at']);
+      return at != null ? '$at に通知' : '未設定';
+    }
+    if (mode == 'after') {
+      final m = _punch['punch_remind_${side}_after_min'];
+      return m is int ? '定刻の$m分後に通知' : '未設定';
+    }
+    return '未設定';
   }
 
   // 'HH:MM' または 'HH:MM:SS' → 'HH:MM'（それ以外/nullはnull）
@@ -104,28 +114,14 @@ class _NotificationSettingsScreenState
     return null;
   }
 
-  // BE の after_min（10〜60の10分刻み）を安全に受ける。想定外は既定30へ倒す。
-  int _asAfterMin(dynamic v) {
-    if (v is int && v >= 10 && v <= 60 && v % 10 == 0) return v;
-    return 30;
-  }
-
   Future<void> _save() async {
     if (_saving) return;
     setState(() => _saving = true);
+    // ★打刻のお知らせは会社設定なのでここでは送らない（本人は変更できない）。
     final res = await _svc.saveNotificationSettings(
       reportRemindEnabled: _remindEnabled,
       remindTime1: _time1,
       remindTime2: _time2,
-      // 打刻のお知らせ。mode='at' のときは時刻を必ず載せる（null だと BE が 400）。
-      punchRemindInEnabled:  _punchInEnabled,
-      punchRemindInMode:     _punchInMode,
-      punchRemindInAfterMin: _punchInAfterMin,
-      punchRemindInAt:       _punchInMode == 'at' ? (_punchInAt ?? _lastPunchInAt) : _punchInAt,
-      punchRemindOutEnabled:  _punchOutEnabled,
-      punchRemindOutMode:     _punchOutMode,
-      punchRemindOutAfterMin: _punchOutAfterMin,
-      punchRemindOutAt:       _punchOutMode == 'at' ? (_punchOutAt ?? _lastPunchOutAt) : _punchOutAt,
     );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -234,75 +230,6 @@ class _NotificationSettingsScreenState
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // 1時間刻みピッカー（分は00固定）。打刻のお知らせの 'at' 方式で使う。
-  // ★_pickTime(:98) は日報リマインダ用（10分刻み）でそのまま。あちらは1文字も変えない。
-  //   様式（BottomSheet・キャンセル/決定・CupertinoPicker・トークン）は _pickTime に合わせる。
-  Future<void> _pickHour(String current, ValueChanged<String> onPicked) async {
-    final parts = current.split(':');
-    int selHour = (int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 8).clamp(0, 23);
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: JsColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: SizedBox(
-            height: 300,
-            child: Column(
-              children: [
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Row(
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('キャンセル',
-                            style: TextStyle(color: JsColors.textMid)),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () {
-                          onPicked('${selHour.toString().padLeft(2, '0')}:00');
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('決定',
-                            style: TextStyle(
-                                color: JsColors.accent,
-                                fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: JsColors.border),
-                Expanded(
-                  child: CupertinoPicker(
-                    scrollController:
-                        FixedExtentScrollController(initialItem: selHour),
-                    itemExtent: 40,
-                    backgroundColor: JsColors.surface,
-                    onSelectedItemChanged: (i) => selHour = i,
-                    children: [
-                      for (int h = 0; h < 24; h++)
-                        Center(
-                          child: Text('${h.toString().padLeft(2, '0')}時',
-                              style: const TextStyle(
-                                  color: JsColors.textStrong, fontSize: 20)),
-                        ),
                     ],
                   ),
                 ),
@@ -438,58 +365,30 @@ class _NotificationSettingsScreenState
             style: TextStyle(color: JsColors.textWeak, fontSize: 12)),
         const SizedBox(height: 32),
 
-        // ── 打刻のお知らせ（出勤／退勤）────────────────────────────
-        const Text('打刻のお知らせ',
-            style: TextStyle(color: JsColors.textMid, fontSize: 12)),
-        const SizedBox(height: 8),
-        _PunchRemindCard(
-          title: '出勤の打刻',
-          subtitle: '出勤の打刻が無いときにお知らせします',
-          enabled: _punchInEnabled,
-          onEnabled: (v) => setState(() => _punchInEnabled = v),
-          mode: _punchInMode,
-          onMode: (m) => setState(() {
-            _punchInMode = m;
-            // 'at' へ切り替えたら時刻を確定させる（BE は 'at' に既定を持たない）
-            if (m == 'at') _punchInAt ??= _lastPunchInAt;
-          }),
-          afterMin: _punchInAfterMin,
-          afterPresets: _afterPresets,
-          onAfterMin: (v) => setState(() => _punchInAfterMin = v),
-          at: _punchInAt ?? _lastPunchInAt,
-          onTapAt: () => _pickHour(_punchInAt ?? _lastPunchInAt, (v) {
-            setState(() {
-              _punchInAt = v;
-              _lastPunchInAt = v;
-            });
-          }),
-        ),
-        const SizedBox(height: 10),
-        _PunchRemindCard(
-          title: '退勤の打刻',
-          subtitle: '退勤の打刻が無いときにお知らせします',
-          enabled: _punchOutEnabled,
-          onEnabled: (v) => setState(() => _punchOutEnabled = v),
-          mode: _punchOutMode,
-          onMode: (m) => setState(() {
-            _punchOutMode = m;
-            if (m == 'at') _punchOutAt ??= _lastPunchOutAt;
-          }),
-          afterMin: _punchOutAfterMin,
-          afterPresets: _afterPresets,
-          onAfterMin: (v) => setState(() => _punchOutAfterMin = v),
-          at: _punchOutAt ?? _lastPunchOutAt,
-          onTapAt: () => _pickHour(_punchOutAt ?? _lastPunchOutAt, (v) {
-            setState(() {
-              _punchOutAt = v;
-              _lastPunchOutAt = v;
-            });
-          }),
-        ),
-        const SizedBox(height: 16),
-        const Text('※定時はOFFICEの勤怠設定で登録します',
-            style: TextStyle(color: JsColors.textWeak, fontSize: 12)),
-        const SizedBox(height: 32),
+        // ── 打刻のお知らせ（読み取り専用・会社が管理する）──────────────
+        //   取得できなかったときは節ごと出さない（嘘の値を見せない）。
+        if (_punchLoaded) ...[
+          const Text('打刻のお知らせ',
+              style: TextStyle(color: JsColors.textMid, fontSize: 12)),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: JsColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: JsColors.border),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(children: [
+              _PunchSummaryRow(label: '出勤の打刻', value: _punchSummary('in')),
+              const SizedBox(height: 10),
+              _PunchSummaryRow(label: '退勤の打刻', value: _punchSummary('out')),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          const Text('この設定は会社が管理します。変更はOFFICEの勤怠設定から',
+              style: TextStyle(color: JsColors.textWeak, fontSize: 12)),
+          const SizedBox(height: 32),
+        ],
 
         // 保存ボタン（52px / 角丸10 / ゴールド）
         SizedBox(
@@ -535,181 +434,27 @@ class _NotificationSettingsScreenState
   }
 }
 
-// ─── 打刻のお知らせカード（出勤／退勤で共用）─────────────────────
-// 構成は既存カード（:248-266 の SwitchListTile カード）と同じ器:
-//   Container(surface / radius 12 / border) の中に SwitchListTile。
-//   ON のときだけ「方式2択」と「値」を下に出す（OFF で操作欄を残さない）。
-// 色は既存トークンのみ（JsColors.accent / border / surface / textStrong / textMid / textWeak）。
-class _PunchRemindCard extends StatelessWidget {
-  const _PunchRemindCard({
-    required this.title,
-    required this.subtitle,
-    required this.enabled,
-    required this.onEnabled,
-    required this.mode,          // 'after' | 'at'
-    required this.onMode,
-    required this.afterMin,
-    required this.afterPresets,
-    required this.onAfterMin,
-    required this.at,            // 'HH:00'（表示用・null は呼び出し側で解決済み）
-    required this.onTapAt,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool enabled;
-  final ValueChanged<bool> onEnabled;
-  final String mode;
-  final ValueChanged<String> onMode;
-  final int afterMin;
-  final List<int> afterPresets;
-  final ValueChanged<int> onAfterMin;
-  final String at;
-  final VoidCallback onTapAt;
+// ─── 打刻のお知らせの1行（読み取り専用）───────────────────────────
+// 会社が決めた設定を「見せるだけ」。操作子（トグル・チップ・ピッカー）は一切置かない
+// ＝押せそうに見えるものを出さない。色は既存トークンのみ。
+class _PunchSummaryRow extends StatelessWidget {
+  const _PunchSummaryRow({required this.label, required this.value});
+  final String label;
+  final String value;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: JsColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JsColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => Row(
         children: [
-          SwitchListTile(
-            value: enabled,
-            onChanged: onEnabled,
-            activeThumbColor: JsColors.accent,
-            title: Text(title,
-                style: const TextStyle(
-                    color: JsColors.textStrong,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600)),
-            subtitle: Text(subtitle,
-                style: const TextStyle(color: JsColors.textMid, fontSize: 12)),
-          ),
-          if (enabled) ...[
-            const Divider(height: 1, color: JsColors.border),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('知らせ方',
-                      style: TextStyle(color: JsColors.textMid, fontSize: 12)),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: _modeButton('定刻後に知らせる', 'after')),
-                    const SizedBox(width: 8),
-                    Expanded(child: _modeButton('時刻で知らせる', 'at')),
-                  ]),
-                  const SizedBox(height: 16),
-                  if (mode == 'after') ...[
-                    const Text('定刻から',
-                        style:
-                            TextStyle(color: JsColors.textMid, fontSize: 12)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final m in afterPresets) _afterChip(m),
-                      ],
-                    ),
-                  ] else ...[
-                    const Text('知らせる時刻',
-                        style:
-                            TextStyle(color: JsColors.textMid, fontSize: 12)),
-                    const SizedBox(height: 8),
-                    InkWell(
-                      onTap: onTapAt,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        height: 48, // タッチターゲット 44pt以上
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: JsColors.border),
-                        ),
-                        child: Row(children: [
-                          Text(at,
-                              style: const TextStyle(
-                                  color: JsColors.textStrong,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.expand_more,
-                              color: JsColors.textMid, size: 18),
-                        ]),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+          Text(label,
+              style: const TextStyle(color: JsColors.textMid, fontSize: 13)),
+          const Spacer(),
+          Text(value,
+              style: const TextStyle(
+                  color: JsColors.textStrong,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold)),
         ],
-      ),
-    );
-  }
-
-  // 方式の2択。選択＝accent 枠＋accent 文字（既存の再試行ボタン :234-237 と同じ配色）。
-  Widget _modeButton(String label, String value) {
-    final sel = mode == value;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onMode(value),
-      child: Container(
-        height: 44, // タッチターゲット 44pt
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: sel ? JsColors.accent : JsColors.border,
-              width: sel ? 1.5 : 1),
-        ),
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(label,
-                maxLines: 1,
-                style: TextStyle(
-                  color: sel ? JsColors.accent : JsColors.textMid,
-                  fontSize: 13,
-                  fontWeight: sel ? FontWeight.bold : FontWeight.normal,
-                )),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 「定刻後○分」のプリセット。10分刻み（BE の CHECK と一致）。
-  Widget _afterChip(int m) {
-    final sel = afterMin == m;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onAfterMin(m),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 64, minHeight: 44),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: sel ? JsColors.accent : JsColors.border,
-              width: sel ? 1.5 : 1),
-        ),
-        child: Text('$m分',
-            style: TextStyle(
-              color: sel ? JsColors.accent : JsColors.textMid,
-              fontSize: 14,
-              fontWeight: sel ? FontWeight.bold : FontWeight.normal,
-            )),
-      ),
-    );
-  }
+      );
 }
 
 // ─── 時刻行（現在値表示＋タップでピッカー＋「通知しない」トグル）───
