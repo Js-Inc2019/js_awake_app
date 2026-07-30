@@ -502,6 +502,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _punchIsActual = false;
   bool _punchedInToday = false;
   bool _punchedOutToday = false;
+  // N3: 退勤打刻の実行口。PunchScreen が initState で自分の _doPunch('out') 経路を
+  //   渡してくる（onPunchOutHandlerReady）。ここは受け皿であって打刻ロジックではない
+  //   ＝判定式もAPI呼び出しもこちら側には作らない。未マウント時は null のまま。
+  Future<void> Function()? _punchOutFromHome;
 
   // K3(Q8): みなしの「締め」。work_status == 'closed' の日は true。
   //   done と同じく報告済み扱い（_readReportDone）だが、完了ビューのアクションを
@@ -671,25 +675,154 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
-  // ─── K2: 完了ビューのアクション出し分け（判定はここ1箇所）─────────────────
-  // 原則⑤: 押せないボタンを灰色で置かず、条件を満たさないものは行ごと出さない。
-  //   実打刻 … 「🚗次の現場へ移動」は退勤済なら非表示（1日の勤務が終わっている）
-  //   みなし … 締め済み(closed)なら非表示
-  bool get _showMoveToNextSite =>
-      _punchIsActual ? !_punchedOutToday : !_todayClosed;
+  // ─── N4/N5: 「次の現場へ」のリセット ────────────────────────────────────
+  // 旧・完了ビューの「🚗次の現場へ移動」が持っていた処理を、そのまま private メソッドへ
+  // 移しただけ（中身は1文字も変えていない）。完了ビューからカードは消えたが、
+  // N5 の「2件目の入口＝ホーム」がこれを流用する＝リセットの定義を2つに増やさない。
+  //   ・完了ビュー解除（_todayReportDone=false）＋ prefs を 'working' へ
+  //   ・現場/GPS/移動手段/本文まわりを白紙にし、ステップを「現場」から入り直す
+  Future<void> _resetForNextReport() async {
+    _otherCtrl.clear();
+    _parkingCtrl.clear();
+    _carpoolNameCtrl.clear();
+    _transportMemoCtrl.clear();
+    await _saveWorkStatus('working');
+    if (!mounted) return;
+    setState(() {
+      _todayReportDone = false;
+      _gpsAddress = '';
+      _transports = {};
+      _carType = 'own';
+      _routeComparisons = {};
+      _workPhotoPaths = [];
+      _parkingPhotoPaths = [];
+      // 現場移動：現場選択は「対象なし」にリセット
+      _selectedSiteId = null;
+      _selectedSiteName = null;
+      // 4ステップ化：次の現場は「現場」ステップから入り直す
+      _reportStep = 1;
+    });
+    _fetchGps();
+  }
 
-  // 実打刻ではシフト切替を常に出さない（Q6: 夜勤は打刻前に選ぶ＝打刻後の切替は
-  //   BE の勤怠行(shift_type)と食い違う）。みなしは締めるまで出す。
-  bool get _showShiftContinue =>
-      _punchIsActual ? false : !_todayClosed;
+  // 🌙/☀ シフト継続：現在の勤務区分の逆へ移行して次の勤務に入る。
+  // N4 で完了ビューのカードを撤去したため現在は未配線（中身は撤去前と同一）。
+  // ホームの勤務区分セレクタ（N2 で常時表示に戻した）が同じ役目を果たすが、
+  // 「切替＋working の刻み直し」をひとまとめにしたこの手順は消さずに温存する。
+  // ignore: unused_element
+  Future<void> _onShiftContinue() async {
+    final next = _shiftType == 'night' ? 'day' : 'night';
+    _workCtrl.clear();
+    setState(() {
+      _shiftType = next;
+      _todayReportDone = false;
+      _workPhotoPaths = [];
+      _parkingPhotoPaths = [];
+      // 4ステップ化：新しいシフトも「現場」ステップから入り直す
+      _reportStep = 1;
+    });
+    await _saveShiftType(next);
+    await _saveWorkStatus('working');   // 新シフトの業務日で working を刻む
+    if (!mounted) return;
+    showJsSnackbar(
+      context,
+      next == 'night' ? '🌙 夜勤へ切り替えました' : '☀ 日勤へ切り替えました',
+    );
+  }
 
-  // ─── K3(Q8): 「今日はここまで」─────────────────────────────────────────
-  //   実打刻 … 締めの真実は退勤打刻なので、従来どおり route を閉じるだけ（ダイアログなし）。
+  // ─── N5: 2件目の入口はホームに一本化する ────────────────────────────────
+  // 日報フォームへ入る直前に親が1枚だけ挟むゲート。判定はここ1箇所で、
+  // punch_screen 側には複製しない（punch_screen.dart:onBeforeOpenReport が呼ぶ）。
+  //   ・未報告                → true（1件目＝従来どおりフォームへ）
+  //   ・報告済み × 締め済み    → true（リセットしない＝従来どおり完了ビューが出る。
+  //                              締めた日のアクションは「追加の申告」だけ）
+  //   ・報告済み × 未締め      → 確認ダイアログ → OK なら _resetForNextReport してフォームへ
+  // 対象は「日報を報告」ボタン全経路（みなしの主ボタン／実打刻・退勤済の主ボタン）。
+  Future<bool> _confirmSecondReportIfNeeded() async {
+    if (!_todayReportDone) return true;
+    if (_todayClosed) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsFormTokens.surfaceCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('本日は報告済みです',
+            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+        content: const Text('本日の日報は提出済みです。2件目を作成しますか？',
+            style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: JsFormTokens.textSub)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('2件目を作成',
+                style: TextStyle(color: JsFormTokens.accentAlert)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return false;
+    await _resetForNextReport();
+    return true;
+  }
+
+  // N5: 「現場移動」（実打刻・出勤中）からフォームへ入る直前の前処理。
+  //   確認は現場移動ダイアログ側で既に済んでいるので、ここでは確認を重ねない。
+  //   報告済みなら _resetForNextReport を通してから開く＝完了ビューに突き当たらない。
+  //   常に true（中止経路を持たない）。
+  Future<bool> _prepareMoveToNextSite() async {
+    if (_todayReportDone) await _resetForNextReport();
+    return true;
+  }
+
+  // ─── K3(Q8)+N3: 「今日はここまで」─────────────────────────────────────
+  //   実打刻・出勤中(punchedIn && !punchedOut)
+  //        … N3: 締めの真実は退勤打刻なので、ここで確認して退勤を打ってから閉じる。
+  //          打刻は punch_screen の既存 _doPunch('out') 経路を呼ぶだけ（_punchOutFromHome）。
+  //          ★報告フォームの自動起動は抑制される（完了ビュー＝報告済みの文脈のため。
+  //            抑制は punch_screen 側 _punchOutForClose の allowGoReport:false が担う）。
+  //   実打刻・退勤済 … 従来どおり route を閉じるだけ（ダイアログなし）。
   //   みなし … 打刻という確定点が無いので、ここで確認して 'closed' を刻む＝1日の締めにする。
   //            締めた日は完了ビューのアクションが「追加の申告」だけになり、再起動しても維持される
   //            （_initTodayReportDone が closed を読み直す）。
   Future<void> _onCloseToday() async {
     if (_punchIsActual) {
+      // N3: 出勤中のまま締めようとしている＝退勤打刻がまだ無い。
+      //   打刻の口が親に届いていない場合（PunchScreen 未マウント等）は従来どおり閉じるだけ
+      //   ＝嘘の確認を出さない・袋小路も作らない。
+      final punchOut = _punchOutFromHome;
+      if (_punchedInToday && !_punchedOutToday && punchOut != null) {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: JsFormTokens.surfaceCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: const Text('退勤して今日を締めますか？',
+                style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+            content: const Text(
+                'まだ退勤していません。退勤を記録して、この画面を閉じます。',
+                style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('キャンセル',
+                    style: TextStyle(color: JsFormTokens.textSub)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('退勤して締める',
+                    style: TextStyle(color: JsFormTokens.accentAlert)),
+              ),
+            ],
+          ),
+        );
+        if (ok != true) return;          // キャンセル＝何も変えずその場に留まる
+        await punchOut();                // 既存 _doPunch('out') 経路（打刻ロジックは複製しない）
+        if (!mounted) return;
+      }
       Navigator.of(context).maybePop();
       return;
     }
@@ -1682,6 +1815,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // K5(Q9): 「本日休み」を押した瞬間のガードが読む真実（done/closed）。
         //   isDone(:確認画面) と同じ「関数を下ろす」流儀。prefs 直読みはさせない。
         isReportDone: () => _todayReportDone,
+        // N5: 日報フォームへ入る直前の親側ゲート（判定と確認文言は親が持つ）。
+        //   「日報を報告」経路 → 報告済み(未締め)なら2件目の確認＋リセット。
+        onBeforeOpenReport: _confirmSecondReportIfNeeded,
+        //   「現場移動」経路 → 確認は現場移動側で済み。報告済みならリセットのみ。
+        onBeforeMoveToNextSite: _prepareMoveToNextSite,
+        // N3: 完了ビュー「今日はここまで」から退勤を打つための実行口を受け取る。
+        onPunchOutHandlerReady: (fn) => _punchOutFromHome = fn,
         // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {
@@ -1973,10 +2113,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // K3(Q8): みなしのときだけ「締めますか？」を挟んで 'closed' を刻む（_onCloseToday）。
         //   実打刻はそのまま maybePop＝従来の挙動のまま。
         onClose: _onCloseToday,
-        // K2: アクションの出し分け（判定は _showMoveToNextSite / _showShiftContinue の2本だけ）
-        showMoveToNextSite: _showMoveToNextSite,
-        showShiftContinue:  _showShiftContinue,
-        shiftType: _shiftType,   // 継続ボタンのラベル反転（day→🌙夜勤継続 / night→☀日勤継続）
+        // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ。
+        //   出し分けの引数（showMoveToNextSite / showShiftContinue）も、
+        //   「🚗次の現場へ移動」「☀/🌙シフト切替」の2ハンドラも渡さなくなった。
+        shiftType: _shiftType,   // ヘッダのサブ行「☀日勤 7/22分を送信しました」に使う
         // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
         onRetry: () async {
           await ReportStore.instance.retryPending();
@@ -1990,54 +2130,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               isWarning: remaining != 0,
             );
           }
-        },
-        // 現場移動：Navigator.popは廃止。クリア+GPS再取得に加え、完了ビュー解除＋
-        // prefsのtoday_work_statusを'working'へ更新してフォームへ復帰する。
-        onMoveToNextSite: () async {
-          _otherCtrl.clear();
-          _parkingCtrl.clear();
-          _carpoolNameCtrl.clear();
-          _transportMemoCtrl.clear();
-          await _saveWorkStatus('working');
-          if (!mounted) return;
-          setState(() {
-            _todayReportDone = false;
-            _gpsAddress = '';
-            _transports = {};
-            _carType = 'own';
-            _routeComparisons = {};
-            _workPhotoPaths = [];
-            _parkingPhotoPaths = [];
-            // 現場移動：現場選択は「対象なし」にリセット
-            _selectedSiteId = null;
-            _selectedSiteName = null;
-            // 4ステップ化：次の現場は「現場」ステップから入り直す
-            _reportStep = 1;
-          });
-          _fetchGps();
-        },
-        // 🌙/☀ シフト継続：現在の勤務区分の逆へ移行して次の勤務に入る。
-        // 業務日スコープで永続化し、複合キーの報告済み判定は自然に不一致＝false になるが、
-        // 「切替前のシフトでdone」という状態を残さないよう working も明示的に書き直す。
-        // 現場/GPS/移動手段は維持（🚗と直交）、本文と写真のみクリア。
-        onShiftContinue: () async {
-          final next = _shiftType == 'night' ? 'day' : 'night';
-          _workCtrl.clear();
-          setState(() {
-            _shiftType = next;
-            _todayReportDone = false;
-            _workPhotoPaths = [];
-            _parkingPhotoPaths = [];
-            // 4ステップ化：新しいシフトも「現場」ステップから入り直す
-            _reportStep = 1;
-          });
-          await _saveShiftType(next);
-          await _saveWorkStatus('working');   // 新シフトの業務日で working を刻む
-          if (!mounted) return;
-          showJsSnackbar(
-            context,
-            next == 'night' ? '🌙 夜勤へ切り替えました' : '☀ 日勤へ切り替えました',
-          );
         },
         // 「追加の申告」＝種別を選ばせる1段を挟むだけ。残業の実処理は build の下の
         // _openOvertimeDialog() へ丸ごと退避しており、中身は1文字も変えていない。
@@ -2519,6 +2611,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       ),
       builder: (_) => _ShortBreakSheet(
         workDate: businessDateForShift(_shiftType, DateTime.now()),
+        // N6: 申告を当てる勤怠行のシフト。workDate と同じ _shiftType から採る
+        //   ＝業務日とシフトが常に同じ勤務を指す（BE は (person, work_date, shift_type) で1行）。
+        shiftType: _shiftType,
         onNotify: (message, isError) {
           if (!mounted) return;
           showJsSnackbar(context, message, isError: isError);
@@ -2621,8 +2716,13 @@ class _DeclarationChoiceRow extends StatelessWidget {
 //     （ボタンを無効化して黙る＝理由の分からない袋小路にはしない）
 //   ・送信は既存 WorkModeService.instance.breakRequest（新APIは作らない）
 class _ShortBreakSheet extends StatefulWidget {
-  const _ShortBreakSheet({required this.workDate, required this.onNotify});
+  const _ShortBreakSheet({
+    required this.workDate,
+    required this.shiftType,
+    required this.onNotify,
+  });
   final String workDate;   // 呼び出し側が businessDateForShift で確定させた業務日
+  final String shiftType;  // N6: 'day'|'night'。BE で申告を当てる行の特定に使う
   final void Function(String message, bool isError) onNotify;
 
   @override
@@ -2654,6 +2754,9 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
       breakMinutes: _selectedMin,
       reason:       reason,
       workDate:     widget.workDate,
+      // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。
+      //   BE は未指定=day 互換（routes/attendance.js POST /break-request）。
+      shiftType:    widget.shiftType,
     );
     if (!mounted) return;
     if (r.ok) {

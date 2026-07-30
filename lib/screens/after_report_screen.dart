@@ -7,8 +7,15 @@ import '../utils/business_date.dart';
 // S5b: 縦詰まり・見切れ・スクロール不能・スライド/タップ混在を解消するため全面改修。
 //  ・全体を SingleChildScrollView 化（小画面でも必ず最後まで届く）
 //  ・操作は全てタップ式カードに統一（旧 _SlideBtn / 円形 GestureDetector は廃止）
-//  ・アクションは3択（残業 / 現場移動 / シフト切替）
 // ※ 旧・全画面版 AfterReportScreen は S5b で削除（呼び手ゼロの死蔵クラスだった）。
+//
+// N4（完了ビュー縮小）:
+//  ・「🚗 次の現場へ移動」カードを全モードで撤去（showMoveToNextSite / onMoveToNextSite ごと削除）
+//  ・「☀/🌙 シフト切替」カードも撤去（showShiftContinue / onShiftContinue ごと削除）
+//  ・残るアクションは「⏰ 追加の申告」と主ボタン「今日はここまで」の2つだけ
+//  ★2件目の作成に入る導線はホーム(punch_screen)へ一本化した（N5）。完了ビューは
+//    「締める」か「追加で申告する」かの2択に絞る＝入口を2箇所に分けない。
+//    リセット処理そのものは home_screen 側に _resetForNextReport として温存してある。
 //
 // A案作り直し（カード撤去）:
 //  ・丸バッジ(_Badge)を廃止＝頭はテキストのみ。事実は文字で言う
@@ -23,24 +30,15 @@ class AfterReportBody extends StatefulWidget {
     required this.workerName,
     required this.sent,
     required this.shiftType,
-    required this.onMoveToNextSite,
-    required this.onShiftContinue,
     required this.onOvertime,
     this.onRetry,
     this.onClose,
-    this.showMoveToNextSite = true,
-    this.showShiftContinue  = true,
   });
-  // K2: アクションの出し分け（原則⑤＝disabled ではなく非表示）。
-  //   判定そのものは親(JsMainShell)が打刻状態・締め状態から作る＝ここでは受けた真偽だけを見る。
-  //   「⏰追加の申告」と「今日はここまで」は常に表示（引数を持たない）。
-  final bool showMoveToNextSite;   // 実打刻: 退勤済なら false / みなし: 締め済みなら false
-  final bool showShiftContinue;    // 実打刻: 常に false（夜勤は打刻前に選ぶ）/ みなし: 締め済みなら false
+  // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ＝出し分けの引数を持たない。
+  //   （旧 showMoveToNextSite / showShiftContinue / onMoveToNextSite / onShiftContinue は撤去）
   final String workerName;
   final bool sent;                       // 送信APIの成否（正直ゲート用）
-  final String shiftType;                // 'day'|'night'（切替カードのラベルを反転表示するため）
-  final VoidCallback onMoveToNextSite;
-  final VoidCallback onShiftContinue;    // 現シフトの逆へ切替（day→night / night→day）
+  final String shiftType;                // 'day'|'night'（ヘッダのサブ行 _headerSubtitle に使う）
   final Future<void> Function() onOvertime;
   final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
   final VoidCallback? onClose;           // 主ボタン「今日はここまで」＝この画面を閉じる
@@ -138,27 +136,8 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               subtitleMaxLines: 2,
               onTap: () => widget.onOvertime(),
             ),
-            // 🚗 現場移動（退勤済・締め済みでは出さない＝押せない灰色を置かない）
-            if (widget.showMoveToNextSite) ...[
-              const SizedBox(height: 10),
-              _ActionCard(
-                icon: Icons.directions_car,
-                title: '🚗  次の現場へ移動',
-                subtitle: '現場と位置を取り直して報告',
-                onTap: widget.onMoveToNextSite,
-              ),
-            ],
-
-            // ☀/🌙 シフト切替（実打刻では常に出さない＝夜勤は打刻前に選ぶ）
-            if (widget.showShiftContinue) ...[
-              const SizedBox(height: 10),
-              _ActionCard(
-                icon: _isNight ? Icons.wb_sunny_outlined : Icons.nightlight_round,
-                title: _isNight ? '☀  日勤に切り替えて続ける' : '🌙  夜勤に切り替えて続ける',
-                subtitle: '勤務区分を変えて次の報告へ',
-                onTap: widget.onShiftContinue,
-              ),
-            ],
+            // N4: 「🚗 次の現場へ移動」「☀/🌙 シフト切替」の2カードは撤去した。
+            //   2件目の作成に入る導線はホーム(punch_screen)へ一本化（N5）。
           ],
         ),
       ),

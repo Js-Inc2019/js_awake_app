@@ -5,7 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
-import '../widgets/slide_to_confirm.dart';
+// N1: slide_to_confirm.dart の import は撤去（打刻をボタン+確認ダイアログ化したため）。
+//   ウィジェット本体(lib/widgets/slide_to_confirm.dart)は他からの復帰に備えて残す。
 import '../core/theme/js_colors.dart';
 import '../utils/business_date.dart';
 import 'rest_day_screen.dart';
@@ -61,8 +62,25 @@ class PunchScreen extends StatefulWidget {
     this.onOpenPendingApprovals,
     this.onPunchStateChanged,
     this.isReportDone,
+    this.onBeforeOpenReport,
+    this.onBeforeMoveToNextSite,
+    this.onPunchOutHandlerReady,
   });
   final VoidCallback? onNavigateToReport;
+  // N5: 「日報を報告」から日報フォームへ入る直前の親側ゲート。
+  //   true=このまま進む / false=中止。null=素通し（＝従来の挙動）。
+  //   「もう報告済みか」「締め済みか」の判定と2件目の確認ダイアログは親が持つ。
+  //   この画面には判定式を複製しない（home_screen.dart:_confirmSecondReportIfNeeded）。
+  //   ★休みゲート(_onReportTap:147) を通過した後にだけ呼ばれる＝ゲートの前後関係は不変。
+  final Future<bool> Function()? onBeforeOpenReport;
+  // N5: 「現場移動」から日報フォームへ入る直前の親側前処理。
+  //   確認は現場移動ダイアログ側で済んでいるため、親は報告済みならリセットするだけ
+  //   （home_screen.dart:_prepareMoveToNextSite）。true 固定＝中止経路は持たない。
+  final Future<bool> Function()? onBeforeMoveToNextSite;
+  // N3: 退勤打刻の実行口を親へ渡す。親（完了ビューの「今日はここまで」）が
+  //   打刻ロジックを複製せず既存 _doPunch('out') 経路を呼べるようにするためだけの配線。
+  //   initState で1回だけ通知する（値を渡すだけ・親側で setState はしない）。
+  final void Function(Future<void> Function() punchOut)? onPunchOutHandlerReady;
   final Widget? weatherPanel;
   // K1: 打刻状態を親(JsMainShell)へ上げる唯一の口。真実源は fetchToday(work_mode_service.dart:205)
   //   ＝この画面が受け取った値をそのまま流すだけで、判定式は親に複製しない。
@@ -119,6 +137,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // N3: 退勤の実行口を親へ渡す（値を渡すだけ・親は setState しない）。
+    widget.onPunchOutHandlerReady?.call(_punchOutForClose);
     _init();
     _loadRestStatus();
   }
@@ -144,8 +164,16 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   // 「取り消して続行」時のみ DELETE 成功後に従来遷移する（失敗は SnackBar で可視化）。
   // 半休(am_half/pm_half)は「働く日」なので日報は必要＝ゲートせず従来どおり即遷移。
   // rested=false のときも従来どおり即遷移（挙動不変）。
-  Future<void> _onReportTap() async {
+  //
+  // N5: 休みゲートを通過した「後」に親側ゲートを1枚だけ挟めるようにした。
+  //   ・parentGate 省略時は widget.onBeforeOpenReport（＝「日報を報告」用の2件目確認）。
+  //   ・「現場移動」からは widget.onBeforeMoveToNextSite を明示して渡す（確認なし・リセットのみ）。
+  //   ★上の休み判定式（!_rested || _restPortion != 'full'）・ダイアログ文言・
+  //     deleteRestDay 経路は1文字も変えていない。遷移の直前に1行足しただけ。
+  Future<void> _onReportTap({Future<bool> Function()? parentGate}) async {
+    final gate = parentGate ?? widget.onBeforeOpenReport;
     if (!_rested || _restPortion != 'full') {
+      if (gate != null && !await gate()) return;
       widget.onNavigateToReport?.call();
       return;
     }
@@ -177,6 +205,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (res['success'] == true) {
       await _loadRestStatus();               // ボタン表示も最新化
       if (!mounted) return;
+      if (gate != null && !await gate()) return;
       widget.onNavigateToReport?.call();      // 従来の日報報告へ
     } else {
       showJsSnackbar(
@@ -233,7 +262,20 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  Future<void> _doPunch(String type) async {
+  // N3: 完了ビュー「今日はここまで」から親が呼ぶ退勤の口。
+  //   打刻の実処理は既存 _doPunch('out') をそのまま通す（判定式・API呼び出しは複製しない）。
+  //   ★allowGoReport:false ＝退勤後の日報フォーム自動起動を抑制する。
+  //     呼び元が完了ビュー＝既に報告済みの文脈なので、そこから報告フォームを開き直さない。
+  //   ★親は関数参照を保持し続けるため、この画面が破棄された後に呼ばれても
+  //     unmounted への setState にならないよう入口で mounted を見る（fail-safe）。
+  Future<void> _punchOutForClose() async {
+    if (!mounted) return;
+    await _doPunch('out', allowGoReport: false);
+  }
+
+  // allowGoReport: 既定 true＝従来どおり「退勤成功→_onReportTap で日報へ直行」。
+  //   false は N3（完了ビュー経由の退勤）だけが渡す。
+  Future<void> _doPunch(String type, {bool allowGoReport = true}) async {
     if (_busy) return;
     setState(() => _busy = true);
     // 裁定(b): 退勤スライド確定直後は日報へ直行する（ホームに戻さない）。
@@ -276,7 +318,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
           _timer?.cancel();
         }
         // 退勤打刻がサーバに反映された時だけ立てる（出勤時・反映漏れ時は従来どおり）
-        goReport = type == 'out' && _punchedOut;
+        goReport = allowGoReport && type == 'out' && _punchedOut;
       } else {
         showJsSnackbar(
           context,
@@ -308,6 +350,97 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     }
   }
 
+  // ── N1: 打刻の確認ダイアログ ───────────────────────────────────────────
+  // スライダー(SlideToConfirm)を廃止した代わりに「押す → 時刻を見て確定」の2段にする。
+  // ★表示している時刻は端末の現在時刻＝確認のための目安。実際に刻まれるのは BE の now()
+  //   （routes/attendance.js の POST /punch が punch_in/punch_out に now() を入れる）。
+  //   ここから時刻を送ることはしない＝真実源は BE のまま1文字も変えていない。
+  // OK のときだけ既存 _doPunch(type) を呼ぶ（打刻処理・goReport 経路は不変）。
+  Future<void> _confirmPunch(String type) async {
+    if (_busy) return;
+    final isIn = type == 'in';
+    final now  = DateTime.now();
+    final hhmm = '${now.hour.toString().padLeft(2, '0')}:'
+                 '${now.minute.toString().padLeft(2, '0')}';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.surface,
+        title: Text(isIn ? '出勤' : '退勤',
+            style: const TextStyle(color: JsColors.textStrong, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 現在時刻が主役（金 #D9C08A ＝ JsPalette.brand）。
+            Text(
+              hhmm,
+              style: const TextStyle(
+                color: JsPalette.brand,
+                fontSize: 40,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 2,
+                height: 1.1,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isIn ? 'この時刻で出勤しますか？' : '退勤して日報の作成に進みます',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: JsColors.textStrong),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: JsColors.textMid)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isIn ? '出勤する' : '退勤する',
+                style: const TextStyle(color: JsColors.accent)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _doPunch(type);
+  }
+
+  // ── 現場移動（22bcfd3 の確認ダイアログ。文言は1文字も変えていない）──────────
+  // 「日報を作成」を選んだときだけ既存の単一ゲート _onReportTap へ流す＝休みゲートも
+  // 二重pushガードもそのまま通る（判定式はここに複製しない）。
+  // N5: 親側前処理 onBeforeMoveToNextSite を明示して渡す＝報告済みなら親が
+  //   _resetForNextReport を通してからフォームを開く（2件目の確認は挟まない）。
+  Future<void> _onMoveToNextSiteTap() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JsColors.surface,
+        title: const Text('現場移動',
+            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+        content: const Text(
+            '現在地を記録して、この現場の日報を作成します。',
+            style: TextStyle(color: JsColors.textStrong)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル',
+                style: TextStyle(color: JsColors.textMid)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('日報を作成',
+                style: TextStyle(color: JsColors.accent)),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !mounted) return;
+    await _onReportTap(parentGate: widget.onBeforeMoveToNextSite);
+  }
+
   String _breakLabel() {
     final status = _record?['break_override_status'] as String?;
     final min    = _record?['break_override_min']    as int?;
@@ -337,6 +470,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         record:       _record,
         legalBreak6h: _legalBreak6h,
         legalBreak8h: _legalBreak8h,
+        // N6: 申告を当てる勤怠行のシフト。いま画面が見ているシフト（fetchToday:200 と同じ値）。
+        shiftType:    widget.shiftType,
         onSubmitted:  _onBreakRequestSubmitted,
       ),
     );
@@ -481,18 +616,21 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 28),
                     // 勤務区分（日勤/夜勤・1タップ）＋ 送信される業務日
-                    // K4(Q6): 夜勤は「打刻前に選ぶ」。実打刻で出勤した後は勤務区分が確定した
-                    //   ＝選び直しは打刻とBEの行(shift_type)を裏切るので出さない。
-                    //   みなしは打刻という確定点が無いので従来どおり常時出す。
-                    //   条件は「本日休み」ボタンと同じ形（_buildOperationArea の showRestDay）。
-                    //   値の真実源も onChanged 先も親のまま＝_shiftType 機構は1文字も変えていない。
-                    if (!isActual || !_punchedIn)
-                      _ShiftTypeSelector(
-                        selected: widget.shiftType,
-                        businessDate: businessDateForShift(
-                            widget.shiftType, DateTime.now()),
-                        onChanged: widget.onShiftTypeChanged,
-                      ),
+                    // N2: 旧 K4 の表示条件 `if (!isActual || !_punchedIn)` を撤去し無条件表示へ戻す。
+                    //   打刻済みシフトの記録は切替で変わらない＝状態はシフト別に独立管理されている:
+                    //     ・勤怠行  … (person, work_date, shift_type) で1行（BE の UNIQUE）。
+                    //                 この画面が見る行も fetchToday(shiftType:) でシフト指定（:200,:271）。
+                    //     ・報告済み … report_done_day / report_done_night の2キー
+                    //                 （home_screen.dart:602 reportDoneKey）。
+                    //   よって切替は「見るシフトを変える」だけで、既に打刻した側の記録には触れない。
+                    //   値の真実源も onChanged 先も親のまま＝_shiftType 機構は1文字も変えていない
+                    //   （onShiftTypeChanged → _saveShiftType + _reevaluateReportDone）。
+                    _ShiftTypeSelector(
+                      selected: widget.shiftType,
+                      businessDate: businessDateForShift(
+                          widget.shiftType, DateTime.now()),
+                      onChanged: widget.onShiftTypeChanged,
+                    ),
                   ],
                 ),
               ),
@@ -509,26 +647,19 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   }
 
   // ── 操作エリアの組み立て ─────────────────────────────────────────────
-  // 「本日休み」ボタンの表示条件は旧 build 内 :390 の式をそのまま使う。
-  // 式は1文字も変えていない（`!isActual || !_punchedIn` を変数へ束ねただけ）:
+  // 「本日休み」ボタンの表示条件は従来の式のまま（`!isActual || !_punchedIn`）:
   //   ・みなしモード(!isActual): 表示（横2分割の右側）
-  //   ・実打刻モード(isActual): 未出勤(!_punchedIn＝出勤スライド前)のみ表示。
+  //   ・実打刻モード(isActual): 未出勤(!_punchedIn)のみ表示。
   //     出勤中・退勤済(=_punchedIn)は非表示（働いた日に休み登録は矛盾）。
-  //   ※ _punchedIn は _PunchScreenState の状態(:60)。出勤中判定
-  //     `_punchedIn && !_punchedOut` と同じ状態変数を参照（判定式は複製しない）。
+  //   ※ _punchedIn は _PunchScreenState の状態。出勤中判定 `_punchedIn && !_punchedOut`
+  //     と同じ状態変数を参照（判定式は複製しない）。
+  //
+  // N1: 実打刻の下部はスライダーを廃し「2択の横並び」に統一する（高さ52・gap 8）:
+  //   未出勤 … ［出勤=生成り主］［本日休み=二次］
+  //   出勤中 … ［退勤=生成り主］［現場移動=エメラルド枠 二次］
+  //   退勤済 … ［日報を報告］1本（従来のまま・N5でボタン文言も据え置き）
   Widget _buildOperationArea(bool isActual) {
     final showRestDay = !isActual || !_punchedIn;
-
-    final opZone = _OperationZone(
-      isActual:          isActual,
-      punchedIn:         _punchedIn,
-      punchedOut:        _punchedOut,
-      busy:              _busy,
-      onPunch:           _doPunch,
-      // 日報報告への全経路（!isActual の「日報を報告」／出勤中・退勤済の「日報を報告」）
-      // を単一のゲート _onReportTap 経由にする。
-      onNavigateToReport: _onReportTap,
-    );
 
     final restBtn = _RestDayButton(
       rested:    _rested,
@@ -538,15 +669,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       onChanged: _loadRestStatus,
       // K5(Q9): 遷移前のガード（みなし∧報告済みのときだけ確認を挟む）。
       preTapGuard: _restDayGuard,
-      // みなしは日報ボタンと横並びになるので高さを合わせる（実打刻は従来の48のまま）
-      height:    isActual ? 48 : 56,
+      // 横並びの相方と高さを揃える（みなし=56 / 実打刻=52＝N1の2択行）
+      height:    isActual ? _kOpButtonHeight : 56,
     );
 
-    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］
+    // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］（変更なし）
     if (!isActual) {
       return Row(
         children: [
-          Expanded(child: opZone),
+          Expanded(child: _ReportOutlineButton(onPressed: _onReportTap)),
           if (showRestDay) ...[
             const SizedBox(width: 10),
             Expanded(child: restBtn),
@@ -555,19 +686,43 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       );
     }
 
-    // 実勤務モード: 従来どおり縦積み（スライダー等の下に「本日休み」）
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    // 実打刻・退勤済: 1日の勤務が終わっている＝主行動は日報だけ（従来どおり全幅1本）
+    if (_punchedIn && _punchedOut) {
+      return _ReportOutlineButton(onPressed: _onReportTap);
+    }
+
+    // 実打刻・未出勤 / 出勤中: 2択の横並び
+    final isCheckin = !_punchedIn;
+    return Row(
       children: [
-        opZone,
-        if (showRestDay) ...[
-          const SizedBox(height: 10),
-          restBtn,
-        ],
+        Expanded(
+          child: _PunchPrimaryButton(
+            label: isCheckin ? '出勤' : '退勤',
+            icon:  isCheckin ? Icons.login : Icons.logout,
+            busy:  _busy,
+            // タップ＝即打刻ではない。必ず時刻確認ダイアログを挟む（_confirmPunch）。
+            onPressed: () => _confirmPunch(isCheckin ? 'in' : 'out'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: isCheckin
+              // 未出勤の右側＝本日休み（showRestDay は isActual∧!_punchedIn で常に true）
+              ? restBtn
+              // 出勤中の右側＝現場移動（エメラルド枠の二次。確認ダイアログは温存）
+              : _SecondaryOutlineButton(
+                  label:     '現場移動',
+                  color:     JsColors.accent,
+                  onPressed: _busy ? null : _onMoveToNextSiteTap,
+                ),
+        ),
       ],
     );
   }
 }
+
+// N1: 実打刻の2択行の高さ（モック承認済）。相方の「本日休み」もこの値に揃える。
+const double _kOpButtonHeight = 52;
 
 // ─────────────────────────────────────────────
 // ⓪ 勤務区分 2択（日勤 / 夜勤）＋ 業務日表示
@@ -922,110 +1077,114 @@ class _BreakInfoRow extends StatelessWidget {
   }
 }
 
-// ── _OperationZone ────────────────────────────────────────────────────────────
-class _OperationZone extends StatelessWidget {
-  const _OperationZone({
-    required this.isActual,
-    required this.punchedIn,
-    required this.punchedOut,
+// ── _PunchPrimaryButton ───────────────────────────────────────────────────────
+// N1: 出勤／退勤の主ボタン（旧 SlideToConfirm の置き換え）。
+//   生成り枠1.5px＋同色文字＝_ReportOutlineButton と同一の「主」様式に揃える
+//   （トークンは JsFormTokens.outlineButtonBorder。塗り面は作らない）。
+//   高さ 52（_kOpButtonHeight）。busy 中は押下不可＋インジケータ。
+//   ★このボタンは打刻しない。押下先は必ず確認ダイアログ（_confirmPunch）を経由する。
+class _PunchPrimaryButton extends StatelessWidget {
+  const _PunchPrimaryButton({
+    required this.label,
+    required this.icon,
     required this.busy,
-    required this.onPunch,
-    this.onNavigateToReport,
+    required this.onPressed,
   });
-
-  final bool isActual;
-  final bool punchedIn;
-  final bool punchedOut;
+  final String label;
+  final IconData icon;
   final bool busy;
-  final Future<void> Function(String) onPunch;
-  final VoidCallback? onNavigateToReport;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    if (!isActual) {
-      return _ReportOutlineButton(onPressed: onNavigateToReport);
-    }
-
-    if (punchedIn && punchedOut) {
-      return _ReportOutlineButton(onPressed: onNavigateToReport);
-    }
-
-    final isCheckin = !punchedIn;
-    // ★用途（出勤／退勤）ごとに別インスタンスにする。
-    //   SlideToConfirm は確定後「いったきり」で操作を受け付けない終端状態
-    //   (_fired/_confirmed) を持つ。key を分けないと出勤確定後に
-    //   punchedIn:false→true でラベルだけ退勤へ変わり、State は出勤時の
-    //   確定済みのまま再利用されて退勤スライドが操作不能になる。
-    //   同一用途の間は key が不変なので「いったきり」は維持される。
-    final slider = SlideToConfirm(
-      key:       ValueKey(isCheckin ? 'punch-in' : 'punch-out'),
-      filled:    isCheckin,
-      icon:      isCheckin ? Icons.login : Icons.logout,
-      label:     isCheckin ? 'スライドで出勤' : 'スライドで退勤',
-      busy:      busy,
-      onConfirm: () => onPunch(isCheckin ? 'in' : 'out'),
-    );
-
-    // 未出勤: 出勤スライダーだけ（1画面1主行動）
-    if (isCheckin) return slider;
-
-    // 出勤中: 退勤スライダー ＋「現場移動」（生成り枠）
-    // ★ラベルを変えたのはこの分岐だけ。みなし(:885)・退勤済(:889)の「日報を報告」は不変。
-    //   出勤中に日報を出す＝その現場を離れる行動なので、名前を行動に合わせる。
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        slider,
-        const SizedBox(height: 10),
-        _ReportOutlineButton(
-          label: '現場移動',
-          // 誤タップ防止: ワンタップで遷移させず必ず確認を挟む。
-          // 「日報を作成」を選んだときだけ既存の単一ゲート onNavigateToReport(_onReportTap:130)
-          // へ流す＝休みゲートも二重pushガードもそのまま通る（判定式はここに複製しない）。
-          onPressed: onNavigateToReport == null
-              ? null
-              : () async {
-                  final proceed = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      backgroundColor: JsColors.surface,
-                      title: const Text('現場移動',
-                          style: TextStyle(
-                              color: JsColors.textStrong, fontSize: 16)),
-                      content: const Text(
-                          '現在地を記録して、この現場の日報を作成します。',
-                          style: TextStyle(color: JsColors.textStrong)),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('キャンセル',
-                              style: TextStyle(color: JsColors.textMid)),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('日報を作成',
-                              style: TextStyle(color: JsColors.accent)),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (proceed == true) onNavigateToReport!();
-                },
+    return SizedBox(
+      width: double.infinity,
+      height: _kOpButtonHeight,
+      child: OutlinedButton(
+        onPressed: busy ? null : onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: JsFormTokens.outlineButtonBorder,
+          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ).copyWith(
+          side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                color: states.contains(WidgetState.disabled)
+                    ? JsFormTokens.outlineButtonDisabled
+                    : JsFormTokens.outlineButtonBorder,
+                width: 1.5,
+              )),
         ),
-      ],
+        child: busy
+            ? const SizedBox(
+                width: 20, height: 20,
+                child: CircularProgressIndicator(
+                    color: JsFormTokens.outlineButtonDisabled, strokeWidth: 2.5),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 18),
+                  const SizedBox(width: 8),
+                  Text(label,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+// ── _SecondaryOutlineButton ───────────────────────────────────────────────────
+// N1: 2択行の右側に置く二次ボタン（枠1px＋同色文字・塗りなし）。
+//   色は呼び出し側が意味で決める（出勤中の「現場移動」= JsColors.accent＝エメラルド）。
+class _SecondaryOutlineButton extends StatelessWidget {
+  const _SecondaryOutlineButton({
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+  final String label;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: _kOpButtonHeight,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          side: BorderSide(color: color),
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+      ),
     );
   }
 }
 
 // ── _ReportOutlineButton ──────────────────────────────────────────────────────
 // 生成り抜きの主ボタン（accent 塗りではなく枠1.5px）。
-// 押下先は呼び出し側から渡る単一のゲート _onReportTap(:130) のみ。
-// label は既定 '日報を報告'（みなし・退勤済の従来2箇所は引数を渡さない＝表示不変）。
-// 出勤中だけ '現場移動' を渡す（_OperationZone:920）。
+// 押下先は呼び出し側から渡る単一のゲート _onReportTap のみ。
+// 文言は '日報を報告' 固定。N1 で '現場移動' は _SecondaryOutlineButton（エメラルド枠の
+// 二次様式）へ移ったため、可変 label は呼び手が居なくなり撤去した。
+// 呼び手はみなしの主ボタンと実打刻・退勤済の主ボタンの2箇所（どちらも表示は不変）。
 class _ReportOutlineButton extends StatelessWidget {
-  const _ReportOutlineButton({required this.onPressed, this.label = '日報を報告'});
+  const _ReportOutlineButton({required this.onPressed});
   final VoidCallback? onPressed;
-  final String label;
+  static const String label = '日報を報告';
 
   @override
   Widget build(BuildContext context) {
@@ -1046,9 +1205,9 @@ class _ReportOutlineButton extends StatelessWidget {
                 width: 1.5,
               )),
         ),
-        child: Text(
+        child: const Text(
           label,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -1136,11 +1295,13 @@ class _BreakRequestSheet extends StatefulWidget {
     required this.record,
     required this.legalBreak6h,
     required this.legalBreak8h,
+    required this.shiftType,
     required this.onSubmitted,
   });
   final Map<String, dynamic>? record;
   final int legalBreak6h;
   final int legalBreak8h;
+  final String shiftType;   // N6: 'day'|'night'。BE で申告を当てる行の特定に使う
   final Future<void> Function() onSubmitted;
 
   @override
@@ -1189,6 +1350,9 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
       final result = await WorkModeService.instance.breakRequest(
         breakMinutes: _selectedMin,
         reason: reason,
+        // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。
+        //   BE は未指定=day 互換（routes/attendance.js POST /break-request）。
+        shiftType: widget.shiftType,
       );
       if (!mounted) return;
       if (result.ok) {

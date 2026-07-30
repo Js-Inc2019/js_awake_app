@@ -281,16 +281,22 @@ class WorkModeService {
   }
 
   Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      breakRequest({required int breakMinutes, required String reason, String? workDate}) async {
+      breakRequest({required int breakMinutes, required String reason, String? workDate,
+                    String shiftType = 'day'}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
       if (token.isEmpty) {
         return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
       }
+      // N6: shift_type は BE の POST /attendance/break-request が受ける（'day'|'night'）。
+      //   同日に日勤/夜勤の2行が並存しうるため、これが無いと申告が両方の行へ二重適用される。
+      //   BE 側は未指定・不正値とも 'day' に倒す＝送っていない旧クライアントの挙動は不変。
+      //   不正値はここでも 'day' に倒す（punch(:249) / fetchToday(:214) と同じ流儀）。
       final payload = <String, dynamic>{
         'break_minutes': breakMinutes,
         'reason':        reason,
+        'shift_type':    shiftType == 'night' ? 'night' : 'day',
         if (workDate != null) 'work_date': workDate,
       };
       final res = await http.post(
