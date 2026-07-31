@@ -257,12 +257,19 @@ class JsStatChip extends StatelessWidget {
     super.key,
     this.selected = false,
     this.onTap,
+    this.valueText,
   });
   final String label;
   final int count;
   final Color color;
   final bool selected;
   final VoidCallback? onTap;
+
+  /// 単位付きの値（例 '288.0h'）を int に落とさず出すための任意指定。
+  /// 省略時は従来どおり '$count' を描く＝レイアウト・サイズ・枠・色すべて不変。
+  /// （home_screen.dart の _StaffStatChip が valueColor を足したのと同じ「追加だけ」の流儀。
+  ///   実働(h) を int の count で表せないためだけに新部品を作ることを避ける。）
+  final String? valueText;
 
   @override
   Widget build(BuildContext context) => Expanded(
@@ -280,7 +287,7 @@ class JsStatChip extends StatelessWidget {
           ),
         ),
         child: Column(children: [
-          Text('$count',
+          Text(valueText ?? '$count',
               style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
           Text(label, style: TextStyle(color: color, fontSize: 11)),
         ]),
