@@ -264,6 +264,9 @@ class WorkModeService {
           legalBreak8h:    (body['legal_break_8h_min'] as int?) ?? 60,
         );
       }
+      // 沈黙障害の禁止: 非200も理由を残す（戻り値 null は「取れなかった」であって
+      // 「打刻済み」ではない。呼び手はこの区別ができないため、ログだけは必ず出す）。
+      debugPrint('attendance/today 非200: status=${res.statusCode} body=${res.body}');
       return null;
     } catch (e) {
       debugPrint('attendance/today 取得失敗: $e');
@@ -431,6 +434,68 @@ class WorkModeService {
     } catch (e) {
       debugPrint('attendance/break-request/amend 送信失敗: $e');
       return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
+    }
+  }
+
+  // ─── 打刻漏れの申告（打刻のお知らせ通知からの導線）──────────────────────
+  //   POST /attendance/forgot-punch-declare  body { side, shift_type, work_date }
+  //     201 = 受理   {declared:true, id}
+  //     200 = 二度目 {already_declared:true, id}  ★エラーではない（袋小路にしない）
+  //     409 code=ALREADY_PUNCHED
+  //     400 code=INVALID_SIDE / INVALID_SHIFT_TYPE / INVALID_WORK_DATE
+  //     403 code=ATTENDANCE_EMPLOYEE_ONLY
+  //   3値はすべて必須。省略すると 400 になるため、呼び手が欠けた値を埋めて
+  //   （＝別の日を黙って申告して）しまわないよう、正規化は呼び手側で行う。
+  //   流儀は punch(:274-315) と同一:
+  //     ・token は都度 SharedPreferences から取る
+  //     ・throw しない（ok 付きレコードで返す）
+  //     ・非200は statusCode / code / error をそのまま載せて呼び手に判断させる
+  //   201 と 200 はどちらも ok:true で返し、alreadyDeclared で呼び手が区別する。
+  //   ★応答の id は載せない。読み手がゼロのフィールドを定義だけ持つのは事故の芽
+  //     （必要になった時点で足す）。
+  Future<({bool ok, bool alreadyDeclared,
+            int statusCode, String? errorCode, String? errorMessage})>
+      declareForgotPunch({required String side,
+                          required String shiftType,
+                          required String workDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      if (token.isEmpty) {
+        return (ok: false, alreadyDeclared: false,
+                statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
+      }
+      final payload = <String, dynamic>{
+        'side':       side,
+        'shift_type': shiftType,
+        'work_date':  workDate,
+      };
+      final res = await http.post(
+        Uri.parse('$_apiBase/attendance/forgot-punch-declare'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 10));
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        return (
+          ok:              true,
+          alreadyDeclared: res.statusCode == 200,
+          statusCode:      res.statusCode,
+          errorCode:       null,
+          errorMessage:    null,
+        );
+      }
+      return (
+        ok:              false,
+        alreadyDeclared: false,
+        statusCode:      res.statusCode,
+        errorCode:       body['code']  as String?,
+        errorMessage:    body['error'] as String?,
+      );
+    } catch (e) {
+      debugPrint('attendance/forgot-punch-declare 送信失敗: $e');
+      return (ok: false, alreadyDeclared: false,
+              statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
     }
   }
 }

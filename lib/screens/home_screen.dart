@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/constants.dart';
 import '../widgets/photo_strip_field.dart';
+import '../widgets/punch_remind_dialog.dart';
 import '../widgets/search_suggest_field.dart';
 import '../utils/business_date.dart';
 
@@ -362,6 +363,33 @@ class ReportTabNavigator {
   }
 }
 
+// 打刻のお知らせ（FCM: punch_remind_in / punch_remind_out）の2択ダイアログを、
+// 画面外（fcm_service.dart）から開くための橋。
+//   ・上の ReportTabNavigator(:349-363) と同型。違いは引数を3つ取ることだけ。
+//   ・showDialog に渡す context は「生きている画面の State」のもの＝lib 配下の
+//     既存 showDialog 35箇所と同じ流儀。navigatorKey.currentContext は使わない
+//     （当リポジトリに showDialog での使用実績が無いため）。
+//   ・未登録（シェル未生成）のときは false を返し、呼び手が通知一覧へ
+//     フォールバックする（fcm_service.dart の report_reminder と同じ形）。
+typedef PunchRemindHandler =
+    void Function(String side, String shiftType, String bizDate);
+
+class PunchRemindDialogNavigator {
+  PunchRemindDialogNavigator._();
+  static PunchRemindHandler? _handler;
+  static void register(PunchRemindHandler cb) => _handler = cb;
+  static void unregister(PunchRemindHandler cb) {
+    if (identical(_handler, cb)) _handler = null;
+  }
+
+  static bool go(String side, String shiftType, String bizDate) {
+    final h = _handler;
+    if (h == null) return false;
+    h(side, shiftType, bizDate);
+    return true;
+  }
+}
+
 class JsMainShell extends StatefulWidget {
   const JsMainShell({super.key, this.isForeman = false, this.restoreWorkStatus});
   final bool isForeman;
@@ -403,6 +431,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   late final VoidCallback _openReportTabCb = _goReportTab;
   void _goReportTab() {
     if (mounted) _setTab(0);
+  }
+
+  // 打刻のお知らせ2択ダイアログの表示ハンドラ（PunchRemindDialogNavigator へ
+  // 登録/解除する実体・register/unregister で identical 比較するため単一
+  // インスタンスを保持。直上の _openReportTabCb と同じ流儀）
+  late final PunchRemindHandler _punchRemindCb = _openPunchRemindDialog;
+  void _openPunchRemindDialog(String side, String shiftType, String bizDate) {
+    if (!mounted) return;
+    // 当 State の context を渡す＝ダイアログは生きている画面の上に出る。
+    unawaited(showPunchRemindFlow(context,
+        side: side, shiftType: shiftType, bizDate: bizDate));
   }
 
   // 日報フォームを push した先のページを再描画するためのキー。
@@ -560,6 +599,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ReportTabNavigator.register(_openReportTabCb);
+    PunchRemindDialogNavigator.register(_punchRemindCb);
     _initSeasonAndDaily();
     _loadCacheAndStart();
     _loadUnreadCount();
@@ -1102,6 +1142,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _transportMemoCtrl.dispose();
     _reportScrollCtrl.dispose();   // 4ステップ化で新設したスクロール制御
     ReportTabNavigator.unregister(_openReportTabCb);
+    PunchRemindDialogNavigator.unregister(_punchRemindCb);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

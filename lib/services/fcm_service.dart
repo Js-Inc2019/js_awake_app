@@ -8,7 +8,8 @@ import 'package:http/http.dart' as http;
 import '../config/constants.dart';
 import '../screens/revision_inbox_screen.dart';
 import '../screens/notification_list_screen.dart';
-import '../screens/home_screen.dart' show ReportTabNavigator;
+import '../screens/home_screen.dart'
+    show ReportTabNavigator, PunchRemindDialogNavigator;
 import 'auth_service.dart';
 
 class FcmService {
@@ -109,9 +110,37 @@ class FcmService {
 
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
     final type = data['type'];
-    if (type != 'revision_request' && type != 'report_reminder') return;
+    if (type != 'revision_request' &&
+        type != 'report_reminder' &&
+        type != 'punch_remind_in' &&
+        type != 'punch_remind_out') {
+      return;
+    }
     final loggedIn = await AuthService().isLoggedIn();
     if (!loggedIn) return;
+
+    // ── 打刻のお知らせ（punch_remind_in / punch_remind_out）──
+    // 下の既存2type の分岐を1バイトも変えないため、ここで処理して return する。
+    // payload の値は全て String（BE utils/fcm.js が String() 化して送る）。
+    if (type == 'punch_remind_in' || type == 'punch_remind_out') {
+      final rawSide = data['side']?.toString() ?? '';
+      // side は payload を正とし、欠落・不正時だけ type から導く
+      // （BE は type と side を同じ判定から作るため両者は一致する）。
+      final side = (rawSide == 'in' || rawSide == 'out')
+          ? rawSide
+          : (type == 'punch_remind_in' ? 'in' : 'out');
+      // 不正値はここで 'day' に倒す（work_mode_service の流儀と同じ）。
+      final shiftType = data['shift_type']?.toString() == 'night' ? 'night' : 'day';
+      final bizDate   = data['biz_date']?.toString() ?? '';
+      // シェル未生成＝ダイアログを出せる画面が無いときは通知一覧へ。
+      // 直下の report_reminder のフォールバックと同型。
+      if (!PunchRemindDialogNavigator.go(side, shiftType, bizDate)) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+        );
+      }
+      return;
+    }
 
     if (type == 'revision_request') {
       navigatorKey.currentState?.push(

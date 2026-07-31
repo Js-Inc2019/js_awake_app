@@ -5,7 +5,9 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/js_colors.dart';
+import '../main.dart' show showJsSnackbar;
 import '../services/notification_service.dart';
+import '../widgets/punch_remind_dialog.dart';
 import 'home_screen.dart' show ReportTabNavigator;
 import 'revision_inbox_screen.dart';
 
@@ -131,6 +133,44 @@ class NotificationListBodyState extends State<NotificationListBody> {
     );
   }
 
+  // ── 展開部アクション: 打刻を申告する（punch_remind_in / punch_remind_out）──
+  //   ★今回追加した経路だけの多重送信ガード。この画面には元々ガードフラグが
+  //     1つも無いため新設した。既存の _onTapItem / _markAllRead / _goReport /
+  //     _openRevision には一切かけていない（挙動を変えないため）。
+  bool _punchRemindBusy = false;
+
+  //   ★ダイアログ本体は FCM経路（fcm_service → home_screen）と同一の
+  //     showPunchRemindFlow を呼ぶ＝同じ機能を2つ作らない。
+  //     context は当 State のもの（lib 配下の既存 showDialog と同じ流儀）。
+  Future<void> _openPunchRemind(Map<String, dynamic> item) async {
+    if (_punchRemindBusy) return;
+
+    final refId  = (item['ref_id'] ?? '').toString();
+    final type   = (item['type']   ?? '').toString();
+    final parsed = _parsePunchRemindRefId(refId, type);
+
+    // 解析失敗＝対象日が特定できない。推測で埋めずにここで止める。
+    // 文言は punch_remind_dialog.dart:51 と同一（同じ事象は同じ言葉で言う）。
+    if (parsed == null) {
+      debugPrint('punch_remind: ref_id を解析できません ref_id=$refId type=$type');
+      showJsSnackbar(context, '対象日を特定できませんでした。事務へご連絡ください。',
+          isError: true);
+      return;
+    }
+
+    setState(() => _punchRemindBusy = true);
+    try {
+      await showPunchRemindFlow(
+        context,
+        side:      parsed.side,
+        shiftType: parsed.shiftType,
+        bizDate:   parsed.bizDate,
+      );
+    } finally {
+      if (mounted) setState(() => _punchRemindBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(child: _buildBody());
@@ -192,6 +232,8 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onTap: () => _onTapItem(_items[i]),
                 onReport: _goReport,
                 onRevision: _openRevision,
+                onPunchRemind: () => _openPunchRemind(_items[i]),
+                punchRemindBusy: _punchRemindBusy,
               ),
             ),
     );
@@ -252,6 +294,8 @@ class _NotificationRow extends StatelessWidget {
     required this.onTap,
     required this.onReport,
     required this.onRevision,
+    required this.onPunchRemind,
+    required this.punchRemindBusy,
   });
 
   final Map<String, dynamic> item;
@@ -259,6 +303,8 @@ class _NotificationRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onReport;   // 'report_remind' 展開時「日報を書く」
   final VoidCallback onRevision; // 'revision_request' 展開時「修正依頼を開く」
+  final VoidCallback onPunchRemind; // 'punch_remind_*' 展開時「打刻を申告する」
+  final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +405,22 @@ class _NotificationRow extends StatelessWidget {
                         ),
                       ),
                     ],
+                    // 打刻のお知らせ。上の if/else if 連鎖には手を入れず独立した
+                    // if で足している（type は互いに排他のため挙動は同じ）。
+                    if (type == 'punch_remind_in' ||
+                        type == 'punch_remind_out') ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _ActionButton(
+                          icon: Icons.how_to_reg_outlined,
+                          label: '打刻を申告する',
+                          // 連打防止: 実行中は押せなくする（実体側にも
+                          // _punchRemindBusy の早期returnガードがある）。
+                          onPressed: punchRemindBusy ? null : onPunchRemind,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -380,7 +442,8 @@ class _ActionButton extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
+  // null 可（＝無効化）。既存の呼び手2箇所は常に非nullを渡すため挙動は不変。
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -400,6 +463,46 @@ class _ActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── 打刻のお知らせ ref_id の解析 ────────────────────────────────────────
+// BE services/punchRemind.js:217 が作る形:
+//     punch_remind:{業務日}:{シフト}:{側}
+//   実例: punch_remind:2026-07-21:day:in
+//   業務日 'YYYY-MM-DD' にコロンは含まれないため ':' 区切りで必ず4要素になる。
+// BE routes/notifications.js の SELECT に ref_id が含まれるため FE まで届く。
+//
+// ★1つでも条件を満たさなければ null（＝解析失敗）を返す。推測で埋めない。
+//   bizDate と shiftType は絶対に補完しない（黙って別の日・別のシフトへ
+//   申告してしまうため）。side だけは ref_id が壊れていたときに限り
+//   通知の type から導く（BE は type と side を同じ判定から作るので一致する。
+//   fcm_service.dart:126-131 と同じ流儀）。
+({String bizDate, String shiftType, String side})? _parsePunchRemindRefId(
+    String refId, String type) {
+  final parts = refId.split(':');
+  if (parts.length != 4) return null;
+  if (parts[0] != 'punch_remind') return null;
+
+  final bizDate   = parts[1];
+  final shiftType = parts[2];
+  final rawSide   = parts[3];
+
+  // 業務日は 'YYYY-MM-DD'（4桁-2桁-2桁）であること。
+  if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(bizDate)) return null;
+  // シフトは 'day' | 'night' であること（補完しない）。
+  if (shiftType != 'day' && shiftType != 'night') return null;
+
+  // 側は 'in' | 'out'。ref_id を正とし、不正なときだけ type から導く。
+  final side = (rawSide == 'in' || rawSide == 'out')
+      ? rawSide
+      : (type == 'punch_remind_in'
+          ? 'in'
+          : type == 'punch_remind_out'
+              ? 'out'
+              : '');
+  if (side.isEmpty) return null;
+
+  return (bizDate: bizDate, shiftType: shiftType, side: side);
 }
 
 // ─── 相対時刻（created_at: timestamptz ISO → toLocal()でJST表示）───
