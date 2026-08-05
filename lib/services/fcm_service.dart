@@ -157,15 +157,20 @@ class FcmService {
     }
   }
 
+  // ★段③: 新API へ切替。URL から user_id が消え、BE は JWT の membership_id を
+  //   基準に保存する。旧 /workers/:user_id/fcm-token は踏まない。
+  //   getUserId() はここでは不要になったため撤去（approval_day_screen.dart:68 /
+  //   revision_inbox_screen.dart:71 で使うため AuthService 側のメソッドは残す）。
+  //   ただし「未ログインなら送らない」ガードは旧実装の性質なので isLoggedIn() で維持する
+  //   （空 Bearer を BE に投げないため）。headers/timeout/fail-soft は不変。
   Future<void> _postToken(String token) async {
     try {
-      final userId = await AuthService().getUserId();
-      if (userId == null || userId.isEmpty) return;
+      if (!await AuthService().isLoggedIn()) return;
       final headers = await AuthService().getAuthHeaders();
       await http.post(
-        Uri.parse('$kApiBaseUrl/workers/$userId/fcm-token'),
+        Uri.parse('$kApiBaseUrl/notifications/fcm-token'),
         headers: headers,
-        body: jsonEncode({'token': token}),
+        body: jsonEncode({'fcm_token': token}),
       ).timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('FCM token post error: $e');
