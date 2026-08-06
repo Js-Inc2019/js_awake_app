@@ -47,33 +47,6 @@ class CompanyService {
   }
 
   // ============================================================
-  // 会社間の繋がり一覧取得
-  // ============================================================
-
-  Future<Map<String, dynamic>> getRelations() async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/companies/relations/list'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'relations': data['relations'] as List<dynamic>,
-        };
-      }
-
-      return {'success': false, 'message': data['error'] ?? 'エラーが発生しました'};
-    } catch (e) {
-      return {'success': false, 'message': 'サーバーに接続できません: $e'};
-    }
-  }
-
-  // ============================================================
   // 会社新規登録（admin_execのみ）
   // ============================================================
 
@@ -197,42 +170,6 @@ class CompanyService {
 
       if (response.statusCode == 200) {
         return {'success': true, 'company': data['company']};
-      }
-
-      return {'success': false, 'message': data['error'] ?? 'エラーが発生しました'};
-    } catch (e) {
-      return {'success': false, 'message': 'サーバーに接続できません: $e'};
-    }
-  }
-
-  // ============================================================
-  // 会社間の繋がりを登録（admin_execのみ）
-  // ============================================================
-
-  Future<Map<String, dynamic>> addRelation({
-    required String companyIdA,
-    required String companyIdB,
-    String relationType = 'partner',
-  }) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/companies/relations/add'),
-        headers: headers,
-        body: jsonEncode({
-          'company_id_a': companyIdA,
-          'company_id_b': companyIdB,
-          'relation_type': relationType,
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (response.statusCode == 201) {
-        return {
-          'success': true,
-          'message': '会社間の繋がりを登録しました',
-        };
       }
 
       return {'success': false, 'message': data['error'] ?? 'エラーが発生しました'};
