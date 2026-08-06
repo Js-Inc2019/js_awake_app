@@ -15,7 +15,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart' show API_URL, showJsSnackbar;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../services/profile_service.dart';
 import '../config/constants.dart';
 import 'consent_view_screen.dart';
@@ -28,7 +28,7 @@ Color experienceColor(int? years) {
   final y = years ?? 0;
   if (y >= 20) return const Color(0xFFCE93D8); // 紫: マスター
   if (y >= 10) return const Color(0xFF4FC3F7); // 青: ベテラン
-  if (y >= 3)  return JsColors.gold;           // 金: 中堅
+  if (y >= 3)  return FieldTokens.accent;           // 金: 中堅
   return const Color(0xFF9E9E9E);              // グレー: 新人
 }
 
@@ -97,7 +97,7 @@ class _ProfileData {
 // プロフィール写真を data URI(base64) と http(s) URL の両対応で描画
 // （BE v433 は data:image/jpeg;base64,... を返す。将来 http URL へ戻る可能性も残す）
 Widget _profileAvatarImage(String url, {double iconSize = 48}) {
-  final fallback = Icon(Icons.person, color: JsColors.silver, size: iconSize);
+  final fallback = Icon(Icons.person, color: FieldTokens.textSupport, size: iconSize);
   if (url.startsWith('data:image')) {
     try {
       final bytes = Uri.parse(url).data?.contentAsBytes();
@@ -281,11 +281,11 @@ class ProfileBodyState extends State<ProfileBody> {
   Widget build(BuildContext context) {
     final p = _profile;
     return _loading
-          ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+          ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
           : p == null
               ? const Center(
                   child: Text('プロフィールを読み込めませんでした',
-                      style: TextStyle(color: JsColors.silver)))
+                      style: TextStyle(color: FieldTokens.textSupport)))
               : SafeArea(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(20),
@@ -345,16 +345,16 @@ class ProfileBodyState extends State<ProfileBody> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.gunmetal,
+        backgroundColor: FieldTokens.surfaceCard,
         title: const Text('ログアウト',
-            style: TextStyle(color: JsColors.offWhite)),
+            style: TextStyle(color: FieldTokens.textBody)),
         content: const Text('ログアウトしますか？',
-            style: TextStyle(color: JsColors.silver)),
+            style: TextStyle(color: FieldTokens.textSupport)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsColors.silver)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -444,7 +444,7 @@ class ProfileBodyState extends State<ProfileBody> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => Dialog(
-        backgroundColor: JsColors.gunmetal,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16)),
         child: Padding(
@@ -454,12 +454,12 @@ class ProfileBodyState extends State<ProfileBody> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.logout,
-                  color: JsColors.gold, size: 56),
+                  color: FieldTokens.accent, size: 56),
               const SizedBox(height: 20),
               const Text(
                 'ログアウトしました',
                 style: TextStyle(
-                  color: JsColors.textStrong,
+                  color: FieldTokens.textBody,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
@@ -468,7 +468,7 @@ class ProfileBodyState extends State<ProfileBody> {
               const Text(
                 'またのご利用をお待ちしています',
                 style: TextStyle(
-                  color: JsColors.textMid,
+                  color: FieldTokens.textSupport,
                   fontSize: 13,
                 ),
               ),
@@ -478,8 +478,8 @@ class ProfileBodyState extends State<ProfileBody> {
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(ctx),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: JsColors.gold,
-                    foregroundColor: JsColors.gunmetal,
+                    backgroundColor: FieldTokens.accent,
+                    foregroundColor: FieldTokens.surfaceCard,
                     padding: const EdgeInsets.symmetric(
                         vertical: 14),
                     shape: RoundedRectangleBorder(
@@ -523,14 +523,14 @@ class ProfileBodyState extends State<ProfileBody> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: JsColors.surface,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsColors.border),
+          border: Border.all(color: FieldTokens.outline),
         ),
         child: const Row(
           children: [
             Icon(Icons.privacy_tip_outlined,
-                color: JsColors.gold, size: 18),
+                color: FieldTokens.accent, size: 18),
             SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -538,19 +538,19 @@ class ProfileBodyState extends State<ProfileBody> {
                 children: [
                   Text('法的情報',
                       style: TextStyle(
-                          color: JsColors.silver,
+                          color: FieldTokens.textSupport,
                           fontSize: 10,
                           letterSpacing: 0.5)),
                   SizedBox(height: 2),
                   Text('プライバシーポリシー',
                       style: TextStyle(
-                          color: JsColors.offWhite,
+                          color: FieldTokens.textBody,
                           fontSize: 14,
                           fontWeight: FontWeight.w500)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+            Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
           ],
         ),
       ),
@@ -566,14 +566,14 @@ class ProfileBodyState extends State<ProfileBody> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: JsColors.surface,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsColors.border),
+          border: Border.all(color: FieldTokens.outline),
         ),
         child: const Row(
           children: [
             Icon(Icons.notifications_active_outlined,
-                color: JsColors.gold, size: 18),
+                color: FieldTokens.accent, size: 18),
             SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -581,19 +581,19 @@ class ProfileBodyState extends State<ProfileBody> {
                 children: [
                   Text('通知',
                       style: TextStyle(
-                          color: JsColors.silver,
+                          color: FieldTokens.textSupport,
                           fontSize: 10,
                           letterSpacing: 0.5)),
                   SizedBox(height: 2),
                   Text('通知設定',
                       style: TextStyle(
-                          color: JsColors.offWhite,
+                          color: FieldTokens.textBody,
                           fontSize: 14,
                           fontWeight: FontWeight.w500)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+            Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
           ],
         ),
       ),
@@ -613,14 +613,14 @@ class ProfileBodyState extends State<ProfileBody> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: JsColors.surface,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsColors.border),
+          border: Border.all(color: FieldTokens.outline),
         ),
         child: const Row(
           children: [
             Icon(Icons.handshake_outlined,
-                color: JsColors.gold, size: 18),
+                color: FieldTokens.accent, size: 18),
             SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -628,19 +628,19 @@ class ProfileBodyState extends State<ProfileBody> {
                 children: [
                   Text('協力会社',
                       style: TextStyle(
-                          color: JsColors.silver,
+                          color: FieldTokens.textSupport,
                           fontSize: 10,
                           letterSpacing: 0.5)),
                   SizedBox(height: 2),
                   Text('協力申請',
                       style: TextStyle(
-                          color: JsColors.offWhite,
+                          color: FieldTokens.textBody,
                           fontSize: 14,
                           fontWeight: FontWeight.w500)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+            Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
           ],
         ),
       ),
@@ -652,37 +652,37 @@ class ProfileBodyState extends State<ProfileBody> {
       margin: const EdgeInsets.fromLTRB(0, 0, 0, 0),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: JsColors.surface,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: JsColors.border),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.verified_user, color: JsColors.gold, size: 16),
+              Icon(Icons.verified_user, color: FieldTokens.accent, size: 16),
               SizedBox(width: 6),
               Text(
                 '利用規約・同意状況',
                 style: TextStyle(
-                  color: JsColors.textStrong,
+                  color: FieldTokens.textBody,
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               Spacer(),
-              Icon(Icons.lock, color: JsColors.textMid, size: 14),
+              Icon(Icons.lock, color: FieldTokens.textSupport, size: 14),
             ],
           ),
           const SizedBox(height: 8),
           Text(
             _consentDate.isEmpty ? '同意日時：未取得' : '同意日時：$_consentDate',
-            style: const TextStyle(color: JsColors.gold, fontSize: 12),
+            style: const TextStyle(color: FieldTokens.accent, fontSize: 12),
           ),
           Text(
             _consentVersion.isEmpty ? '' : 'バージョン：$_consentVersion',
-            style: const TextStyle(color: JsColors.textMid, fontSize: 11),
+            style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11),
           ),
           const SizedBox(height: 10),
           GestureDetector(
@@ -695,12 +695,12 @@ class ProfileBodyState extends State<ProfileBody> {
                 Text(
                   '同意内容を確認する',
                   style: TextStyle(
-                    color: JsColors.silver,
+                    color: FieldTokens.textSupport,
                     fontSize: 12,
                     decoration: TextDecoration.underline,
                   ),
                 ),
-                Icon(Icons.chevron_right, color: JsColors.silver, size: 16),
+                Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 16),
               ],
             ),
           ),
@@ -720,17 +720,17 @@ class ProfileBodyState extends State<ProfileBody> {
         width: 90, height: 90,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           border: Border.all(color: color, width: 2),
         ),
         child: p.profileImageUrl != null
             ? ClipOval(child: _profileAvatarImage(p.profileImageUrl!))
-            : const Icon(Icons.person, color: JsColors.silver, size: 48),
+            : const Icon(Icons.person, color: FieldTokens.textSupport, size: 48),
       ),
       const SizedBox(height: 12),
       Text(p.name.isEmpty ? '(氏名未設定)' : p.name,
           style: const TextStyle(
-              color: JsColors.offWhite, fontSize: 22, fontWeight: FontWeight.bold)),
+              color: FieldTokens.textBody, fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
       // 役割バッジ（色は経験年数に連動）
       Container(
@@ -758,44 +758,44 @@ class ProfileBodyState extends State<ProfileBody> {
 
     return Container(
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: Column(children: [
         _InfoRow(icon: Icons.business,  label: '会社名',    value: p.companyName),
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.badge,
           label: '職人ID',
           value: (p.workerId?.isNotEmpty ?? false) ? p.workerId! : '未発行',
         ),
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.local_post_office_outlined,
           label: '郵便番号',
           value: (p.postalCode?.isNotEmpty ?? false) ? p.postalCode! : '未登録',
         ),
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.home,
           label: '自宅住所',
           value: p.homeAddress.isEmpty ? '未登録' : p.homeAddress,
         ),
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.phone,
           label: '連絡先',
           value: p.phone.isEmpty ? '未登録' : p.phone,
         ),
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.water_drop,
           label: '血液型',
           value: p.bloodType.isEmpty ? '未登録' : p.bloodType,
         ),
         if (p.experienceYears != null) ...[
-          const Divider(height: 1, color: JsColors.divider),
+          const Divider(height: 1, color: FieldTokens.outline),
           _InfoRow(
             icon: Icons.star,
             label: '職人経験年数',
@@ -803,7 +803,7 @@ class ProfileBodyState extends State<ProfileBody> {
             valueColor: p.badgeColor,
           ),
         ],
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         _InfoRow(
           icon: Icons.medical_services,
           label: '健康診断日',
@@ -815,7 +815,7 @@ class ProfileBodyState extends State<ProfileBody> {
               : null,
         ),
         if (hcWarn != null) ...[
-          const Divider(height: 1, color: JsColors.divider),
+          const Divider(height: 1, color: FieldTokens.outline),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Text(hcWarn,
@@ -842,9 +842,9 @@ class ProfileBodyState extends State<ProfileBody> {
         : name;
     return Container(
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -852,36 +852,36 @@ class ProfileBodyState extends State<ProfileBody> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Row(children: [
-              Icon(Icons.contact_phone_outlined, color: JsColors.gold, size: 18),
+              Icon(Icons.contact_phone_outlined, color: FieldTokens.accent, size: 18),
               SizedBox(width: 12),
               Text('緊急連絡先',
-                  style: TextStyle(color: JsColors.silver, fontSize: 11)),
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
             ]),
             const SizedBox(height: 8),
             if (allEmpty)
               const Text('未登録',
                   style: TextStyle(
-                      color: JsColors.offWhite,
+                      color: FieldTokens.textBody,
                       fontSize: 14,
                       fontWeight: FontWeight.w500))
             else ...[
               if (nameLine.isNotEmpty)
                 Text(nameLine,
                     style: const TextStyle(
-                        color: JsColors.offWhite,
+                        color: FieldTokens.textBody,
                         fontSize: 14,
                         fontWeight: FontWeight.w500)),
               if (phone.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text('☎ $phone',
                     style: const TextStyle(
-                        color: JsColors.offWhite, fontSize: 13)),
+                        color: FieldTokens.textBody, fontSize: 13)),
               ],
               if (addr.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(addr,
                     style: const TextStyle(
-                        color: JsColors.silver, fontSize: 12)),
+                        color: FieldTokens.textSupport, fontSize: 12)),
               ],
             ],
           ],
@@ -911,13 +911,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final canEdit = _bodyKey.currentState?.canEdit ?? false;
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: const Text('設定・プロフィール'),
         actions: [
           if (canEdit)
             IconButton(
-              icon: const Icon(Icons.edit, color: JsPalette.brand),
+              icon: const Icon(Icons.edit, color: FieldTokens.brand),
               tooltip: '編集',
               onPressed: () => _bodyKey.currentState?.openEdit(),
             ),
@@ -962,18 +962,18 @@ class _InfoRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(children: [
-        Icon(icon, color: JsColors.gold, size: 18),
+        Icon(icon, color: FieldTokens.accent, size: 18),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(label,
-                  style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+                  style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
               const SizedBox(height: 3),
               Text(value,
                   style: TextStyle(
-                      color: valueColor ?? JsColors.offWhite,
+                      color: valueColor ?? FieldTokens.textBody,
                       fontSize: 14,
                       fontWeight: FontWeight.w500),
                   overflow: TextOverflow.ellipsis,
@@ -1072,21 +1072,21 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
   Future<void> _pickImage() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      backgroundColor: JsColors.gunmetal,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            leading: const Icon(Icons.camera_alt, color: JsColors.gold),
+            leading: const Icon(Icons.camera_alt, color: FieldTokens.accent),
             title: const Text('カメラで撮影',
-                style: TextStyle(color: JsColors.offWhite)),
+                style: TextStyle(color: FieldTokens.textBody)),
             onTap: () => Navigator.pop(context, ImageSource.camera),
           ),
           ListTile(
-            leading: const Icon(Icons.photo_library, color: JsColors.gold),
+            leading: const Icon(Icons.photo_library, color: FieldTokens.accent),
             title: const Text('フォトライブラリから選択',
-                style: TextStyle(color: JsColors.offWhite)),
+                style: TextStyle(color: FieldTokens.textBody)),
             onTap: () => Navigator.pop(context, ImageSource.gallery),
           ),
         ]),
@@ -1166,8 +1166,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.dark(
-            primary: JsColors.gold,
-            surface: JsColors.gunmetal,
+            primary: FieldTokens.accent,
+            surface: FieldTokens.surfaceCard,
           ),
         ),
         child: child!,
@@ -1282,7 +1282,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: const Text('プロフィール編集'),
         actions: [
@@ -1292,10 +1292,10 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 ? const SizedBox(
                     width: 18, height: 18,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: JsColors.gold))
+                        strokeWidth: 2, color: FieldTokens.accent))
                 : const Text('保存',
                     style: TextStyle(
-                        color: JsColors.gold, fontWeight: FontWeight.bold)),
+                        color: FieldTokens.accent, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1316,8 +1316,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                         width: 90, height: 90,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: JsColors.gunmetal,
-                          border: Border.all(color: JsColors.gold, width: 2),
+                          color: FieldTokens.surfaceCard,
+                          border: Border.all(color: FieldTokens.accent, width: 2),
                         ),
                         child: _localImagePath != null
                             ? ClipOval(
@@ -1329,14 +1329,14 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                                         widget.initial.profileImageUrl!),
                                   )
                                 : const Icon(Icons.person,
-                                    color: JsColors.silver, size: 48),
+                                    color: FieldTokens.textSupport, size: 48),
                       ),
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: const BoxDecoration(
-                            color: JsColors.gold, shape: BoxShape.circle),
+                            color: FieldTokens.accent, shape: BoxShape.circle),
                         child: const Icon(Icons.camera_alt,
-                            color: JsPalette.onAccent, size: 14),
+                            color: FieldTokens.onAccent, size: 14),
                       ),
                     ],
                   ),
@@ -1345,7 +1345,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               const SizedBox(height: 8),
               const Center(
                 child: Text('タップして変更',
-                    style: TextStyle(color: JsColors.silver, fontSize: 11)),
+                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
               ),
               const SizedBox(height: 28),
 
@@ -1354,10 +1354,10 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               TextField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.person, color: JsColors.silver),
+                  prefixIcon: Icon(Icons.person, color: FieldTokens.textSupport),
                   hintText: '例：田中 太郎',
                 ),
-                style: const TextStyle(color: JsColors.offWhite),
+                style: const TextStyle(color: FieldTokens.textBody),
               ),
               const SizedBox(height: 20),
 
@@ -1368,10 +1368,10 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 keyboardType: TextInputType.phone,
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d\-\+\(\)]'))],
                 decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.phone, color: JsColors.silver),
+                  prefixIcon: Icon(Icons.phone, color: FieldTokens.textSupport),
                   hintText: '例：090-1234-5678',
                 ),
-                style: const TextStyle(color: JsColors.offWhite),
+                style: const TextStyle(color: FieldTokens.textBody),
               ),
               const SizedBox(height: 20),
 
@@ -1393,12 +1393,12 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                               child: SizedBox(
                                   width: 16, height: 16,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: JsColors.gold)))
-                          : const Icon(Icons.local_post_office, color: JsColors.silver),
+                                      strokeWidth: 2, color: FieldTokens.accent)))
+                          : const Icon(Icons.local_post_office, color: FieldTokens.textSupport),
                       hintText: '例：6500000 または 650-0000',
                       counterText: '',
                     ),
-                    style: const TextStyle(color: JsColors.offWhite),
+                    style: const TextStyle(color: FieldTokens.textBody),
                     onChanged: (v) {
                       final digits = v.replaceAll('-', '');
                       if (digits.length == 7) _fetchAddressFromZip();
@@ -1417,7 +1417,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               if (_zipError != null) ...[
                 const SizedBox(height: 4),
                 Text(_zipError!,
-                    style: const TextStyle(color: JsColors.error, fontSize: 12)),
+                    style: const TextStyle(color: FieldTokens.statusError, fontSize: 12)),
               ],
               const SizedBox(height: 20),
 
@@ -1427,11 +1427,11 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 controller: _addressCtrl,
                 maxLines: 2,
                 decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.home, color: JsColors.silver),
+                  prefixIcon: Icon(Icons.home, color: FieldTokens.textSupport),
                   alignLabelWithHint: true,
                   hintText: '例：兵庫県神戸市長田区',
                 ),
-                style: const TextStyle(color: JsColors.offWhite),
+                style: const TextStyle(color: FieldTokens.textBody),
               ),
               const SizedBox(height: 10),
               SizedBox(
@@ -1442,7 +1442,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                       ? const SizedBox(
                           width: 14, height: 14,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: JsColors.gold))
+                              strokeWidth: 2, color: FieldTokens.accent))
                       : const Icon(Icons.location_on, size: 16),
                   label: Text(_gpsLoading ? 'GPS取得中...' : '現在地から自動入力'),
                   style: OutlinedButton.styleFrom(
@@ -1486,12 +1486,12 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.star, color: JsColors.silver),
+                      prefixIcon: Icon(Icons.star, color: FieldTokens.textSupport),
                       hintText: '例：10',
                       suffixText: '年',
-                      suffixStyle: TextStyle(color: JsColors.silver),
+                      suffixStyle: TextStyle(color: FieldTokens.textSupport),
                     ),
-                    style: const TextStyle(color: JsColors.offWhite),
+                    style: const TextStyle(color: FieldTokens.textBody),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1506,10 +1506,10 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               TextField(
                 controller: _emergencyNameCtrl,
                 decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.person_pin, color: JsColors.silver),
+                  prefixIcon: Icon(Icons.person_pin, color: FieldTokens.textSupport),
                   hintText: '例：田中 花子（続柄：妻）',
                 ),
-                style: const TextStyle(color: JsColors.offWhite),
+                style: const TextStyle(color: FieldTokens.textBody),
               ),
               const SizedBox(height: 16),
               _fieldLabel('緊急連絡先 電話番号'),
@@ -1520,10 +1520,10 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                   FilteringTextInputFormatter.allow(RegExp(r'[\d\-\+\(\)]')),
                 ],
                 decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.phone_in_talk, color: JsColors.silver),
+                  prefixIcon: Icon(Icons.phone_in_talk, color: FieldTokens.textSupport),
                   hintText: '例：090-9876-5432',
                 ),
-                style: const TextStyle(color: JsColors.offWhite),
+                style: const TextStyle(color: FieldTokens.textBody),
               ),
               const SizedBox(height: 20),
 
@@ -1534,13 +1534,13 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
-                    color: JsColors.gunmetal,
+                    color: FieldTokens.surfaceCard,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: JsColors.divider),
+                    border: Border.all(color: FieldTokens.outline),
                   ),
                   child: Row(children: [
                     const Icon(Icons.medical_services,
-                        color: JsColors.silver, size: 18),
+                        color: FieldTokens.textSupport, size: 18),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -1549,14 +1549,14 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                             : '日付を選択してください',
                         style: TextStyle(
                           color: _healthCheckDate != null
-                              ? JsColors.offWhite
-                              : JsColors.silver,
+                              ? FieldTokens.textBody
+                              : FieldTokens.textSupport,
                           fontSize: 14,
                         ),
                       ),
                     ),
                     const Icon(Icons.calendar_today,
-                        color: JsColors.silver, size: 16),
+                        color: FieldTokens.textSupport, size: 16),
                   ]),
                 ),
               ),
@@ -1583,18 +1583,18 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                   // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     disabledBackgroundColor: Colors.transparent,
                     disabledForegroundColor:
-                        JsFormTokens.outlineButtonDisabled,
+                        FieldTokens.textFaint,
                     elevation: 0,
                     shadowColor: Colors.transparent,
                   ).copyWith(
                     side: WidgetStateProperty.resolveWith((states) =>
                         BorderSide(
                           color: states.contains(WidgetState.disabled)
-                              ? JsFormTokens.outlineButtonDisabled
-                              : JsFormTokens.outlineButtonBorder,
+                              ? FieldTokens.textFaint
+                              : FieldTokens.textBody,
                           width: 1.5,
                         )),
                   ),
@@ -1604,7 +1604,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                           // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
                               strokeWidth: 2.5,
-                              color: JsFormTokens.outlineButtonDisabled))
+                              color: FieldTokens.textFaint))
                       : const Text('保存する'),
                 ),
               ),
@@ -1612,7 +1612,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
               const Center(
                 child: Text(
                   'v$kAppVersion',
-                  style: TextStyle(color: JsColors.textMid, fontSize: 11),
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 11),
                 ),
               ),
             ],
@@ -1624,7 +1624,7 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
 
   Widget _fieldLabel(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+    child: Text(text, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
   );
 }
 
@@ -1648,20 +1648,20 @@ class _DropdownField<T> extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
           value: value,
-          hint: Text(hint, style: const TextStyle(color: JsColors.silver, fontSize: 14)),
-          dropdownColor: JsColors.gunmetal,
-          iconEnabledColor: JsColors.silver,
+          hint: Text(hint, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 14)),
+          dropdownColor: FieldTokens.surfaceCard,
+          iconEnabledColor: FieldTokens.textSupport,
           isExpanded: true,
           items: items.map((e) => DropdownMenuItem<T>(
             value: e,
-            child: Text('$e', style: const TextStyle(color: JsColors.offWhite, fontSize: 14)),
+            child: Text('$e', style: const TextStyle(color: FieldTokens.textBody, fontSize: 14)),
           )).toList(),
           onChanged: onChanged,
         ),

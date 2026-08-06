@@ -12,7 +12,7 @@
 //     差し戻し = revision_requested==true
 import 'package:flutter/material.dart';
 
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/auth_service.dart';
 import '../services/work_mode_service.dart';
@@ -132,10 +132,10 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
       context: ctx,
       builder: (dctx) => StatefulBuilder(
         builder: (_, setLocal) => AlertDialog(
-          backgroundColor: JsColors.surface,
+          backgroundColor: FieldTokens.surfaceCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           title: const Text('休憩を修正',
-              style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+              style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
           content: SizedBox(
             width: double.maxFinite,
             child: Wrap(
@@ -152,11 +152,11 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
                       color: Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: on ? JsColors.accent : JsFormTokens.chipBorder),
+                          color: on ? FieldTokens.accent : FieldTokens.outline),
                     ),
                     child: Text('$m 分',
                         style: TextStyle(
-                          color: on ? JsColors.accent : JsColors.textMid,
+                          color: on ? FieldTokens.accent : FieldTokens.textSupport,
                           fontSize: 13,
                           fontWeight: on ? FontWeight.w600 : FontWeight.normal,
                         )),
@@ -169,12 +169,12 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
             TextButton(
               onPressed: () => Navigator.pop(dctx),
               child: const Text('キャンセル',
-                  style: TextStyle(color: JsColors.silver)),
+                  style: TextStyle(color: FieldTokens.textSupport)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(dctx, selected),
               child: const Text('決定',
-                  style: TextStyle(color: JsColors.accent)),
+                  style: TextStyle(color: FieldTokens.accent)),
             ),
           ],
         ),
@@ -211,14 +211,14 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     final Color  labelColor;
     if (e.kind == 'pending') {
       label = '承認待ち';
-      labelColor = JsColors.warning;
+      labelColor = FieldTokens.statusWarning;
     } else if (e.kind == 'revision') {
       label = '差戻し';
-      labelColor = JsColors.error;
+      labelColor = FieldTokens.statusError;
     } else {
       final min = e.data['break_override_min'] as int? ?? 0;
       label = '休憩 $min分';
-      labelColor = JsColors.textMid;
+      labelColor = FieldTokens.textSupport;
     }
 
     return InkWell(
@@ -232,7 +232,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      color: JsColors.textStrong,
+                      color: FieldTokens.textBody,
                       fontSize: 16,
                       fontWeight: FontWeight.w600)),
             ),
@@ -243,7 +243,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
                     fontSize: 13,
                     fontWeight: FontWeight.bold)),
             const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+            const Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
           ],
         ),
       ),
@@ -263,7 +263,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
       context: context,
       barrierDismissible: true,
       builder: (dctx) => Dialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         child: SingleChildScrollView(
@@ -275,7 +275,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
               // 誰の・いつ の小見出し（どの人の詳細か迷わないため）
               Text('$name　${d.month}/${d.day}（${_week[d.weekday % 7]}）',
                   style: const TextStyle(
-                      color: JsColors.silver, fontSize: 12)),
+                      color: FieldTokens.textSupport, fontSize: 12)),
               const SizedBox(height: 10),
               if (e.kind == 'pending')
                 PendingApprovalCard(
@@ -322,7 +322,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
           // 本人以外 → 読み取り専用の詳細（呼び出し元と同じ挙動）。
           showModalBottomSheet(
             context: dctx,
-            backgroundColor: JsColors.gunmetal,
+            backgroundColor: FieldTokens.surfaceCard,
             isScrollControlled: true,
             shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -357,31 +357,31 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
         Navigator.pop(context, true); // 戻るときは常に呼び出し元へ再読込を促す
       },
       child: Scaffold(
-        backgroundColor: JsColors.black,
+        backgroundColor: FieldTokens.bgBase,
         appBar: AppBar(
-          backgroundColor: JsColors.black,
-          iconTheme: const IconThemeData(color: JsPalette.brand),
+          backgroundColor: FieldTokens.bgBase,
+          iconTheme: const IconThemeData(color: FieldTokens.brand),
           title: Text(
             '${d.month}月${d.day}日（${_week[d.weekday % 7]}）の報告',
             style: const TextStyle(
-                color: JsPalette.brand,
+                color: FieldTokens.brand,
                 fontSize: 18,
                 fontWeight: FontWeight.bold),
           ),
         ),
         // 本体は「氏名の行リスト」。カード・塗り面は使わず、
-        // 行間は1px区切り（JsFormTokens.chipBorder）＋余白のみ。
+        // 行間は1px区切り（FieldTokens.outline）＋余白のみ。
         body: SafeArea(
           child: entries.isEmpty
               ? const Center(
                   child: Text('対応が必要な報告はありません',
-                      style: TextStyle(color: JsColors.silver, fontSize: 13)),
+                      style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
                 )
               : ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: entries.length,
                   separatorBuilder: (_, __) => const Divider(
-                      height: 1, thickness: 1, color: JsFormTokens.chipBorder),
+                      height: 1, thickness: 1, color: FieldTokens.outline),
                   itemBuilder: (_, i) => _row(entries[i]),
                 ),
         ),
@@ -427,7 +427,7 @@ class _BreakDeclarationCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -435,21 +435,21 @@ class _BreakDeclarationCard extends StatelessWidget {
         children: [
           Text(name,
               style: const TextStyle(
-                  color: JsColors.offWhite,
+                  color: FieldTokens.textBody,
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           Text('申告休憩 $minutes分',
               style: const TextStyle(
-                  color: JsColors.offWhite,
+                  color: FieldTokens.textBody,
                   fontSize: 16,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           Text('理由：$reason',
-              style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
+              style: const TextStyle(color: FieldTokens.textBody, fontSize: 13)),
           const SizedBox(height: 4),
           Text('申告日時：$reqAtStr',
-              style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -458,8 +458,8 @@ class _BreakDeclarationCard extends StatelessWidget {
                 onPressed: busy ? null : onAmend,
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 44),
-                  foregroundColor: JsColors.textStrong,
-                  side: const BorderSide(color: JsFormTokens.chipBorder),
+                  foregroundColor: FieldTokens.textBody,
+                  side: const BorderSide(color: FieldTokens.outline),
                 ),
                 child: const Text('修正'),
               ),

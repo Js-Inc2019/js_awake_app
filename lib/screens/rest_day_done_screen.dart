@@ -1,12 +1,12 @@
 // ============================================================
 // lib/screens/rest_day_done_screen.dart - 本日休み（ねぎらい画面）
-// 色は必ず js_colors.dart のトークンを使う。Color(0x 直書き・Colors.* は使わない。
+// 色は必ず field_tokens.dart のトークンを使う。Color(0x 直書き・Colors.* は使わない。
 // ★イラスト画像は未存在。Image.asset の errorBuilder でフォールバック表示を必ず出す。
 // ============================================================
 
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'rest_day_screen.dart';
 
 class RestDayDoneScreen extends StatefulWidget {
@@ -66,10 +66,10 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
     final imgSize = MediaQuery.of(context).size.width * 0.7;
 
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.surface,
-        foregroundColor: JsColors.textStrong,
+        backgroundColor: FieldTokens.surfaceCard,
+        foregroundColor: FieldTokens.textBody,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text('本日休み'),
@@ -93,7 +93,7 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
                     child: Icon(
                       Icons.self_improvement,
                       size: imgSize * 0.6,
-                      color: JsPalette.accentDeep,
+                      color: FieldTokens.accentDeep,
                     ),
                   ),
                 ),
@@ -101,12 +101,12 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
 
               const SizedBox(height: 28),
 
-              // ねぎらい文言（カテゴリ別・textStrong・中央）
+              // ねぎらい文言（カテゴリ別・textBody・中央）
               Text(
                 _message,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: JsColors.textStrong,
+                    color: FieldTokens.textBody,
                     fontSize: 18,
                     fontWeight: FontWeight.bold),
               ),
@@ -127,7 +127,7 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
                   );
                 },
                 child: const Text('取消・修正',
-                    style: TextStyle(color: JsColors.textMid)),
+                    style: TextStyle(color: FieldTokens.textSupport)),
               ),
 
               const SizedBox(height: 8),
@@ -140,8 +140,8 @@ class _RestDayDoneScreenState extends State<RestDayDoneScreen> {
                   onPressed: () =>
                       Navigator.of(context).popUntil((r) => r.isFirst),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: JsColors.textMid,
-                    side: const BorderSide(color: JsColors.textMid),
+                    foregroundColor: FieldTokens.textSupport,
+                    side: const BorderSide(color: FieldTokens.textSupport),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),

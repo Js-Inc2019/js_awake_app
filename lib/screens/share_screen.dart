@@ -4,7 +4,7 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
- import '../core/theme/js_colors.dart';
+ import '../core/theme/field_tokens.dart';
 import '../services/share_service.dart';
 import '../services/company_service.dart';
 
@@ -109,16 +109,16 @@ class _ShareScreenState extends State<ShareScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.background,
-        foregroundColor: JsColors.accent,
+        backgroundColor: FieldTokens.bgBase,
+        foregroundColor: FieldTokens.accent,
         title: const Text('他社に報告送信'),
       ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(
-                  color: JsColors.accent))
+                  color: FieldTokens.accent))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -129,7 +129,7 @@ class _ShareScreenState extends State<ShareScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: JsColors.surface,
+                      color: FieldTokens.surfaceCard,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -137,13 +137,13 @@ class _ShareScreenState extends State<ShareScreen> {
                       children: [
                         const Text('送信する日報',
                             style: TextStyle(
-                                color: JsColors.textMid,
+                                color: FieldTokens.textSupport,
                                 fontSize: 12)),
                         const SizedBox(height: 8),
                         Text(
                           widget.workerName,
                           style: const TextStyle(
-                            color: JsColors.textStrong,
+                            color: FieldTokens.textBody,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -151,7 +151,7 @@ class _ShareScreenState extends State<ShareScreen> {
                         Text(
                           widget.reportDate,
                           style: const TextStyle(
-                              color: JsColors.textMid),
+                              color: FieldTokens.textSupport),
                         ),
                       ],
                     ),
@@ -162,19 +162,19 @@ class _ShareScreenState extends State<ShareScreen> {
                   // 送信先選択
                   const Text('送信先を選択 *',
                       style: TextStyle(
-                          color: JsColors.textMid, fontSize: 12)),
+                          color: FieldTokens.textSupport, fontSize: 12)),
                   const SizedBox(height: 8),
 
                   if (_companies.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: JsColors.surface,
+                        color: FieldTokens.surfaceCard,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Text(
                         '繋がっている会社がありません\n管理者に確認してください',
-                        style: TextStyle(color: JsColors.textMid),
+                        style: TextStyle(color: FieldTokens.textSupport),
                       ),
                     )
                   else
@@ -193,12 +193,12 @@ class _ShareScreenState extends State<ShareScreen> {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? JsColors.surfaceAlt
-                                : JsColors.surface,
+                                ? FieldTokens.surfaceRaised
+                                : FieldTokens.surfaceCard,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: isSelected
-                                  ? JsColors.accent
+                                  ? FieldTokens.accent
                                   : Colors.transparent,
                               width: 1.5,
                             ),
@@ -210,8 +210,8 @@ class _ShareScreenState extends State<ShareScreen> {
                                     ? Icons.check_circle
                                     : Icons.business,
                                 color: isSelected
-                                    ? JsColors.accent
-                                    : JsColors.textMid,
+                                    ? FieldTokens.accent
+                                    : FieldTokens.textSupport,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -223,15 +223,15 @@ class _ShareScreenState extends State<ShareScreen> {
                                       company['company_name'] as String,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? JsColors.accent
-                                            : JsColors.textStrong,
+                                            ? FieldTokens.accent
+                                            : FieldTokens.textBody,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     Text(
                                       company['company_code'] as String,
                                       style: const TextStyle(
-                                          color: JsColors.textMid,
+                                          color: FieldTokens.textSupport,
                                           fontSize: 12),
                                     ),
                                   ],
@@ -248,7 +248,7 @@ class _ShareScreenState extends State<ShareScreen> {
                   // 送信方法
                   const Text('送信方法',
                       style: TextStyle(
-                          color: JsColors.textMid, fontSize: 12)),
+                          color: FieldTokens.textSupport, fontSize: 12)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -283,18 +283,18 @@ class _ShareScreenState extends State<ShareScreen> {
                   // メモ
                   const Text('メモ（任意）',
                       style: TextStyle(
-                          color: JsColors.textMid, fontSize: 12)),
+                          color: FieldTokens.textSupport, fontSize: 12)),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _memoCtrl,
-                    style: const TextStyle(color: JsColors.textStrong),
+                    style: const TextStyle(color: FieldTokens.textBody),
                     maxLines: 3,
                     decoration: InputDecoration(
                       hintText: '送信先へのメモを入力...',
                       hintStyle:
-                          const TextStyle(color: JsColors.textMid),
+                          const TextStyle(color: FieldTokens.textSupport),
                       filled: true,
-                      fillColor: JsColors.surface,
+                      fillColor: FieldTokens.surfaceCard,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide.none,
@@ -302,7 +302,7 @@ class _ShareScreenState extends State<ShareScreen> {
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(
-                            color: JsColors.accent),
+                            color: FieldTokens.accent),
                       ),
                     ),
                   ),
@@ -317,10 +317,10 @@ class _ShareScreenState extends State<ShareScreen> {
                       // 生成り抜き（画面内の主ボタン）
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
-                        foregroundColor: JsFormTokens.outlineButtonBorder,
+                        foregroundColor: FieldTokens.textBody,
                         disabledBackgroundColor: Colors.transparent,
                         disabledForegroundColor:
-                            JsFormTokens.outlineButtonDisabled,
+                            FieldTokens.textFaint,
                         elevation: 0,
                         shadowColor: Colors.transparent,
                         shape: RoundedRectangleBorder(
@@ -330,8 +330,8 @@ class _ShareScreenState extends State<ShareScreen> {
                         side: WidgetStateProperty.resolveWith((states) =>
                             BorderSide(
                               color: states.contains(WidgetState.disabled)
-                                  ? JsFormTokens.outlineButtonDisabled
-                                  : JsFormTokens.outlineButtonBorder,
+                                  ? FieldTokens.textFaint
+                                  : FieldTokens.textBody,
                               width: 1.5,
                             )),
                       ),
@@ -342,7 +342,7 @@ class _ShareScreenState extends State<ShareScreen> {
                               height: 20,
                               // 面が透明になったのでスピナーも枠色（生成り）へ
                               child: CircularProgressIndicator(
-                                color: JsFormTokens.outlineButtonDisabled,
+                                color: FieldTokens.textFaint,
                                 strokeWidth: 2,
                               ),
                             )
@@ -392,12 +392,12 @@ class _ShareTypeButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: isSelected
-                ? JsColors.surfaceAlt
-                : JsColors.surface,
+                ? FieldTokens.surfaceRaised
+                : FieldTokens.surfaceCard,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isSelected
-                  ? JsColors.accent
+                  ? FieldTokens.accent
                   : Colors.transparent,
             ),
           ),
@@ -405,15 +405,15 @@ class _ShareTypeButton extends StatelessWidget {
             children: [
               Icon(icon,
                   color: isSelected
-                      ? JsColors.accent
-                      : JsColors.textMid,
+                      ? FieldTokens.accent
+                      : FieldTokens.textSupport,
                   size: 20),
               const SizedBox(height: 4),
               Text(label,
                   style: TextStyle(
                     color: isSelected
-                        ? JsColors.accent
-                        : JsColors.textMid,
+                        ? FieldTokens.accent
+                        : FieldTokens.textSupport,
                     fontSize: 12,
                   )),
             ],

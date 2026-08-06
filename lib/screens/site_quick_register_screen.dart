@@ -9,7 +9,7 @@
 //   ・戻り値契約: Navigator.pop(context, siteId)（キャンセル/失敗時は pop せず or null）。
 import 'package:flutter/material.dart';
 import '../services/site_service.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class SiteQuickRegisterScreen extends StatefulWidget {
   const SiteQuickRegisterScreen({
@@ -84,7 +84,7 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('現場名を入力してください'), backgroundColor: JsColors.error),
+        const SnackBar(content: Text('現場名を入力してください'), backgroundColor: FieldTokens.statusError),
       );
       return;
     }
@@ -105,7 +105,7 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('現場の登録に失敗しました。通信状況を確認して再試行してください'),
-        backgroundColor: JsColors.error,
+        backgroundColor: FieldTokens.statusError,
       ),
     );
   }
@@ -113,12 +113,12 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.surface,
-        foregroundColor: JsColors.gold,
+        backgroundColor: FieldTokens.surfaceCard,
+        foregroundColor: FieldTokens.accent,
         title: const Text('現場の仮登録',
-            style: TextStyle(color: JsColors.gold, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: FieldTokens.accent, fontWeight: FontWeight.bold)),
       ),
       body: SafeArea(
         child: ListView(
@@ -131,21 +131,21 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
             ],
             // 現場名（必須）
             const Text('現場名 *',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12, fontWeight: FontWeight.bold)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             TextField(
               controller: _nameCtrl,
-              style: const TextStyle(color: JsColors.textWhite, fontSize: 15),
+              style: const TextStyle(color: FieldTokens.textBody, fontSize: 15),
               decoration: _deco('例: ○○様邸 新築工事'),
             ),
             const SizedBox(height: 16),
             // 住所（任意）
             const Text('住所（任意）',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12, fontWeight: FontWeight.bold)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             TextField(
               controller: _addrCtrl,
-              style: const TextStyle(color: JsColors.textWhite, fontSize: 15),
+              style: const TextStyle(color: FieldTokens.textBody, fontSize: 15),
               decoration: _deco('日報のGPS住所を初期表示（編集可）'),
             ),
             const SizedBox(height: 20),
@@ -155,14 +155,14 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
               decoration: BoxDecoration(
                 color: const Color(0x2EFFB800), // warning 約18%
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: JsColors.warning),
+                border: Border.all(color: FieldTokens.statusWarning),
               ),
               child: const Row(children: [
-                Icon(Icons.info_outline, color: JsColors.warning, size: 18),
+                Icon(Icons.info_outline, color: FieldTokens.statusWarning, size: 18),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text('仮登録として登録されます（事務が後で確認します）',
-                      style: TextStyle(color: JsColors.warning, fontSize: 13, height: 1.4)),
+                      style: TextStyle(color: FieldTokens.statusWarning, fontSize: 13, height: 1.4)),
                 ),
               ]),
             ),
@@ -178,23 +178,23 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
                         // 面が透明になったのでスピナーも枠色（生成り）へ
                         child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: JsFormTokens.outlineButtonDisabled))
+                            color: FieldTokens.textFaint))
                     : const Icon(Icons.add_location_alt),
                 label: Text(_submitting ? '登録中…' : '仮登録して紐づけ'),
                 // 生成り抜き（画面内の主ボタン）
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
-                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  foregroundColor: FieldTokens.textBody,
                   disabledBackgroundColor: Colors.transparent,
-                  disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+                  disabledForegroundColor: FieldTokens.textFaint,
                   elevation: 0,
                   shadowColor: Colors.transparent,
                   textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ).copyWith(
                   side: WidgetStateProperty.resolveWith((states) => BorderSide(
                         color: states.contains(WidgetState.disabled)
-                            ? JsFormTokens.outlineButtonDisabled
-                            : JsFormTokens.outlineButtonBorder,
+                            ? FieldTokens.textFaint
+                            : FieldTokens.textBody,
                         width: 1.5,
                       )),
                 ),
@@ -210,24 +210,24 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: JsColors.surfaceAlt,
+        color: FieldTokens.surfaceRaised,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: JsColors.gold),
+        border: Border.all(color: FieldTokens.accent),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(children: [
-            Icon(Icons.near_me, color: JsColors.gold, size: 16),
+            Icon(Icons.near_me, color: FieldTokens.accent, size: 16),
             SizedBox(width: 6),
             Expanded(
               child: Text('📍 近くに登録済みの現場があります',
-                  style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: TextStyle(color: FieldTokens.accent, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ]),
           const SizedBox(height: 2),
           const Text('タップすると新規登録せずにその現場へ紐づけます（提案）',
-              style: TextStyle(color: JsColors.textMid, fontSize: 11)),
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
           const SizedBox(height: 4),
           ..._nearby.map((s) {
             final id = s['site_id'] as String?;
@@ -240,12 +240,12 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
             return ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.location_on, color: JsColors.gold, size: 18),
+              leading: const Icon(Icons.location_on, color: FieldTokens.accent, size: 18),
               // 現場名＋（pending 現場は仮登録バッジ併記）
               title: Row(children: [
                 Flexible(
                   child: Text(name,
-                      style: const TextStyle(color: JsColors.textWhite, fontSize: 14)),
+                      style: const TextStyle(color: FieldTokens.textBody, fontSize: 14)),
                 ),
                 if (isPending) ...[
                   const SizedBox(width: 6),
@@ -253,10 +253,10 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
                 ],
               ]),
               subtitle: sub.isNotEmpty
-                  ? Text(sub, style: const TextStyle(color: JsColors.textMid, fontSize: 11))
+                  ? Text(sub, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11))
                   : null,
               trailing: const Text('これを選ぶ',
-                  style: TextStyle(color: JsColors.gold, fontSize: 12)),
+                  style: TextStyle(color: FieldTokens.accent, fontSize: 12)),
               // 候補タップ = 新規登録せず既存 site_id を返す（承認ゲートの紐づけ経路へ合流）
               onTap: id == null ? null : () => Navigator.pop(context, id),
             );
@@ -272,25 +272,25 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     decoration: BoxDecoration(
       color: const Color(0x2EFFB800),
       borderRadius: BorderRadius.circular(5),
-      border: Border.all(color: JsColors.warning),
+      border: Border.all(color: FieldTokens.statusWarning),
     ),
     child: const Text('仮登録',
-        style: TextStyle(color: JsColors.warning, fontSize: 10, fontWeight: FontWeight.bold)),
+        style: TextStyle(color: FieldTokens.statusWarning, fontSize: 10, fontWeight: FontWeight.bold)),
   );
 
   InputDecoration _deco(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: JsColors.textWeak, fontSize: 13),
+        hintStyle: const TextStyle(color: FieldTokens.textFaint, fontSize: 13),
         filled: true,
-        fillColor: JsColors.surface,
+        fillColor: FieldTokens.surfaceCard,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.border),
+          borderSide: const BorderSide(color: FieldTokens.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.gold),
+          borderSide: const BorderSide(color: FieldTokens.accent),
         ),
       );
 }

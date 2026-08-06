@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show TransportType, showJsSnackbar;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../config/constants.dart';
 import '../utils/revision_parser.dart';
 import '../widgets/photo_strip_field.dart';
@@ -376,28 +376,28 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
   Widget _sectionLabel(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 4),
-        child: Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+        child: Text(text, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
       );
 
   // 差戻し対象の項目ラベル: 通常ラベル＋ゴールド「差戻し対象」バッジ。
   Widget _sectionLabelT(String text, String key) => Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Row(children: [
-          Text(text, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+          Text(text, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           if (_isTarget(key)) ...[const SizedBox(width: 8), _targetBadge()],
         ]),
       );
 
-  // ゴールドの「差戻し対象」バッジ（Asphalt Dawn・gold 約18%リテラル）。
+  // 「差戻し対象」バッジ。面は accent の約18%薄塗り・枠と文字は accent 不透明。
   Widget _targetBadge() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
-          color: JsColors.accent.withValues(alpha: 0.18),
+          color: FieldTokens.accent.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: JsColors.gold),
+          border: Border.all(color: FieldTokens.accent),
         ),
         child: const Text('差戻し対象',
-            style: TextStyle(color: JsColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: FieldTokens.accent, fontSize: 10, fontWeight: FontWeight.bold)),
       );
 
   // boss_note ボックス近くの「差戻し対象」タグ日本語一覧。
@@ -411,17 +411,17 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Text('差戻し対象:',
-              style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: FieldTokens.accent, fontSize: 12, fontWeight: FontWeight.bold)),
           ...labels.map((l) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: JsColors.accent.withValues(alpha: 0.18),
+                  color: FieldTokens.accent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: JsColors.gold),
+                  border: Border.all(color: FieldTokens.accent),
                 ),
                 child: Text(l,
                     style: const TextStyle(
-                        color: JsColors.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                        color: FieldTokens.accent, fontSize: 11, fontWeight: FontWeight.bold)),
               )),
         ],
       ),
@@ -430,19 +430,19 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
   InputDecoration _fieldDeco(String hint, {bool highlight = false}) => InputDecoration(
         filled: true,
-        fillColor: JsColors.gunmetal,
+        fillColor: FieldTokens.surfaceCard,
         hintText: hint,
-        hintStyle: const TextStyle(color: JsColors.silver),
+        hintStyle: const TextStyle(color: FieldTokens.textSupport),
         isDense: true,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: highlight ? JsColors.gold : JsColors.divider,
+              color: highlight ? FieldTokens.accent : FieldTokens.outline,
               width: highlight ? 1.6 : 1.0),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: JsColors.gold),
+          borderSide: const BorderSide(color: FieldTokens.accent),
         ),
       );
 
@@ -454,13 +454,13 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         padding: const EdgeInsets.symmetric(vertical: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: sel ? JsColors.gold.withValues(alpha: 0.15) : JsColors.gunmetal,
+          color: sel ? FieldTokens.accent.withValues(alpha: 0.15) : FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+          border: Border.all(color: sel ? FieldTokens.accent : FieldTokens.outline),
         ),
         child: Text(label,
             style: TextStyle(
-              color: sel ? JsColors.gold : JsColors.offWhite,
+              color: sel ? FieldTokens.accent : FieldTokens.textBody,
               fontSize: 13,
               fontWeight: sel ? FontWeight.bold : FontWeight.normal,
             )),
@@ -498,7 +498,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               onPressed: onRestoreExisting,
               icon: const Icon(Icons.undo, size: 16),
               label: const Text('既存に戻す'),
-              style: TextButton.styleFrom(foregroundColor: JsColors.silver),
+              style: TextButton.styleFrom(foregroundColor: FieldTokens.textSupport),
             ),
           ),
         ],
@@ -516,13 +516,13 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             height: 80,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: JsColors.gunmetal,
+              color: FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: JsColors.divider),
+              border: Border.all(color: FieldTokens.outline),
             ),
             alignment: Alignment.center,
             child: Text(_photosLoaded ? '写真なし' : '読み込み中…',
-                style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+                style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           )
         else
           SizedBox(
@@ -542,8 +542,8 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             icon: const Icon(Icons.camera_alt, size: 16),
             label: const Text('撮り直す'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: JsColors.gold,
-              side: const BorderSide(color: JsColors.gold),
+              foregroundColor: FieldTokens.accent,
+              side: const BorderSide(color: FieldTokens.accent),
             ),
           ),
         ),
@@ -567,7 +567,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             color: Colors.black26,
             alignment: Alignment.center,
             child: const Text('読込不可',
-                style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
           ),
         ),
       ),
@@ -586,7 +586,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             InteractiveViewer(child: Image.network(url, fit: BoxFit.contain)),
             IconButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              icon: const Icon(Icons.close, color: JsColors.offWhite),
+              icon: const Icon(Icons.close, color: FieldTokens.textBody),
             ),
           ],
         ),
@@ -605,8 +605,8 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('日報の修正'),
-        backgroundColor: JsColors.gunmetal,
-        foregroundColor: JsColors.offWhite,
+        backgroundColor: FieldTokens.surfaceCard,
+        foregroundColor: FieldTokens.textBody,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -616,24 +616,24 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: JsColors.gold.withValues(alpha: 0.15),
+                color: FieldTokens.accent.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: JsColors.gold),
+                border: Border.all(color: FieldTokens.accent),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.feedback_outlined, color: JsColors.gold, size: 18),
+                      Icon(Icons.feedback_outlined, color: FieldTokens.accent, size: 18),
                       SizedBox(width: 6),
                       Text('事務からの修正依頼',
-                          style: TextStyle(color: JsColors.gold, fontSize: 13, fontWeight: FontWeight.bold)),
+                          style: TextStyle(color: FieldTokens.accent, fontSize: 13, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(bossNote,
-                      style: const TextStyle(color: JsColors.offWhite, fontSize: 14, height: 1.5)),
+                      style: const TextStyle(color: FieldTokens.textBody, fontSize: 14, height: 1.5)),
                 ],
               ),
             ),
@@ -642,7 +642,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
           const SizedBox(height: 16),
           if (reportDate.isNotEmpty) ...[
             _sectionLabel('対象日'),
-            Text(reportDate, style: const TextStyle(color: JsColors.offWhite, fontSize: 15)),
+            Text(reportDate, style: const TextStyle(color: FieldTokens.textBody, fontSize: 15)),
             const SizedBox(height: 16),
           ],
           _sectionLabelT('作業内容', 'work_content'),
@@ -650,7 +650,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             controller: _workCtrl,
             maxLines: null,
             minLines: 3,
-            style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+            style: const TextStyle(color: FieldTokens.textBody, fontSize: 14),
             decoration: _fieldDeco('作業内容を入力', highlight: _isTarget('work_content')),
           ),
           const SizedBox(height: 16),
@@ -686,13 +686,13 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                   decoration: BoxDecoration(
-                    color: sel ? JsColors.gold : JsColors.gunmetal,
+                    color: sel ? FieldTokens.accent : FieldTokens.surfaceCard,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: sel ? JsColors.gold : JsColors.divider),
+                    border: Border.all(color: sel ? FieldTokens.accent : FieldTokens.outline),
                   ),
                   child: Text(e.value,
                       style: TextStyle(
-                        color: sel ? Colors.black : JsColors.offWhite,
+                        color: sel ? Colors.black : FieldTokens.textBody,
                         fontSize: 14,
                         fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                       )),
@@ -715,14 +715,14 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               TextField(
                 controller: _parkingCtrl,
                 keyboardType: TextInputType.number,
-                style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+                style: const TextStyle(color: FieldTokens.textBody, fontSize: 14),
                 decoration: _fieldDeco('例: 500', highlight: _isTarget('parking_fee')),
               ),
             ] else ...[
               _sectionLabel('相乗り相手（任意）'),
               TextField(
                 controller: _carpoolCtrl,
-                style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+                style: const TextStyle(color: FieldTokens.textBody, fontSize: 14),
                 decoration: _fieldDeco('誰の相乗りか'),
               ),
             ],
@@ -732,7 +732,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             _sectionLabel('その他の手段'),
             TextField(
               controller: _otherCtrl,
-              style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+              style: const TextStyle(color: FieldTokens.textBody, fontSize: 14),
               decoration: _fieldDeco('例: タクシー'),
             ),
           ],
@@ -765,17 +765,17 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             padding: const EdgeInsets.only(bottom: 4),
             child: Row(children: [
               const Text('対応メモ（必須）',
-                  style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: TextStyle(color: FieldTokens.accent, fontSize: 12, fontWeight: FontWeight.bold)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: JsColors.accent.withValues(alpha: 0.18),
+                  color: FieldTokens.accent.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: JsColors.gold),
+                  border: Border.all(color: FieldTokens.accent),
                 ),
                 child: const Text('必須',
-                    style: TextStyle(color: JsColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+                    style: TextStyle(color: FieldTokens.accent, fontSize: 10, fontWeight: FontWeight.bold)),
               ),
             ]),
           ),
@@ -783,7 +783,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             controller: _noteCtrl,
             maxLines: null,
             minLines: 2,
-            style: const TextStyle(color: JsColors.offWhite, fontSize: 14),
+            style: const TextStyle(color: FieldTokens.textBody, fontSize: 14),
             decoration: _fieldDeco('例: 作業内容を修正しました / 現地確認の結果、変更ありません'),
           ),
           const SizedBox(height: 24),
@@ -795,17 +795,17 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
               // 生成り抜き（画面内の主ボタン）
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
-                foregroundColor: JsFormTokens.outlineButtonBorder,
+                foregroundColor: FieldTokens.textBody,
                 disabledBackgroundColor: Colors.transparent,
-                disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+                disabledForegroundColor: FieldTokens.textFaint,
                 elevation: 0,
                 shadowColor: Colors.transparent,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ).copyWith(
                 side: WidgetStateProperty.resolveWith((states) => BorderSide(
                       color: states.contains(WidgetState.disabled)
-                          ? JsFormTokens.outlineButtonDisabled
-                          : JsFormTokens.outlineButtonBorder,
+                          ? FieldTokens.textFaint
+                          : FieldTokens.textBody,
                       width: 1.5,
                     )),
               ),
@@ -815,7 +815,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                       // 面が透明になったのでスピナーも枠色（生成り）へ
                       child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          color: JsFormTokens.outlineButtonDisabled))
+                          color: FieldTokens.textFaint))
                   : const Text('修正して再提出する',
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ),

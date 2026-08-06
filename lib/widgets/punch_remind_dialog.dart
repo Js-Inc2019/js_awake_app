@@ -20,7 +20,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/reports_service.dart';
 import '../services/work_mode_service.dart';
@@ -214,13 +214,13 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: JsFormTokens.surfaceCard,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       // タイトルは FCM通知の title（BE services/punchRemind.js:32,39）と同一文言。
       // 同じ事実を2つの言い方で持たない（二重真実の禁止）。
       title: Text(
         _isOut ? '退勤の打刻が確認できません' : '出勤の打刻が確認できません',
-        style: const TextStyle(color: JsFormTokens.textPrimary, fontSize: 16),
+        style: const TextStyle(color: FieldTokens.textBody, fontSize: 16),
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -230,7 +230,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
           children: [
             Text('$_shiftLabel ${widget.workDate} 分',
                 style: const TextStyle(
-                    color: JsFormTokens.textMuted, fontSize: 11)),
+                    color: FieldTokens.textFaint, fontSize: 11)),
             const SizedBox(height: 12),
             if (_isOut) ...[
               _PunchRemindChoiceRow(
@@ -265,25 +265,25 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
               const SizedBox(height: 12),
               const Text('最新の打刻状態を確認できませんでした',
                   style: TextStyle(
-                      color: JsFormTokens.accentAlert, fontSize: 11)),
+                      color: FieldTokens.statusWarning, fontSize: 11)),
             ],
             // 閉じても袋小路にならないことを示す常設の補足。
             // 上の注記と同じ体裁（fontSize 11）で、色だけ通常の補足色にする
-            // （警告ではないため accentAlert は使わない）。
+            // （警告ではないため statusWarning は使わない）。
             const SizedBox(height: 12),
             const Text('※あとから通知一覧でも申告できます',
                 style: TextStyle(
-                    color: JsFormTokens.textMuted, fontSize: 11)),
+                    color: FieldTokens.textFaint, fontSize: 11)),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!,
-                  style: const TextStyle(color: JsColors.error, fontSize: 12)),
+                  style: const TextStyle(color: FieldTokens.statusError, fontSize: 12)),
             ],
             if (_submitting) ...[
               const SizedBox(height: 12),
               const LinearProgressIndicator(
                 minHeight: 2,
-                color: JsColors.accent,
+                color: FieldTokens.accent,
                 backgroundColor: Colors.transparent,
               ),
             ],
@@ -294,7 +294,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
         TextButton(
           onPressed: _submitting ? null : _close,
           child: const Text('閉じる',
-              style: TextStyle(color: JsFormTokens.textSub)),
+              style: TextStyle(color: FieldTokens.textSupport)),
         ),
       ],
     );
@@ -327,11 +327,11 @@ class _PunchRemindChoiceRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: JsFormTokens.chipBorder),
+              border: Border.all(color: FieldTokens.outline),
             ),
             child: Row(
               children: [
-                Icon(icon, color: JsFormTokens.textSub, size: 20),
+                Icon(icon, color: FieldTokens.textSupport, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -340,18 +340,18 @@ class _PunchRemindChoiceRow extends StatelessWidget {
                     children: [
                       Text(label,
                           style: const TextStyle(
-                              color: JsFormTokens.textPrimary,
+                              color: FieldTokens.textBody,
                               fontSize: 15,
                               fontWeight: FontWeight.bold)),
                       const SizedBox(height: 2),
                       Text(note,
                           style: const TextStyle(
-                              color: JsFormTokens.textMuted, fontSize: 11)),
+                              color: FieldTokens.textFaint, fontSize: 11)),
                     ],
                   ),
                 ),
                 const Icon(Icons.chevron_right,
-                    color: JsFormTokens.textSub, size: 18),
+                    color: FieldTokens.textSupport, size: 18),
               ],
             ),
           ),

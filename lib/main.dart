@@ -28,7 +28,7 @@ import 'package:geocoding/geocoding.dart'
     import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
-import 'core/theme/js_colors.dart';
+import 'core/theme/field_tokens.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
@@ -786,15 +786,15 @@ Future<({String address, double? lat, double? lon, String status})> fetchGpsAddr
 void showJsSnackbar(BuildContext context, String msg,
     {bool isError = false, bool isWarning = false}) {
   if (!context.mounted) return;
-  Color bg = JsColors.success;
-  if (isError)   bg = JsColors.error;
-  if (isWarning) bg = JsColors.warning;
+  Color bg = FieldTokens.statusSuccess;
+  if (isError)   bg = FieldTokens.statusError;
+  if (isWarning) bg = FieldTokens.statusWarning;
   // 前景色は塗り面ごとに出し分ける。success(#6FD6B4) は明るい面のため
   // 白文字だと 1.76:1 で読めず、暗色 onAccent なら 8.75:1。
   // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
   // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
   final Color fg =
-      (isError || isWarning) ? JsColors.textStrong : JsPalette.onAccent;
+      (isError || isWarning) ? FieldTokens.textBody : FieldTokens.onAccent;
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
@@ -820,20 +820,20 @@ Future<bool> showConfirmDialog(
   final r = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: JsColors.gunmetal,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(title,
-          style: TextStyle(color: isDanger ? JsColors.error : JsColors.gold)),
+          style: TextStyle(color: isDanger ? FieldTokens.statusError : FieldTokens.accent)),
       content: Text(message,
-          style: const TextStyle(color: JsColors.offWhite, height: 1.6)),
+          style: const TextStyle(color: FieldTokens.textBody, height: 1.6)),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: Text(cancelText, style: const TextStyle(color: JsColors.silver)),
+          child: Text(cancelText, style: const TextStyle(color: FieldTokens.textSupport)),
         ),
         ElevatedButton(
           style: isDanger ? ElevatedButton.styleFrom(
-              backgroundColor: JsColors.error, foregroundColor: JsColors.textStrong) : null,
+              backgroundColor: FieldTokens.statusError, foregroundColor: FieldTokens.textBody) : null,
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(confirmText),
         ),
@@ -887,8 +887,8 @@ class _GateScreenState extends State<GateScreen> {
   }
   @override
   Widget build(BuildContext context) => const Scaffold(
-    backgroundColor: JsColors.background,
-    body: Center(child: CircularProgressIndicator(color: JsColors.accent)));
+    backgroundColor: FieldTokens.bgBase,
+    body: Center(child: CircularProgressIndicator(color: FieldTokens.accent)));
   Future<void> _pushWorker(BuildContext context) async {
     if (!context.mounted) return;
 
@@ -1027,33 +1027,33 @@ class _OvertimeDialogState extends State<OvertimeDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    backgroundColor: JsColors.gunmetal,
+    backgroundColor: FieldTokens.surfaceCard,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    title: const Text('⏰ 残業報告', style: TextStyle(color: JsPalette.brand, fontWeight: FontWeight.bold)),
+    title: const Text('⏰ 残業報告', style: TextStyle(color: FieldTokens.brand, fontWeight: FontWeight.bold)),
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${widget.workerName}さんの残業', style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+          Text('${widget.workerName}さんの残業', style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 16),
-          const Text('残業開始時刻', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const Text('残業開始時刻', style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 6),
           _TimeTile(label: _fmt(_start), onTap: () => _pick(true)),
           const SizedBox(height: 12),
-          const Text('残業終了時刻（予定）', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const Text('残業終了時刻（予定）', style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 6),
           _TimeTile(label: _end != null ? _fmt(_end!) : '-- : --', onTap: () => _pick(false), isEmpty: _end == null),
           const SizedBox(height: 12),
-          const Text('残業内容', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const Text('残業内容', style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 6),
           TextField(
             controller: _ctrl,
             maxLines: 2,
-            style: const TextStyle(color: JsColors.offWhite),
+            style: const TextStyle(color: FieldTokens.textBody),
             decoration: const InputDecoration(
               hintText: '例：2階配線追加工事',
-              hintStyle: TextStyle(color: JsColors.hint),
+              hintStyle: TextStyle(color: FieldTokens.textHint),
             ),
           ),
         ],
@@ -1062,13 +1062,13 @@ class _OvertimeDialogState extends State<OvertimeDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
+        child: const Text('キャンセル', style: TextStyle(color: FieldTokens.textSupport)),
       ),
       ElevatedButton(
         onPressed: _submitting ? null : _submit,
         child: _submitting
             ? const SizedBox(width: 18, height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: JsPalette.onAccent))
+                child: CircularProgressIndicator(strokeWidth: 2, color: FieldTokens.onAccent))
             : const Text('送信'),
       ),
     ],
@@ -1087,18 +1087,18 @@ class _TimeTile extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: JsColors.surface,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: Row(children: [
-        const Icon(Icons.access_time, color: JsColors.gold, size: 18),
+        const Icon(Icons.access_time, color: FieldTokens.accent, size: 18),
         const SizedBox(width: 8),
         Text(label, style: TextStyle(
-            color: isEmpty ? JsColors.silver : JsColors.offWhite,
+            color: isEmpty ? FieldTokens.textSupport : FieldTokens.textBody,
             fontSize: 16, fontWeight: FontWeight.bold)),
         const Spacer(),
-        const Icon(Icons.edit, color: JsColors.silver, size: 14),
+        const Icon(Icons.edit, color: FieldTokens.textSupport, size: 14),
       ]),
     ),
   );
@@ -1157,9 +1157,9 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
               controller: _ctrl,
               decoration: const InputDecoration(
                 labelText: '名前を追加',
-                prefixIcon: Icon(Icons.person_add, color: JsColors.silver),
+                prefixIcon: Icon(Icons.person_add, color: FieldTokens.textSupport),
               ),
-              style: const TextStyle(color: JsColors.offWhite),
+              style: const TextStyle(color: FieldTokens.textBody),
               onSubmitted: (_) => _add(),
             ),
           ),
@@ -1170,9 +1170,9 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
                 minimumSize: const Size(56, 52), padding: EdgeInsets.zero,
                 // 生成り抜き（画面内の主ボタン）: 面は透明・枠1.5px・文字はトークン
                 backgroundColor: Colors.transparent,
-                foregroundColor: JsFormTokens.outlineButtonBorder,
+                foregroundColor: FieldTokens.textBody,
                 side: const BorderSide(
-                    color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                    color: FieldTokens.textBody, width: 1.5),
                 elevation: 0,
                 shadowColor: Colors.transparent),
             child: const Icon(Icons.add),
@@ -1183,16 +1183,16 @@ class _WorkerNameScreenState extends State<WorkerNameScreen> {
       Expanded(
         child: _names.isEmpty
             ? const Center(child: Text('職人名が登録されていません',
-                style: TextStyle(color: JsColors.silver)))
+                style: TextStyle(color: FieldTokens.textSupport)))
             : ReorderableListView.builder(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 itemCount: _names.length,
                 itemBuilder: (_, i) => ListTile(
                   key: ValueKey(_names[i]),
-                  leading: const Icon(Icons.drag_handle, color: JsColors.silver),
-                  title: Text(_names[i], style: const TextStyle(color: JsColors.offWhite)),
+                  leading: const Icon(Icons.drag_handle, color: FieldTokens.textSupport),
+                  title: Text(_names[i], style: const TextStyle(color: FieldTokens.textBody)),
                   trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, color: JsColors.error),
+                    icon: const Icon(Icons.delete_outline, color: FieldTokens.statusError),
                     onPressed: () => _delete(_names[i]),
                   ),
                 ),

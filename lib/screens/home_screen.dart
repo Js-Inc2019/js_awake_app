@@ -29,7 +29,7 @@ import '../main.dart'
         NotificationManager,
         OvertimeDialog,
         API_URL;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'revision_inbox_screen.dart';
 // 承認タブ（ReviewTab）の日付行タップで開く「その日の報告」画面。
 import 'approval_day_screen.dart';
@@ -133,11 +133,11 @@ String _wbgtLevel(double wbgt) {
 }
 
 Color _wbgtColor(double wbgt) {
-  if (wbgt < 21) return JsColors.silver;
+  if (wbgt < 21) return FieldTokens.textSupport;
   if (wbgt < 25) return const Color(0xFF43A047);
   if (wbgt < 28) return const Color(0xFFF9A825);
   if (wbgt < 31) return const Color(0xFFE65100);
-  return JsColors.error;
+  return FieldTokens.statusError;
 }
 
 // ─────────────────────────────────────────────
@@ -784,22 +784,22 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsFormTokens.surfaceCard,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('本日は報告済みです',
-            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: const Text('本日の日報は提出済みです。2件目を作成しますか？',
-            style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+            style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsFormTokens.textSub)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('2件目を作成',
-                style: TextStyle(color: JsFormTokens.accentAlert)),
+                style: TextStyle(color: FieldTokens.statusWarning)),
           ),
         ],
       ),
@@ -838,23 +838,23 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         final ok = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            backgroundColor: JsFormTokens.surfaceCard,
+            backgroundColor: FieldTokens.surfaceCard,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             title: const Text('退勤して今日を締めますか？',
-                style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+                style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
             content: const Text(
                 'まだ退勤していません。退勤を記録して、この画面を閉じます。',
-                style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+                style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
                 child: const Text('キャンセル',
-                    style: TextStyle(color: JsFormTokens.textSub)),
+                    style: TextStyle(color: FieldTokens.textSupport)),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('退勤して締める',
-                    style: TextStyle(color: JsFormTokens.accentAlert)),
+                    style: TextStyle(color: FieldTokens.statusWarning)),
               ),
             ],
           ),
@@ -869,24 +869,24 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsFormTokens.surfaceCard,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('今日の報告を締めますか？',
-            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: const Text(
             '締めると、この日は「次の現場へ移動」と「勤務区分の切替」ができなくなります。\n'
             '残業や休憩の申告はこのあとも行えます。',
-            style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+            style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsFormTokens.textSub)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('締める',
-                style: TextStyle(color: JsFormTokens.accentAlert)),
+                style: TextStyle(color: FieldTokens.statusWarning)),
           ),
         ],
       ),
@@ -1484,15 +1484,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
           content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
-              style: TextStyle(color: JsColors.textStrong, fontSize: 18, fontWeight: FontWeight.bold)),
-          backgroundColor: JsColors.error,
+              style: TextStyle(color: FieldTokens.textBody, fontSize: 18, fontWeight: FontWeight.bold)),
+          backgroundColor: FieldTokens.statusError,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           duration: const Duration(seconds: 5),
           action: SnackBarAction(
             label: '設定を開く',
-            textColor: JsColors.textStrong,
+            textColor: FieldTokens.textBody,
             onPressed: () => launchUrl(Uri.parse('app-settings:')),
           ),
         ));
@@ -1650,7 +1650,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> _showSitePicker() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: JsColors.surface,
+      backgroundColor: FieldTokens.surfaceCard,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1740,22 +1740,22 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final goAnyway = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: JsFormTokens.surfaceCard,
+          backgroundColor: FieldTokens.surfaceCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           title: const Text('移動の目安を計算中です',
-              style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+              style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
           content: const Text('このまま送ると金額が入りません。',
-              style: TextStyle(color: JsFormTokens.textSub, height: 1.6)),
+              style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('待つ',
-                  style: TextStyle(color: JsFormTokens.textPrimary)),
+                  style: TextStyle(color: FieldTokens.textBody)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('このまま送る',
-                  style: TextStyle(color: JsFormTokens.accentAlert)),
+                  style: TextStyle(color: FieldTokens.statusWarning)),
             ),
           ],
         ),
@@ -1823,7 +1823,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     if (_initialLoading) {
       return Scaffold(
-        backgroundColor: JsColors.black,
+        backgroundColor: FieldTokens.bgBase,
         appBar: _buildAppBar(),
         body: const SafeArea(child: _HomeSkeletonBody()),
       );
@@ -1929,7 +1929,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     ];
 
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: _buildAppBar(),
       body: SafeArea(
         // タブは常に4枚。旧foremanの index4 が prefs に残っていても clamp で 3 に収まる。
@@ -1970,14 +1970,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => Scaffold(
-          backgroundColor: JsColors.black,
+          backgroundColor: FieldTokens.bgBase,
           appBar: AppBar(
-            backgroundColor: JsColors.black,
+            backgroundColor: FieldTokens.bgBase,
             elevation: 0,
-            iconTheme: const IconThemeData(color: JsColors.silver),
+            iconTheme: const IconThemeData(color: FieldTokens.textSupport),
             title: const Text('日報',
                 style: TextStyle(
-                    color: JsPalette.brand, fontSize: 17, fontWeight: FontWeight.bold)),
+                    color: FieldTokens.brand, fontSize: 17, fontWeight: FontWeight.bold)),
           ),
           body: SafeArea(
             child: _ReportFormPage(key: _reportPageKey, builder: _buildHomeTabContent),
@@ -1993,7 +1993,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       automaticallyImplyLeading: false,
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       elevation: 0,
       titleSpacing: 12,
       title: Row(
@@ -2001,12 +2001,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           Text(
             _pageTitle,
             style: const TextStyle(
-                color: JsPalette.brand, fontSize: 17, fontWeight: FontWeight.bold),
+                color: FieldTokens.brand, fontSize: 17, fontWeight: FontWeight.bold),
           ),
           const Spacer(),
           Text(
             _dateLabel,
-            style: const TextStyle(color: JsColors.silver, fontSize: 11),
+            style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11),
           ),
           const Spacer(),
         ],
@@ -2031,7 +2031,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               child: Text(
                 'すべて既読',
                 style: TextStyle(
-                  color: hasItems ? JsColors.accent : JsColors.textWeak,
+                  color: hasItems ? FieldTokens.accent : FieldTokens.textFaint,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -2041,7 +2041,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 設定タブ(3): 旧 ProfileScreen の AppBar アクション（アイコン・色・tooltip は同一）
         if (_tabIndex == 3 && (_profileBodyKey.currentState?.canEdit ?? false))
           IconButton(
-            icon: const Icon(Icons.edit, color: JsPalette.brand),
+            icon: const Icon(Icons.edit, color: FieldTokens.brand),
             tooltip: '編集',
             onPressed: () => _profileBodyKey.currentState?.openEdit(),
           ),
@@ -2051,7 +2051,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         preferredSize: const Size.fromHeight(46),
         child: Container(
           width: double.infinity,
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.fromLTRB(14, 5, 14, 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2060,7 +2060,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               Text(
                 _companyName,
                 style: const TextStyle(
-                    color: JsPalette.textSupport,
+                    color: FieldTokens.textSupport,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w400),
                 overflow: TextOverflow.ellipsis,
@@ -2069,13 +2069,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               const SizedBox(height: 1),
               Row(
                 children: [
-                  const Icon(Icons.business, color: JsPalette.brand, size: 13),
+                  const Icon(Icons.business, color: FieldTokens.brand, size: 13),
                   const SizedBox(width: 5),
                   Expanded(
                     child: Text(
                       _userName.isEmpty ? '---' : _userName,
                       style: const TextStyle(
-                          color: JsColors.offWhite,
+                          color: FieldTokens.textBody,
                           fontSize: 13,
                           fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,
@@ -2100,9 +2100,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   _unreadCount          → 「通知」（AppBar のベルから移設）
   // BottomAppBar/色/高さ/divider/_BottomTabItem は既存のまま（デザイン変更なし）。
   Widget _buildBottomBar() {
-    final divider = Container(width: 1, height: 36, color: JsColors.divider);
+    final divider = Container(width: 1, height: 36, color: FieldTokens.outline);
     return BottomAppBar(
-      color: JsColors.gunmetal,
+      color: FieldTokens.surfaceCard,
       height: 60,
       padding: EdgeInsets.zero,
       child: Row(children: [
@@ -2120,7 +2120,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           onTap: () => _setTab(1),
           // badge（承認待ち）は職長のときのみ点灯（職人は承認セグメントを持たないため 0＝非表示）
           badge: widget.isForeman ? _pendingApprovalCount : 0,
-          badgeColor: JsColors.success,
+          badgeColor: FieldTokens.statusSuccess,
           // badge2（差し戻し）は職人にも点灯させる。差し戻しは「自分の日報が
           // 突き返された」通知で、直すのは本人（RevisionEditScreen は本人のみ・
           // revision_inbox_screen.dart:131-135）。ホームの差し戻し行(:1553)も
@@ -2129,7 +2129,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           //   isForeman で絞っていない（初期 :914 / タブ進入 :829）ため、
           //   値はそのまま使える＝取得ロジックは1文字も変更していない。
           badge2: _revisionCount,
-          badge2Color: JsColors.warning,
+          badge2Color: FieldTokens.statusWarning,
         ),
         divider,
         _BottomTabItem(
@@ -2186,7 +2186,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       );
     }
     return Container(
-      color: JsFormTokens.bgBase,
+      color: FieldTokens.bgBase,
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2214,11 +2214,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 // ── ヘッダ（日付・シフト / 今日の報告）──
                 Text('$_formDateLabel・$_shiftLabel',
                     style: const TextStyle(
-                        color: JsFormTokens.textSub, fontSize: 12)),
+                        color: FieldTokens.textSupport, fontSize: 12)),
                 const SizedBox(height: 3),
                 const Text('今日の報告',
                     style: TextStyle(
-                        color: JsFormTokens.textPrimary,
+                        color: FieldTokens.textBody,
                         fontSize: 19,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 18),
@@ -2233,7 +2233,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       onTap: _showSitePicker,
                     ),
                     const SizedBox(height: 6),
-                    // 現在地（枠なし・textMuted）
+                    // 現在地（枠なし・textFaint）
                     _GpsBar(
                       address: _gpsAddress,
                       status: _gpsStatus,
@@ -2319,7 +2319,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text('※タップで選択　／　2つ以上使うときはダブルタップで追加',
-                      style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+                      style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
                 ),
                 // 補足テキスト（その他 or 複数選択時）— 注意書き直下・トグルより前へ移設
                 if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
@@ -2332,11 +2332,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         hintText: '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩',
                         border: InputBorder.none,
                         hintStyle: TextStyle(
-                            color: JsFormTokens.textMuted, fontSize: 12),
+                            color: FieldTokens.textFaint, fontSize: 12),
                         contentPadding: EdgeInsets.zero,
                       ),
                       style: const TextStyle(
-                          color: JsFormTokens.textPrimary, fontSize: 13),
+                          color: FieldTokens.textBody, fontSize: 13),
                     ),
                   ),
                 ],
@@ -2354,19 +2354,19 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
                             color: _carType == 'own'
-                                ? JsFormTokens.chipSelected
+                                ? FieldTokens.outlineStrong
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                                 color: _carType == 'own'
-                                    ? JsFormTokens.textSub
-                                    : JsFormTokens.chipBorder),
+                                    ? FieldTokens.textSupport
+                                    : FieldTokens.outline),
                           ),
                           child: Center(child: Text('社用車・自家用車',
                             style: TextStyle(
                               color: _carType == 'own'
-                                  ? JsFormTokens.textPrimary
-                                  : JsFormTokens.textSub,
+                                  ? FieldTokens.textBody
+                                  : FieldTokens.textSupport,
                               fontSize: 12,
                               fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
                             ))),
@@ -2390,19 +2390,19 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
                             color: _carType == 'carpool'
-                                ? JsFormTokens.chipSelected
+                                ? FieldTokens.outlineStrong
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                                 color: _carType == 'carpool'
-                                    ? JsFormTokens.textSub
-                                    : JsFormTokens.chipBorder),
+                                    ? FieldTokens.textSupport
+                                    : FieldTokens.outline),
                           ),
                           child: Center(child: Text('相乗り',
                             style: TextStyle(
                               color: _carType == 'carpool'
-                                  ? JsFormTokens.textPrimary
-                                  : JsFormTokens.textSub,
+                                  ? FieldTokens.textBody
+                                  : FieldTokens.textSupport,
                               fontSize: 12,
                               fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
                             ))),
@@ -2443,11 +2443,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     // 生テキスト部分一致の再フィルタでサーバ候補を捨てない。
                     serverFiltered: true,
                   ),
-                  // 作業2: 会社名欄の下に補足（既存の ※ 補足と同じ textMuted / fontSize 11）
+                  // 作業2: 会社名欄の下に補足（既存の ※ 補足と同じ textFaint / fontSize 11）
                   const Padding(
                     padding: EdgeInsets.only(top: 6),
                     child: Text('※自社なら空欄のままでOK',
-                        style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+                        style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
                   ),
                   const SizedBox(height: 10),
                   // E-3: 氏名欄はサジェスト付き（自社同僚を候補に）。会社名欄(:上)と同じく
@@ -2480,11 +2480,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                         hintText: '駐車料金（円）',
                         border: InputBorder.none,
                         hintStyle: TextStyle(
-                            color: JsFormTokens.textMuted, fontSize: 12),
+                            color: FieldTokens.textFaint, fontSize: 12),
                         contentPadding: EdgeInsets.zero,
                       ),
                       style: const TextStyle(
-                          color: JsFormTokens.textPrimary, fontSize: 13),
+                          color: FieldTokens.textBody, fontSize: 13),
                       onChanged: (_) => _saveDraft(),
                     ),
                   ),
@@ -2544,7 +2544,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // スライド送信は廃止し「内容を確かめる」→確認画面→「送る」の2段タップへ。
         // slide_to_confirm.dart は punch_screen が共有しているため削除していない。
         Container(
-          color: JsFormTokens.bgBase,
+          color: FieldTokens.bgBase,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2589,7 +2589,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 const SizedBox(height: 7),
                 const Text('※次の画面で見直してから送信します',
                     style: TextStyle(
-                        color: JsFormTokens.textMuted, fontSize: 11)),
+                        color: FieldTokens.textFaint, fontSize: 11)),
               ],
             ],
           ),
@@ -2606,10 +2606,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsFormTokens.surfaceCard,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('追加の申告',
-            style: TextStyle(color: JsFormTokens.textPrimary, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: SizedBox(
           width: double.maxFinite,
           child: Column(
@@ -2635,7 +2635,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('閉じる',
-                style: TextStyle(color: JsFormTokens.textSub)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
         ],
       ),
@@ -2654,7 +2654,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: JsFormTokens.surfaceCard,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -2703,7 +2703,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 }
 
 // 「追加の申告」ダイアログの選択肢1行。暗枠1px・塗りなし。
-// 枠トークンは同ファイルのチップ群（:2349 ほか）と同じ JsFormTokens.chipBorder。
+// 枠トークンは同ファイルのチップ群（:2349 ほか）と同じ FieldTokens.outline。
 class _DeclarationChoiceRow extends StatelessWidget {
   const _DeclarationChoiceRow({
     required this.icon,
@@ -2727,11 +2727,11 @@ class _DeclarationChoiceRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: JsFormTokens.chipBorder),
+              border: Border.all(color: FieldTokens.outline),
             ),
             child: Row(
               children: [
-                Icon(icon, color: JsFormTokens.textSub, size: 20),
+                Icon(icon, color: FieldTokens.textSupport, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -2740,18 +2740,18 @@ class _DeclarationChoiceRow extends StatelessWidget {
                     children: [
                       Text(label,
                           style: const TextStyle(
-                              color: JsFormTokens.textPrimary,
+                              color: FieldTokens.textBody,
                               fontSize: 15,
                               fontWeight: FontWeight.bold)),
                       const SizedBox(height: 2),
                       Text(note,
                           style: const TextStyle(
-                              color: JsFormTokens.textMuted, fontSize: 11)),
+                              color: FieldTokens.textFaint, fontSize: 11)),
                     ],
                   ),
                 ),
                 const Icon(Icons.chevron_right,
-                    color: JsFormTokens.textSub, size: 18),
+                    color: FieldTokens.textSupport, size: 18),
               ],
             ),
           ),
@@ -2833,7 +2833,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
         children: [
           const Text('休憩の短縮を申告',
               style: TextStyle(
-                  color: JsFormTokens.textPrimary,
+                  color: FieldTokens.textBody,
                   fontSize: 17,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
@@ -2851,19 +2851,19 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: selected
-                        ? JsFormTokens.chipSelected
+                        ? FieldTokens.outlineStrong
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                         color: selected
-                            ? JsFormTokens.textSub
-                            : JsFormTokens.chipBorder),
+                            ? FieldTokens.textSupport
+                            : FieldTokens.outline),
                   ),
                   child: Text('$m 分',
                       style: TextStyle(
                         color: selected
-                            ? JsFormTokens.textPrimary
-                            : JsFormTokens.textSub,
+                            ? FieldTokens.textBody
+                            : FieldTokens.textSupport,
                         fontSize: 13,
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,
@@ -2876,7 +2876,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
             padding: EdgeInsets.only(top: 6),
             child: Text('※実際に取れた休憩の合計を選んでください',
                 style:
-                    TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+                    TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
           ),
           const SizedBox(height: 16),
           const _FieldLabel('理由（必須）'),
@@ -2893,23 +2893,23 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
                 hintText: '例）現場の都合で休憩を取れなかった',
                 border: InputBorder.none,
                 hintStyle:
-                    TextStyle(color: JsFormTokens.textMuted, fontSize: 12),
+                    TextStyle(color: FieldTokens.textFaint, fontSize: 12),
                 contentPadding: EdgeInsets.zero,
               ),
               style: const TextStyle(
-                  color: JsFormTokens.textPrimary, fontSize: 13),
+                  color: FieldTokens.textBody, fontSize: 13),
             ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Row(children: [
               const Icon(Icons.error_outline,
-                  color: JsFormTokens.accentAlert, size: 14),
+                  color: FieldTokens.statusWarning, size: 14),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(_error!,
                     style: const TextStyle(
-                        color: JsFormTokens.accentAlert, fontSize: 12)),
+                        color: FieldTokens.statusWarning, fontSize: 12)),
               ),
             ]),
           ],
@@ -2954,7 +2954,7 @@ class _SectionHeader extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Text(title,
               style: const TextStyle(
-                  color: JsFormTokens.textSub,
+                  color: FieldTokens.textSupport,
                   fontSize: 13,
                   fontWeight: FontWeight.bold)),
         ),
@@ -2970,7 +2970,7 @@ class _FieldLabel extends StatelessWidget {
         alignment: Alignment.centerLeft,
         child: Text(text,
             style:
-                const TextStyle(color: JsFormTokens.textSub, fontSize: 12)),
+                const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
       );
 }
 
@@ -2982,7 +2982,7 @@ class _FormCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: JsFormTokens.surfaceCard,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(12),
         ),
         child: child,
@@ -2999,12 +2999,12 @@ class _FormInputShell extends StatelessWidget {
         height: 46,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: JsFormTokens.bgBase,
+          color: FieldTokens.bgBase,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsFormTokens.chipBorder),
+          border: Border.all(color: FieldTokens.outline),
         ),
         child: Row(children: [
-          Icon(icon, color: JsFormTokens.textSub, size: 16),
+          Icon(icon, color: FieldTokens.textSupport, size: 16),
           const SizedBox(width: 10),
           Expanded(child: child),
         ]),
@@ -3031,9 +3031,9 @@ class _OutlineActionButton extends StatelessWidget {
           child: Container(
             height: 56,
             decoration: BoxDecoration(
-              color: JsFormTokens.surfaceCard,
+              color: FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: JsFormTokens.textSub),
+              border: Border.all(color: FieldTokens.textSupport),
             ),
             child: Center(
               child: busy
@@ -3041,10 +3041,10 @@ class _OutlineActionButton extends StatelessWidget {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: JsFormTokens.textSub))
+                          strokeWidth: 2, color: FieldTokens.textSupport))
                   : Text(label,
                       style: const TextStyle(
-                          color: JsFormTokens.textPrimary,
+                          color: FieldTokens.textBody,
                           fontSize: 16,
                           fontWeight: FontWeight.bold)),
             ),
@@ -3056,8 +3056,8 @@ class _OutlineActionButton extends StatelessWidget {
 // ─────────────────────────────────────────────
 // ステップインジケータ（現場 → 移動 → 作業 → 確認）
 //   ・数字が主役: 1〜4 の番号を大きく置き、ラベルはその下の小さい文字にする
-//   ・色は意味だけ: 現在ステップ = JsPalette.brand(#D9C08A) /
-//     それ以外 = JsFormTokens.textSub(= JsPalette.textSupport #7B7567・補助色)
+//   ・色は意味だけ: 現在ステップ = FieldTokens.brand(#D9C08A) /
+//     それ以外 = FieldTokens.textSupport(= FieldTokens.textSupport #7B7567・補助色)
 //   ・カード・枠・塗り・線は一切持たない。区切りは Expanded による余白のみ
 //   ・「確認」(4) は別画面 _ConfirmSendScreen。フォーム内で current=4 にはならない。
 // ─────────────────────────────────────────────
@@ -3074,7 +3074,7 @@ class _StepIndicator extends StatelessWidget {
         children: List.generate(_labels.length, (i) {
           final n = i + 1;
           final isCurrent = n == current;
-          final c = isCurrent ? JsPalette.brand : JsFormTokens.textSub;
+          final c = isCurrent ? FieldTokens.brand : FieldTokens.textSupport;
           return Expanded(
             child: Column(
               children: [
@@ -3098,7 +3098,7 @@ class _StepIndicator extends StatelessWidget {
       );
 }
 
-/// ステップの「戻る」＝二次ボタン。暗枠1px（chipBorder=#2E333A）＋補助色の文字。
+/// ステップの「戻る」＝二次ボタン。暗枠1px（outline=#2E333A）＋補助色の文字。
 /// 主ボタン(_OutlineActionButton)と高さ56を揃え、面は塗らない＝序列を枠と色だけで示す。
 class _StepBackButton extends StatelessWidget {
   const _StepBackButton({required this.onTap});
@@ -3114,12 +3114,12 @@ class _StepBackButton extends StatelessWidget {
             height: 56,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: JsFormTokens.chipBorder),
+              border: Border.all(color: FieldTokens.outline),
             ),
             child: const Center(
               child: Text('戻る',
                   style: TextStyle(
-                      color: JsFormTokens.textSub,
+                      color: FieldTokens.textSupport,
                       fontSize: 15,
                       fontWeight: FontWeight.bold)),
             ),
@@ -3247,14 +3247,14 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsFormTokens.bgBase,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsFormTokens.bgBase,
+        backgroundColor: FieldTokens.bgBase,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JsFormTokens.textSub),
+        iconTheme: const IconThemeData(color: FieldTokens.textSupport),
         title: const Text('確認',
             style: TextStyle(
-                color: JsFormTokens.textPrimary, fontSize: 16)),
+                color: FieldTokens.textBody, fontSize: 16)),
       ),
       body: SafeArea(
         child: Column(
@@ -3267,7 +3267,7 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                   children: [
                     const Text('この内容で送ります',
                         style: TextStyle(
-                            color: JsFormTokens.textPrimary,
+                            color: FieldTokens.textBody,
                             fontSize: 19,
                             fontWeight: FontWeight.bold)),
                     const SizedBox(height: 18),
@@ -3318,7 +3318,7 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
                       child: Text('戻って直す',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              color: JsFormTokens.textSub, fontSize: 14)),
+                              color: FieldTokens.textSupport, fontSize: 14)),
                     ),
                   ),
                 ],
@@ -3339,13 +3339,13 @@ class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
         children: [
           Text(label,
               style: const TextStyle(
-                  color: JsFormTokens.textSub, fontSize: 11)),
+                  color: FieldTokens.textSupport, fontSize: 11)),
           const SizedBox(height: 3),
           Text(value.isEmpty ? '—' : value,
               maxLines: multiline ? null : 2,
               overflow: multiline ? null : TextOverflow.ellipsis,
               style: const TextStyle(
-                  color: JsFormTokens.textPrimary,
+                  color: FieldTokens.textBody,
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
         ],
@@ -3392,8 +3392,8 @@ class _BottomTabItem extends StatelessWidget {
     required this.onTap,
     this.badge = 0,
     this.badge2 = 0,
-    this.badgeColor = JsColors.error,
-    this.badge2Color = JsColors.error,
+    this.badgeColor = FieldTokens.statusError,
+    this.badge2Color = FieldTokens.statusError,
   });
   final IconData icon;
   final String label;
@@ -3415,7 +3415,7 @@ class _BottomTabItem extends StatelessWidget {
                 // 暗色 onAccent なら 8.75:1。
                 // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
                 // ただし白は error 3.82:1 / warning 3.56:1 で AA 未達（本件以前からの既存課題）。
-                color: c == JsColors.success ? JsPalette.onAccent : JsColors.textStrong,
+                color: c == FieldTokens.statusSuccess ? FieldTokens.onAccent : FieldTokens.textBody,
                 fontSize: 9,
                 fontWeight: FontWeight.bold)),
       );
@@ -3431,7 +3431,7 @@ class _BottomTabItem extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Icon(icon,
-                  color: active ? JsColors.gold : JsColors.silver, size: 22),
+                  color: active ? FieldTokens.accent : FieldTokens.textSupport, size: 22),
               // 1つ目の丸（右上）
               if (badge > 0)
                 Positioned(
@@ -3449,7 +3449,7 @@ class _BottomTabItem extends StatelessWidget {
           const SizedBox(height: 2),
           Text(label,
               style: TextStyle(
-                  color: active ? JsColors.gold : JsColors.silver,
+                  color: active ? FieldTokens.accent : FieldTokens.textSupport,
                   fontSize: 11,
                   fontWeight:
                       active ? FontWeight.bold : FontWeight.normal)),
@@ -3482,13 +3482,13 @@ class _SiteSelectField extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: JsFormTokens.surfaceCard,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Icon(Icons.place,
-                color: isNone ? JsFormTokens.textSub : JsFormTokens.textPrimary,
+                color: isNone ? FieldTokens.textSupport : FieldTokens.textBody,
                 size: 20),
             const SizedBox(width: 10),
             Expanded(
@@ -3497,8 +3497,8 @@ class _SiteSelectField extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isNone
-                      ? JsFormTokens.textSub
-                      : JsFormTokens.textPrimary,
+                      ? FieldTokens.textSupport
+                      : FieldTokens.textBody,
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -3507,7 +3507,7 @@ class _SiteSelectField extends StatelessWidget {
             const SizedBox(width: 8),
             const Text('変更',
                 style: TextStyle(
-                    color: JsFormTokens.textSub,
+                    color: FieldTokens.textSupport,
                     fontSize: 12,
                     fontWeight: FontWeight.bold)),
           ],
@@ -3595,11 +3595,11 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
             const SizedBox(height: 12),
             const Text('作業現場を選択',
                 style: TextStyle(
-                    color: JsColors.gold,
+                    color: FieldTokens.accent,
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Divider(color: JsColors.border, height: 1),
+            const Divider(color: FieldTokens.outline, height: 1),
             // 上段=スクロール（「対象なし」＋現場リスト）。高さ不足時はここが逃げる。
             Flexible(child: _buildBody()),
             // 下段=固定: 検索欄（最下段）＋候補チップ（直上）。キーボード追従（viewInsets）。
@@ -3627,7 +3627,7 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.all(32),
-        child: Center(child: CircularProgressIndicator(color: JsColors.gold)),
+        child: Center(child: CircularProgressIndicator(color: FieldTokens.accent)),
       );
     }
     // 「対象なし」は最上段固定（エラー時でも必ず選べる）
@@ -3642,7 +3642,7 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
         shrinkWrap: true,
         children: [
           noneTile,
-          const Divider(color: JsColors.border, height: 1),
+          const Divider(color: FieldTokens.outline, height: 1),
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -3650,13 +3650,13 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
                 Text(_error!,
                     textAlign: TextAlign.center,
                     style:
-                        const TextStyle(color: JsColors.error, fontSize: 13)),
+                        const TextStyle(color: FieldTokens.statusError, fontSize: 13)),
                 const SizedBox(height: 12),
                 TextButton.icon(
                   onPressed: _load,
-                  icon: const Icon(Icons.refresh, color: JsColors.gold),
+                  icon: const Icon(Icons.refresh, color: FieldTokens.accent),
                   label: const Text('再試行',
-                      style: TextStyle(color: JsColors.gold)),
+                      style: TextStyle(color: FieldTokens.accent)),
                 ),
               ],
             ),
@@ -3676,12 +3676,12 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
         shrinkWrap: true,
         children: [
           noneTile,
-          const Divider(color: JsColors.border, height: 1),
+          const Divider(color: FieldTokens.outline, height: 1),
           const Padding(
             padding: EdgeInsets.all(20),
             child: Text('該当する現場がありません',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
           ),
         ],
       );
@@ -3690,7 +3690,7 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
       shrinkWrap: true,
       itemCount: shown.length + 1,
       separatorBuilder: (_, __) =>
-          const Divider(color: JsColors.border, height: 1),
+          const Divider(color: FieldTokens.outline, height: 1),
       itemBuilder: (context, i) {
         if (i == 0) return noneTile;
         final site = shown[i - 1] as Map<String, dynamic>;
@@ -3716,16 +3716,16 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
     return ListTile(
       title: Text(title,
           style: TextStyle(
-            color: id == null ? JsColors.textWeak : JsColors.textWhite,
+            color: id == null ? FieldTokens.textFaint : FieldTokens.textBody,
             fontSize: 15,
             fontWeight: FontWeight.bold,
           )),
       subtitle: subtitle != null
           ? Text(subtitle,
-              style: const TextStyle(color: JsColors.textMid, fontSize: 12))
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12))
           : null,
       trailing:
-          selected ? const Icon(Icons.check, color: JsColors.gold) : null,
+          selected ? const Icon(Icons.check, color: FieldTokens.accent) : null,
       onTap: () => _choose(id, id == null ? null : title),
     );
   }
@@ -3788,9 +3788,9 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     final submitted = _fmtSubmittedJst(r['created_at'] as String?);  // 生ISO禁止・JST整形
     final gps = r['gps_address'] as String?;
     return AlertDialog(
-      backgroundColor: JsColors.surface,
+      backgroundColor: FieldTokens.surfaceCard,
       title: const Text('現場の紐づけ',
-          style: TextStyle(color: JsPalette.brand, fontSize: 17)),
+          style: TextStyle(color: FieldTokens.brand, fontSize: 17)),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
@@ -3801,7 +3801,7 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: JsColors.surfaceAlt,
+                color: FieldTokens.surfaceRaised,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -3822,13 +3822,13 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context), // キャンセル → null
           child: const Text('キャンセル',
-              style: TextStyle(color: JsColors.textMid)),
+              style: TextStyle(color: FieldTokens.textSupport)),
         ),
         ElevatedButton(
           onPressed: () => Navigator.pop(context, {'site_id': _selectedId}),
           style: ElevatedButton.styleFrom(
-            backgroundColor: JsColors.success,
-            foregroundColor: JsPalette.onAccent,
+            backgroundColor: FieldTokens.statusSuccess,
+            foregroundColor: FieldTokens.onAccent,
           ),
           child: const Text('選択して承認'),
         ),
@@ -3846,12 +3846,12 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
             width: 64,
             child: Text(label,
                 style:
-                    const TextStyle(color: JsColors.textMid, fontSize: 12)),
+                    const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           ),
           Expanded(
             child: Text(value,
                 style: const TextStyle(
-                    color: JsColors.textStrong, fontSize: 13)),
+                    color: FieldTokens.textBody, fontSize: 13)),
           ),
         ],
       ),
@@ -3883,7 +3883,7 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator(color: JsColors.gold)),
+        child: Center(child: CircularProgressIndicator(color: FieldTokens.accent)),
       );
     }
     // 最上段固定は上から順に:
@@ -3897,30 +3897,30 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           child: const Row(children: [
-            Icon(Icons.add_location_alt, color: JsColors.success, size: 20),
+            Icon(Icons.add_location_alt, color: FieldTokens.statusSuccess, size: 20),
             SizedBox(width: 10),
             Expanded(
               child: Text('＋新規現場を登録',
                   style: TextStyle(
-                      color: JsColors.success, fontSize: 14, fontWeight: FontWeight.bold)),
+                      color: FieldTokens.statusSuccess, fontSize: 14, fontWeight: FontWeight.bold)),
             ),
-            Icon(Icons.chevron_right, color: JsColors.success, size: 20),
+            Icon(Icons.chevron_right, color: FieldTokens.statusSuccess, size: 20),
           ]),
         ),
       ),
-      const Divider(color: JsColors.divider, height: 1),
+      const Divider(color: FieldTokens.outline, height: 1),
       RadioListTile<String?>(
         value: null,
         groupValue: _selectedId,
         onChanged: (v) => setState(() => _selectedId = v),
-        activeColor: JsColors.warning,
+        activeColor: FieldTokens.statusWarning,
         title: const Text('現場未登録（事務へ回す）',
             style: TextStyle(
-                color: JsColors.warning,
+                color: FieldTokens.statusWarning,
                 fontSize: 14,
                 fontWeight: FontWeight.bold)),
         subtitle: const Text('承認は完了・紐づけは事務の未紐づけ一覧に残る',
-            style: TextStyle(color: JsColors.textMid, fontSize: 11)),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
         contentPadding: EdgeInsets.zero,
       ),
     ];
@@ -3931,14 +3931,14 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
           children: [
             Text(_error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: JsColors.error, fontSize: 12)),
+                style: const TextStyle(color: FieldTokens.statusError, fontSize: 12)),
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: _load,
               icon:
-                  const Icon(Icons.refresh, color: JsColors.gold, size: 18),
+                  const Icon(Icons.refresh, color: FieldTokens.accent, size: 18),
               label:
-                  const Text('再試行', style: TextStyle(color: JsColors.gold)),
+                  const Text('再試行', style: TextStyle(color: FieldTokens.accent)),
             ),
           ],
         ),
@@ -3952,10 +3952,10 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
           value: id,
           groupValue: _selectedId,
           onChanged: (v) => setState(() => _selectedId = v),
-          activeColor: JsColors.gold,
+          activeColor: FieldTokens.accent,
           title: Text(name,
               style:
-                  const TextStyle(color: JsColors.textWhite, fontSize: 14)),
+                  const TextStyle(color: FieldTokens.textBody, fontSize: 14)),
           contentPadding: EdgeInsets.zero,
         ));
       }
@@ -4004,13 +4004,13 @@ class _GpsBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('現在地',
-              style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+              style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               _displayText(),
               style: const TextStyle(
-                  color: JsFormTokens.textMuted, fontSize: 11),
+                  color: FieldTokens.textFaint, fontSize: 11),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -4021,7 +4021,7 @@ class _GpsBar extends StatelessWidget {
             child: const Padding(
               padding: EdgeInsets.only(left: 8, top: 1),
               child: Icon(Icons.refresh,
-                  color: JsFormTokens.textMuted, size: 15),
+                  color: FieldTokens.textFaint, size: 15),
             ),
           ),
         ],
@@ -4058,7 +4058,7 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
     // 横padding は PunchScreen 本体（punch_screen.dart:314 の horizontal:20）と
     // 揃えて、1pxの線が本文の区切り線と同じ位置で始まるようにする。
     return Container(
-      color: JsColors.background,
+      color: FieldTokens.bgBase,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -4076,13 +4076,13 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
                 ? _PunchForecastStrip(forecast: widget.forecast)
                 : const SizedBox.shrink(),
           ),
-          const Divider(color: JsColors.divider, thickness: 1, height: 1),
+          const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
           if (widget.weather != null) ...[
             _PunchWbgtRow(
               weather:       widget.weather!,
               seasonWarning: widget.seasonWarning,
             ),
-            const Divider(color: JsColors.divider, thickness: 1, height: 1),
+            const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
           ],
         ],
       ),
@@ -4117,11 +4117,11 @@ class _PunchWeatherRow extends StatelessWidget {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: JsColors.gold)))
+                        strokeWidth: 2, color: FieldTokens.accent)))
             : weather == null
                 ? const Center(
                     child: Text('天気データ取得中...',
-                        style: TextStyle(color: JsColors.silver, fontSize: 12)))
+                        style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)))
                 : Row(
                     children: [
                       _PunchWeatherItem(
@@ -4149,7 +4149,7 @@ class _PunchWeatherRow extends StatelessWidget {
                         expanded
                             ? Icons.keyboard_arrow_up
                             : Icons.keyboard_arrow_down,
-                        color: JsColors.silver,
+                        color: FieldTokens.textSupport,
                         size: 18,
                       ),
                     ],
@@ -4181,7 +4181,7 @@ class _PunchWeatherItem extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(label,
-              style: const TextStyle(color: JsColors.silver, fontSize: 9)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 9)),
           const SizedBox(height: 2),
           isEmoji
               ? Text(value, style: const TextStyle(fontSize: 22))
@@ -4192,14 +4192,14 @@ class _PunchWeatherItem extends StatelessWidget {
                   children: [
                     Text(value,
                         style: TextStyle(
-                            color: valueColor ?? JsColors.offWhite,
+                            color: valueColor ?? FieldTokens.textBody,
                             fontSize: 20,
                             fontWeight: FontWeight.w600,
                             height: 1.0)),
                     if (unit != null)
                       Text(unit!,
                           style: const TextStyle(
-                              color: JsColors.silver, fontSize: 10)),
+                              color: FieldTokens.textSupport, fontSize: 10)),
                   ],
                 ),
         ],
@@ -4218,7 +4218,7 @@ class _PunchForecastStrip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.only(top: 8, bottom: 8),
       decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: JsColors.divider)),
+        border: Border(top: BorderSide(color: FieldTokens.outline)),
       ),
       child: Row(
         children: forecast.map((day) {
@@ -4228,7 +4228,7 @@ class _PunchForecastStrip extends StatelessWidget {
               children: [
                 Text(day.weekday,
                     style: const TextStyle(
-                        color: JsColors.silver,
+                        color: FieldTokens.textSupport,
                         fontSize: 10,
                         fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
@@ -4247,7 +4247,7 @@ class _PunchForecastStrip extends StatelessWidget {
                       style: TextStyle(
                           color: day.precipPct >= 50
                               ? const Color(0xFF64B5F6)
-                              : JsColors.silver,
+                              : FieldTokens.textSupport,
                           fontSize: 9)),
               ],
             ),
@@ -4290,7 +4290,7 @@ class _PunchWbgtRow extends StatelessWidget {
               textBaseline: TextBaseline.alphabetic,
               children: [
                 const Text('WBGT ',
-                    style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
                 Text('${wbgt.round()}',
                     style: TextStyle(
                         color: color,
@@ -4356,7 +4356,7 @@ class _HomeSkeletonBodyState extends State<_HomeSkeletonBody>
           height: h,
           width: w,
           decoration: BoxDecoration(
-            color: JsColors.textStrong.withValues(alpha: _anim.value),
+            color: FieldTokens.textBody.withValues(alpha: _anim.value),
             borderRadius: BorderRadius.circular(radius),
           ),
         ),
@@ -4453,19 +4453,19 @@ class _OriginSelector extends StatelessWidget {
               padding:
                   const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
               decoration: BoxDecoration(
-                color: sel ? JsFormTokens.chipSelected : Colors.transparent,
+                color: sel ? FieldTokens.outlineStrong : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                     color: sel
-                        ? JsFormTokens.textSub
-                        : JsFormTokens.chipBorder),
+                        ? FieldTokens.textSupport
+                        : FieldTokens.outline),
               ),
               child: Text(
                 label,
                 style: TextStyle(
                   color: sel
-                      ? JsFormTokens.textPrimary
-                      : JsFormTokens.textSub,
+                      ? FieldTokens.textBody
+                      : FieldTokens.textSupport,
                   fontSize: 13,
                   fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                 ),
@@ -4514,12 +4514,12 @@ class _TransportRow extends StatelessWidget {
               child: Container(
                 margin: EdgeInsets.only(right: t != _options.last ? 8 : 0),
                 decoration: BoxDecoration(
-                  color: sel ? JsFormTokens.chipSelected : Colors.transparent,
+                  color: sel ? FieldTokens.outlineStrong : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                       color: sel
-                          ? JsFormTokens.textSub
-                          : JsFormTokens.chipBorder),
+                          ? FieldTokens.textSupport
+                          : FieldTokens.outline),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -4527,14 +4527,14 @@ class _TransportRow extends StatelessWidget {
                     Icon(t.icon,
                         size: 18,
                         color: sel
-                            ? JsFormTokens.textPrimary
-                            : JsFormTokens.textSub),
+                            ? FieldTokens.textBody
+                            : FieldTokens.textSupport),
                     const SizedBox(height: 3),
                     Text(t.label,
                         style: TextStyle(
                             color: sel
-                                ? JsFormTokens.textPrimary
-                                : JsFormTokens.textSub,
+                                ? FieldTokens.textBody
+                                : FieldTokens.textSupport,
                             fontSize: 11,
                             fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
                   ],
@@ -4574,7 +4574,7 @@ class _WorkContentSection extends StatelessWidget {
             const Expanded(
               child: Text('作業内容',
                   style: TextStyle(
-                      color: JsFormTokens.textSub, fontSize: 12)),
+                      color: FieldTokens.textSupport, fontSize: 12)),
             ),
             if (showMediaButtons)
               _SmallMediaButton(
@@ -4588,9 +4588,9 @@ class _WorkContentSection extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: JsFormTokens.bgBase,
+            color: FieldTokens.bgBase,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JsFormTokens.chipBorder),
+            border: Border.all(color: FieldTokens.outline),
           ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 64),
@@ -4605,10 +4605,10 @@ class _WorkContentSection extends StatelessWidget {
                 focusedBorder: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
                 hintStyle:
-                    TextStyle(color: JsFormTokens.textMuted, fontSize: 13),
+                    TextStyle(color: FieldTokens.textFaint, fontSize: 13),
               ),
               style: const TextStyle(
-                  color: JsFormTokens.textPrimary, fontSize: 14),
+                  color: FieldTokens.textBody, fontSize: 14),
             ),
           ),
         ),
@@ -4616,7 +4616,7 @@ class _WorkContentSection extends StatelessWidget {
         const Padding(
           padding: EdgeInsets.only(top: 6),
           child: Text('※未記入のままでも報告できます',
-              style: TextStyle(color: JsFormTokens.textMuted, fontSize: 11)),
+              style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
         ),
       ],
     );
@@ -4643,14 +4643,14 @@ class _SmallMediaButton extends StatelessWidget {
       width: 40,
       height: 32,
       decoration: BoxDecoration(
-        color: active ? JsFormTokens.chipSelected : Colors.transparent,
+        color: active ? FieldTokens.outlineStrong : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-            color: active ? JsFormTokens.textSub : JsFormTokens.chipBorder),
+            color: active ? FieldTokens.textSupport : FieldTokens.outline),
       ),
       child: Icon(icon,
           size: 16,
-          color: active ? JsFormTokens.textPrimary : JsFormTokens.textSub),
+          color: active ? FieldTokens.textBody : FieldTokens.textSupport),
     ),
   );
 }
@@ -4744,10 +4744,10 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    backgroundColor: JsColors.gunmetal,
+    backgroundColor: FieldTokens.surfaceCard,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     title: const Text('🎤 作業内容 音声入力',
-        style: TextStyle(color: JsColors.gold)),
+        style: TextStyle(color: FieldTokens.accent)),
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -4759,28 +4759,28 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _listening
-                  ? JsColors.gold.withValues(
+                  ? FieldTokens.accent.withValues(
                       alpha: 0.15 + _pulse.value * 0.15)
-                  : JsColors.surface,
+                  : FieldTokens.surfaceCard,
             ),
             child: Icon(
                 _listening ? Icons.mic : Icons.mic_off,
                 color:
-                    _listening ? JsColors.gold : JsColors.silver,
+                    _listening ? FieldTokens.accent : FieldTokens.textSupport,
                 size: 32),
           ),
         ),
         const SizedBox(height: 6),
         Text(_listening ? '聞いています...' : '認識完了',
             style: TextStyle(
-                color: _listening ? JsColors.gold : JsColors.silver,
+                color: _listening ? FieldTokens.accent : FieldTokens.textSupport,
                 fontSize: 12)),
         const SizedBox(height: 12),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-              color: JsColors.surface,
+              color: FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(8)),
           constraints: const BoxConstraints(minHeight: 56),
           child: Text(
@@ -4789,8 +4789,8 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
                 : _text,
             style: TextStyle(
                 color: _text.isEmpty
-                    ? JsColors.silver
-                    : JsColors.offWhite,
+                    ? FieldTokens.textSupport
+                    : FieldTokens.textBody,
                 fontSize: _text.isEmpty ? 12 : 14,
                 height: 1.5),
           ),
@@ -4801,12 +4801,12 @@ class _VoiceInputDialogState extends State<_VoiceInputDialog>
       TextButton(
           onPressed: widget.onCancel,
           child: const Text('キャンセル',
-              style: TextStyle(color: JsColors.silver))),
+              style: TextStyle(color: FieldTokens.textSupport))),
       if (_listening)
         TextButton(
             onPressed: _stop,
             child: const Text('停止',
-                style: TextStyle(color: JsColors.gold))),
+                style: TextStyle(color: FieldTokens.accent))),
       if (!_listening && _text.isNotEmpty)
         ElevatedButton(
             onPressed: () => widget.onConfirm(_text),
@@ -4840,9 +4840,9 @@ class _RouteInfoBar extends StatelessWidget {
   Widget _shell({required Widget child, Color? borderColor}) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: JsFormTokens.bgBase,
+          color: FieldTokens.bgBase,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor ?? JsFormTokens.chipBorder),
+          border: Border.all(color: borderColor ?? FieldTokens.outline),
         ),
         child: child,
       );
@@ -4854,14 +4854,14 @@ class _RouteInfoBar extends StatelessWidget {
           onTap: onRetry == null ? null : () => onRetry!(),
           borderRadius: BorderRadius.circular(10),
           child: _shell(
-            borderColor: JsFormTokens.accentAlert,
+            borderColor: FieldTokens.statusWarning,
             child: const Row(children: [
-              Icon(Icons.refresh, color: JsFormTokens.accentAlert, size: 14),
+              Icon(Icons.refresh, color: FieldTokens.statusWarning, size: 14),
               SizedBox(width: 6),
               Expanded(
                 child: Text('移動情報を取得できません（タップで再取得）',
                     style: TextStyle(
-                        color: JsFormTokens.accentAlert, fontSize: 12)),
+                        color: FieldTokens.statusWarning, fontSize: 12)),
               ),
             ]),
           ),
@@ -4871,11 +4871,11 @@ class _RouteInfoBar extends StatelessWidget {
   // 取得はできたが、いま選んでいる手段のキーが無い
   Widget _noDataForMode() => _shell(
         child: const Row(children: [
-          Icon(Icons.route, color: JsFormTokens.textMuted, size: 14),
+          Icon(Icons.route, color: FieldTokens.textFaint, size: 14),
           SizedBox(width: 6),
           Expanded(
             child: Text('この手段の目安は取得できません',
-                style: TextStyle(color: JsFormTokens.textMuted, fontSize: 12)),
+                style: TextStyle(color: FieldTokens.textFaint, fontSize: 12)),
           ),
         ]),
       );
@@ -4887,19 +4887,19 @@ class _RouteInfoBar extends StatelessWidget {
         height: 38,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: JsFormTokens.bgBase,
+          color: FieldTokens.bgBase,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JsFormTokens.chipBorder),
+          border: Border.all(color: FieldTokens.outline),
         ),
         child: const Row(children: [
           SizedBox(
               width: 14,
               height: 14,
               child: CircularProgressIndicator(
-                  strokeWidth: 2, color: JsFormTokens.textSub)),
+                  strokeWidth: 2, color: FieldTokens.textSupport)),
           SizedBox(width: 8),
           Text('ルート計算中...',
-              style: TextStyle(color: JsFormTokens.textSub, fontSize: 12)),
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
         ]),
       );
     }
@@ -4918,32 +4918,32 @@ class _RouteInfoBar extends StatelessWidget {
     if (timeStr == null) return _noDataForMode();
 
     return _shell(
-      borderColor: fromCache ? JsFormTokens.textMuted : null,
+      borderColor: fromCache ? FieldTokens.textFaint : null,
       child: Row(children: [
-        const Icon(Icons.route, color: JsFormTokens.textSub, size: 14),
+        const Icon(Icons.route, color: FieldTokens.textSupport, size: 14),
         const SizedBox(width: 6),
         if (distStr != null) ...[
           Flexible(
             child: Text(distStr,
                 style: const TextStyle(
-                    color: JsFormTokens.textPrimary, fontSize: 12),
+                    color: FieldTokens.textBody, fontSize: 12),
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1),
           ),
           const SizedBox(width: 8),
         ],
-        const Icon(Icons.access_time, color: JsFormTokens.textSub, size: 13),
+        const Icon(Icons.access_time, color: FieldTokens.textSupport, size: 13),
         const SizedBox(width: 3),
         Text(timeStr,
             style: const TextStyle(
-                color: JsFormTokens.textPrimary,
+                color: FieldTokens.textBody,
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
         if (costStr != null) ...[
           const SizedBox(width: 10),
           Text(costStr,
               style: const TextStyle(
-                  color: JsFormTokens.textPrimary,
+                  color: FieldTokens.textBody,
                   fontSize: 12,
                   fontWeight: FontWeight.bold)),
         ],
@@ -4951,7 +4951,7 @@ class _RouteInfoBar extends StatelessWidget {
         if (fromCache) ...[
           const SizedBox(width: 8),
           const Text('前回の目安',
-              style: TextStyle(color: JsFormTokens.textMuted, fontSize: 10)),
+              style: TextStyle(color: FieldTokens.textFaint, fontSize: 10)),
         ],
       ]),
     );
@@ -5089,7 +5089,7 @@ class ForemanManagementBody extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            color: JsColors.gunmetal,
+            color: FieldTokens.surfaceCard,
             child: const TabBar(
               tabs: [
                 Tab(text: '👥 社員'),
@@ -5246,12 +5246,12 @@ class _ReviewTabState extends State<ReviewTab> {
       children: [
         // 月ナビ（CalendarTab:5482-5514 の流儀）
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsPalette.brand),
+                icon: const Icon(Icons.chevron_left, color: FieldTokens.brand),
                 onPressed: _prevMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -5260,7 +5260,7 @@ class _ReviewTabState extends State<ReviewTab> {
                   child: Text(
                     '${_selectedMonth.year}年${_selectedMonth.month}月',
                     style: const TextStyle(
-                        color: JsPalette.brand,
+                        color: FieldTokens.brand,
                         fontSize: 17,
                         fontWeight: FontWeight.bold),
                   ),
@@ -5268,12 +5268,12 @@ class _ReviewTabState extends State<ReviewTab> {
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? JsColors.silver : JsPalette.brand),
+                    color: isCurrentMonth ? FieldTokens.textSupport : FieldTokens.brand),
                 onPressed: isCurrentMonth ? null : _nextMonth,
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, color: JsColors.silver, size: 18),
+                icon: const Icon(Icons.refresh, color: FieldTokens.textSupport, size: 18),
                 onPressed: _load,
                 visualDensity: VisualDensity.compact,
               ),
@@ -5285,14 +5285,14 @@ class _ReviewTabState extends State<ReviewTab> {
         Expanded(
           child: _loading
               ? const Center(
-                  child: CircularProgressIndicator(color: JsColors.gold))
+                  child: CircularProgressIndicator(color: FieldTokens.accent))
               : _failed
                   ? _failView()
                   : sortedDates.isEmpty
                       ? const Center(
                           child: Text('対応が必要な報告はありません',
                               style: TextStyle(
-                                  color: JsColors.silver, fontSize: 13)),
+                                  color: FieldTokens.textSupport, fontSize: 13)),
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.all(16),
@@ -5319,19 +5319,19 @@ class _ReviewTabState extends State<ReviewTab> {
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           child: const Row(
             children: [
               Icon(Icons.error_outline,
-                  color: JsColors.warning, size: 14),
+                  color: FieldTokens.statusWarning, size: 14),
               SizedBox(width: 6),
               Expanded(
                 child: Text('休憩申請を取得できませんでした',
-                    style: TextStyle(color: JsColors.warning, fontSize: 12)),
+                    style: TextStyle(color: FieldTokens.statusWarning, fontSize: 12)),
               ),
               Text('再試行',
                   style: TextStyle(
-                      color: JsColors.warning,
+                      color: FieldTokens.statusWarning,
                       fontSize: 12,
                       fontWeight: FontWeight.bold)),
             ],
@@ -5343,19 +5343,19 @@ class _ReviewTabState extends State<ReviewTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: JsColors.warning, size: 32),
+            const Icon(Icons.error_outline, color: FieldTokens.statusWarning, size: 32),
             const SizedBox(height: 8),
             const Text('報告を取得できませんでした',
-                style: TextStyle(color: JsColors.warning, fontSize: 13)),
+                style: TextStyle(color: FieldTokens.statusWarning, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh, size: 16),
               label: const Text('再試行'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: JsFormTokens.outlineButtonBorder,
+                foregroundColor: FieldTokens.textBody,
                 side: const BorderSide(
-                    color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                    color: FieldTokens.textBody, width: 1.5),
               ),
             ),
           ],
@@ -5390,25 +5390,25 @@ class _ReviewTabState extends State<ReviewTab> {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Text('${date.month}/${date.day}（${_kWeekLabels[date.weekday % 7]}）',
                 style: const TextStyle(
-                    color: JsColors.offWhite,
+                    color: FieldTokens.textBody,
                     fontSize: 15,
                     fontWeight: FontWeight.bold)),
             const SizedBox(width: 12),
             Text('$totalCount件',
-                style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+                style: const TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
             const Spacer(),
             // 内訳は0のものを出さない
             if (pendingCount > 0)
               Text('承認待ち$pendingCount',
                   style: const TextStyle(
-                      color: JsColors.silver,
+                      color: FieldTokens.textSupport,
                       fontSize: 12,
                       fontWeight: FontWeight.bold)),
             if (pendingCount > 0 && revisionCount > 0)
@@ -5416,7 +5416,7 @@ class _ReviewTabState extends State<ReviewTab> {
             if (revisionCount > 0)
               Text('差し戻し$revisionCount',
                   style: const TextStyle(
-                      color: JsColors.warning,
+                      color: FieldTokens.statusWarning,
                       fontSize: 12,
                       fontWeight: FontWeight.bold)),
             if ((pendingCount > 0 || revisionCount > 0) && breakCount > 0)
@@ -5424,11 +5424,11 @@ class _ReviewTabState extends State<ReviewTab> {
             if (breakCount > 0)
               Text('休憩$breakCount',
                   style: const TextStyle(
-                      color: JsColors.silver,
+                      color: FieldTokens.textSupport,
                       fontSize: 12,
                       fontWeight: FontWeight.bold)),
             const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+            const Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
           ],
         ),
       ),
@@ -5460,7 +5460,7 @@ class PendingApprovalCard extends StatelessWidget {
   void _openDetail(BuildContext context, Map<String, dynamic> r) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: JsColors.gunmetal,
+      backgroundColor: FieldTokens.surfaceCard,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -5483,7 +5483,7 @@ class PendingApprovalCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -5536,7 +5536,7 @@ class PendingApprovalCard extends StatelessWidget {
                                       SnackBar(
                                         content: Text(
                                             '現場の紐づけに失敗しました：${linkRes['error']}'),
-                                        backgroundColor: JsColors.error,
+                                        backgroundColor: FieldTokens.statusError,
                                       ),
                                     );
                                     setSending(() => sending = false);
@@ -5559,16 +5559,16 @@ class PendingApprovalCard extends StatelessWidget {
                                     ok
                                         ? '承認しました'
                                         : '承認に失敗しました：${result['error']}',
-                                    // success 塗りの上だけ暗色にする。null は
-                                    // app_theme.dart:141 の contentTextStyle
-                                    // (textStrong #F2F2EE) 継承＝error 側は現状維持。
+                                    // statusSuccess 塗りの上だけ暗色にする。null は
+                                    // app_theme.dart の snackBarTheme.contentTextStyle
+                                    // (textBody #EAE3D0) 継承＝statusError 側は現状維持。
                                     style: ok
                                         ? const TextStyle(
-                                            color: JsPalette.onAccent)
+                                            color: FieldTokens.onAccent)
                                         : null,
                                   ),
                                   backgroundColor:
-                                      ok ? JsColors.success : JsColors.error,
+                                      ok ? FieldTokens.statusSuccess : FieldTokens.statusError,
                                 ),
                               );
                               if (ok) onActionSuccess();
@@ -5580,8 +5580,8 @@ class PendingApprovalCard extends StatelessWidget {
                     icon: const Icon(Icons.check),
                     label: const Text('承認'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: JsColors.success,
-                      foregroundColor: JsPalette.onAccent,
+                      backgroundColor: FieldTokens.statusSuccess,
+                      foregroundColor: FieldTokens.onAccent,
                     ),
                   ),
                 ),
@@ -5615,7 +5615,7 @@ class PendingApprovalCard extends StatelessWidget {
                                       ? '修正依頼を送りました'
                                       : '修正依頼に失敗しました：${res['error']}'),
                                   backgroundColor:
-                                      ok ? JsColors.warning : JsColors.error,
+                                      ok ? FieldTokens.statusWarning : FieldTokens.statusError,
                                 ),
                               );
                               if (ok) onActionSuccess();
@@ -5627,7 +5627,7 @@ class PendingApprovalCard extends StatelessWidget {
                     icon: const Icon(Icons.edit_note),
                     label: const Text('修正依頼'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: JsColors.warning,
+                      backgroundColor: FieldTokens.statusWarning,
                       foregroundColor: const Color(0xFF3D1E00),
                     ),
                   ),
@@ -5697,12 +5697,12 @@ class _StaffTabState extends State<_StaffTab> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(
-          child: CircularProgressIndicator(color: JsColors.gold));
+          child: CircularProgressIndicator(color: FieldTokens.accent));
     }
     if (_staff.isEmpty) {
       return const Center(
         child: Text('社員がいません',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
       );
     }
     return ListView.builder(
@@ -5729,7 +5729,7 @@ class _StaffCard extends StatelessWidget {
       onTap: () => showModalBottomSheet(
         context: context,
         isScrollControlled: true,
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
@@ -5738,19 +5738,19 @@ class _StaffCard extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
         ),
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            const Icon(Icons.person_outline, color: JsColors.silver, size: 16),
+            const Icon(Icons.person_outline, color: FieldTokens.textSupport, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 name,
                 style: const TextStyle(
-                    color: JsPalette.textBody,
+                    color: FieldTokens.textBody,
                     fontSize: 14,
                     fontWeight: FontWeight.bold),
                 maxLines: 1,
@@ -5761,17 +5761,17 @@ class _StaffCard extends StatelessWidget {
               padding:
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: JsColors.gold.withValues(alpha: 0.2),
+                color: FieldTokens.accent.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(roleLabel,
                   style:
-                      const TextStyle(color: JsColors.gold, fontSize: 10)),
+                      const TextStyle(color: FieldTokens.accent, fontSize: 10)),
             ),
             const SizedBox(width: 8),
             Text('$expYears年',
                 style:
-                    const TextStyle(color: JsColors.silver, fontSize: 12)),
+                    const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           ],
         ),
       ),
@@ -5877,7 +5877,7 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: JsColors.divider,
+              color: FieldTokens.outline,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -5888,20 +5888,20 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
               child: Text(
                 widget.name,
                 style: const TextStyle(
-                    color: JsPalette.textBody,
+                    color: FieldTokens.textBody,
                     fontSize: 16,
                     fontWeight: FontWeight.bold),
               ),
             ),
           ),
           Container(
-            color: JsColors.gunmetal,
+            color: FieldTokens.surfaceCard,
             padding:
                 const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                  icon: const Icon(Icons.chevron_left, color: FieldTokens.accent),
                   onPressed: _prevMonth,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -5910,7 +5910,7 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                     child: Text(
                       '${_selectedMonth.year}年${_selectedMonth.month}月',
                       style: const TextStyle(
-                          color: JsColors.gold,
+                          color: FieldTokens.accent,
                           fontSize: 15,
                           fontWeight: FontWeight.bold),
                     ),
@@ -5920,8 +5920,8 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                   icon: Icon(
                     Icons.chevron_right,
                     color: isCurrentMonth
-                        ? JsColors.divider
-                        : JsColors.gold,
+                        ? FieldTokens.outline
+                        : FieldTokens.accent,
                   ),
                   onPressed: isCurrentMonth ? null : _nextMonth,
                   visualDensity: VisualDensity.compact,
@@ -5932,29 +5932,28 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
           Expanded(
             child: _loading
                 ? const Center(
-                    child: CircularProgressIndicator(color: JsColors.gold))
+                    child: CircularProgressIndicator(color: FieldTokens.accent))
                 : _summary == null
-                    // 本文相当の状態表示。silver(=textWeak #484830)では読めないため textStrong。
+                    // 本文相当の状態表示。補助色(textSupport #7B7567)では地に沈むため textBody。
                     ? const Center(
                         child: Text('データなし',
                             style: TextStyle(
-                                color: JsColors.textStrong, fontSize: 13)))
+                                color: FieldTokens.textBody, fontSize: 13)))
                     : ListView(
                         controller: controller,
                         padding:
                             const EdgeInsets.fromLTRB(16, 16, 16, 0),
                         children: [
-                          // 数値は高コントラスト色で描く（JsColors.silver は
-                          // js_colors.dart:19/25 のとおり textWeak(#484830) と同値で、
-                          // 地(#181810)に沈んで実機で読めなかった）。
-                          // 出勤日数=success（安全色・裁定）／他=textStrong。
-                          // 枠・背景・ラベルは従来のセマンティック色を維持し階層を残す。
+                          // 数値は valueColor: textBody(#EAE3D0) で高コントラストに描く。
+                          // 出勤日数だけ valueColor 未指定＝statusSuccess のまま（安全色・裁定）。
+                          // 枠・背景・ラベルは従来のセマンティック色を維持し階層を残す
+                          // （_StaffStatChip:6027-6037＝面 α0.1／枠 α0.4／ラベルは色そのもの）。
                           Row(
                             children: [
                               _StaffStatChip(
                                 '出勤日数',
                                 '${(_summary!['days_worked'] as num?)?.toInt() ?? 0}',
-                                JsColors.success,
+                                FieldTokens.statusSuccess,
                               ),
                               const SizedBox(width: 4),
                               _StaffStatChip(
@@ -5967,22 +5966,22 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                                           0;
                                   return '${(mins / 60).toStringAsFixed(1)}h';
                                 }(),
-                                JsColors.gold,
-                                valueColor: JsColors.textStrong,
+                                FieldTokens.accent,
+                                valueColor: FieldTokens.textBody,
                               ),
                               const SizedBox(width: 4),
                               _StaffStatChip(
                                 '残業',
                                 '${((_summary!['overtime'] as Map<String, dynamic>?)?['total_min'] as num?)?.toInt() ?? 0}',
-                                JsColors.warning,
-                                valueColor: JsColors.textStrong,
+                                FieldTokens.statusWarning,
+                                valueColor: FieldTokens.textBody,
                               ),
                               const SizedBox(width: 4),
                               _StaffStatChip(
                                 '休日出勤',
                                 '${(_summary!['holiday_work_days'] as num?)?.toInt() ?? 0}',
-                                JsColors.error,
-                                valueColor: JsColors.textStrong,
+                                FieldTokens.statusError,
+                                valueColor: FieldTokens.textBody,
                               ),
                             ],
                           ),
@@ -5990,16 +5989,18 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                       ),
           ),
           // note は summary の有無にかかわらず常時表示（法務の盾3層目）
-          // 読めない注意書きは盾にならないため可読水準へ。背景 surface(#181810) 比の
-          // コントラストは silver(#484830)=1.91 / textMid(#686040)=2.83 で共にWCAG AA(4.5)未達、
-          // gold の alpha 0.85 合成(#92855b)=4.87 でAA達成。不透明gold(6.25)は見出しと
-          // 同格になり階層が壊れるため 0.85 を採用。サイズは最低可読の11へ。
+          // 読めない注意書きは盾にならないため可読水準へ。補助色では地に沈むので
+          // accent を使い、不透明のままだと見出しと同格になり階層が壊れるため
+          // alpha 0.85 に落として一段下げている。サイズは最低可読の11へ。
+          // ★かつてここに記載していたコントラスト実測値(1.91/2.83/4.87 等)は
+          //   #181810/#484830/#686040 という退役済みパレット基準のもので、
+          //   現行 Asphalt Dawn の値では未再測。再測は次工程。
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: Text(
               note,
               style: TextStyle(
-                  color: JsColors.gold.withValues(alpha: 0.85), fontSize: 11),
+                  color: FieldTokens.accent.withValues(alpha: 0.85), fontSize: 11),
             ),
           ),
         ],
@@ -6121,12 +6122,12 @@ class _CooperationTabState extends State<_CooperationTab> {
     return Column(
       children: [
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                icon: const Icon(Icons.chevron_left, color: FieldTokens.accent),
                 onPressed: _prevMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -6135,7 +6136,7 @@ class _CooperationTabState extends State<_CooperationTab> {
                   child: Text(
                     '${_selectedMonth.year}年${_selectedMonth.month}月',
                     style: const TextStyle(
-                        color: JsColors.gold,
+                        color: FieldTokens.accent,
                         fontSize: 15,
                         fontWeight: FontWeight.bold),
                   ),
@@ -6144,7 +6145,7 @@ class _CooperationTabState extends State<_CooperationTab> {
               IconButton(
                 icon: Icon(
                   Icons.chevron_right,
-                  color: isCurrentMonth ? JsColors.divider : JsColors.gold,
+                  color: isCurrentMonth ? FieldTokens.outline : FieldTokens.accent,
                 ),
                 onPressed: isCurrentMonth ? null : _nextMonth,
                 visualDensity: VisualDensity.compact,
@@ -6156,13 +6157,13 @@ class _CooperationTabState extends State<_CooperationTab> {
           child: _loading
               ? const Center(
                   child:
-                      CircularProgressIndicator(color: JsColors.gold))
+                      CircularProgressIndicator(color: FieldTokens.accent))
               : _companies.isEmpty
                   ? const Center(
                       child: Text(
                         'この月の協力業者実績はありません',
                         style:
-                            TextStyle(color: JsColors.silver, fontSize: 13),
+                            TextStyle(color: FieldTokens.textSupport, fontSize: 13),
                       ),
                     )
                   : ListView.builder(
@@ -6198,7 +6199,7 @@ class _CoopCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(10),
       ),
       padding: const EdgeInsets.all(12),
@@ -6219,7 +6220,7 @@ class _CoopCard extends StatelessWidget {
                 child: Text(
                   name,
                   style: const TextStyle(
-                      color: JsPalette.textBody,
+                      color: FieldTokens.textBody,
                       fontSize: 14,
                       fontWeight: FontWeight.bold),
                   maxLines: 1,
@@ -6245,14 +6246,14 @@ class _CoopCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              JsStatChip('延べ人工', reportCount, JsColors.silver),
+              JsStatChip('延べ人工', reportCount, FieldTokens.textSupport),
               const SizedBox(width: 4),
               JsStatChip('職人', workerCount,
                   const Color(0xFF4FC3F7)),
               const SizedBox(width: 4),
-              JsStatChip('現場', siteCount, JsColors.gold),
+              JsStatChip('現場', siteCount, FieldTokens.accent),
               const SizedBox(width: 4),
-              JsStatChip('¥駐車料金', parkingFee, JsColors.silver),
+              JsStatChip('¥駐車料金', parkingFee, FieldTokens.textSupport),
             ],
           ),
         ],
@@ -6478,12 +6479,12 @@ class _CalendarTabState extends State<CalendarTab> {
       children: [
         // ① 月ナビ
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsPalette.brand),
+                icon: const Icon(Icons.chevron_left, color: FieldTokens.brand),
                 onPressed: _prevMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -6492,7 +6493,7 @@ class _CalendarTabState extends State<CalendarTab> {
                   child: Text(
                     '${_selectedMonth.year}年${_selectedMonth.month}月',
                     style: const TextStyle(
-                        color: JsPalette.brand,
+                        color: FieldTokens.brand,
                         fontSize: 17,
                         fontWeight: FontWeight.bold),
                   ),
@@ -6500,13 +6501,13 @@ class _CalendarTabState extends State<CalendarTab> {
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? JsColors.silver : JsPalette.brand),
+                    color: isCurrentMonth ? FieldTokens.textSupport : FieldTokens.brand),
                 onPressed: isCurrentMonth ? null : _nextMonth,
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
                 icon: const Icon(Icons.refresh,
-                    color: JsColors.silver, size: 18),
+                    color: FieldTokens.textSupport, size: 18),
                 onPressed: _loadMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -6520,10 +6521,10 @@ class _CalendarTabState extends State<CalendarTab> {
             ? const Padding(
                 padding: EdgeInsets.all(40),
                 child: Center(
-                    child: CircularProgressIndicator(color: JsColors.gold)))
+                    child: CircularProgressIndicator(color: FieldTokens.accent)))
             : _buildCalendarGrid(),
         // ④ 選択日の詳細（旧「日付をタップして日報を確認」のヒントを置換）
-        const Divider(height: 1, color: JsColors.divider),
+        const Divider(height: 1, color: FieldTokens.outline),
         Expanded(
           child: _buildSelectedDay(),
         ),
@@ -6543,14 +6544,14 @@ class _CalendarTabState extends State<CalendarTab> {
     if (failed.isEmpty) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
-      color: JsColors.surface,
+      color: FieldTokens.surfaceCard,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(children: [
-        const Icon(Icons.error_outline, color: JsColors.warning, size: 16),
+        const Icon(Icons.error_outline, color: FieldTokens.statusWarning, size: 16),
         const SizedBox(width: 8),
         Expanded(
           child: Text('${failed.join('・')}を取得できませんでした',
-              style: const TextStyle(color: JsColors.warning, fontSize: 12)),
+              style: const TextStyle(color: FieldTokens.statusWarning, fontSize: 12)),
         ),
         GestureDetector(
           onTap: _loadMonth,
@@ -6559,7 +6560,7 @@ class _CalendarTabState extends State<CalendarTab> {
             padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             child: Text('再試行',
                 style: TextStyle(
-                    color: JsColors.accent,
+                    color: FieldTokens.accent,
                     fontSize: 12,
                     fontWeight: FontWeight.bold)),
           ),
@@ -6593,10 +6594,10 @@ class _CalendarTabState extends State<CalendarTab> {
           TableRow(
             children: weekdays.asMap().entries.map((e) {
               final color = e.key == 0
-                  ? JsColors.error          // 日曜=赤
+                  ? FieldTokens.statusError          // 日曜=赤
                   : e.key == 6
-                      ? JsPalette.saturday  // 土曜=水色
-                      : JsColors.silver;
+                      ? FieldTokens.saturday  // 土曜=水色
+                      : FieldTokens.textSupport;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Center(
@@ -6660,10 +6661,10 @@ class _CalendarTabState extends State<CalendarTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.touch_app_outlined, color: JsColors.silver, size: 32),
+            Icon(Icons.touch_app_outlined, color: FieldTokens.textSupport, size: 32),
             SizedBox(height: 8),
             Text('日付をタップすると内容を表示します',
-                style: TextStyle(color: JsColors.silver, fontSize: 13)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
           ],
         ),
       );
@@ -6693,7 +6694,7 @@ class _CalendarTabState extends State<CalendarTab> {
             Expanded(
               child: Text(text,
                   style: const TextStyle(
-                      color: JsColors.textStrong, fontSize: 13)),
+                      color: FieldTokens.textBody, fontSize: 13)),
             ),
           ]),
         );
@@ -6706,32 +6707,32 @@ class _CalendarTabState extends State<CalendarTab> {
           Text(
               '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）',
               style: const TextStyle(
-                  color: JsColors.textStrong,
+                  color: FieldTokens.textBody,
                   fontSize: 15,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
 
           // 祝日名（あれば）。会社の休業設定とは独立した「その日の性質」。
-          if (jpName != null) row(Icons.flag_outlined, JsPalette.holidayText, '祝日：$jpName'),
+          if (jpName != null) row(Icons.flag_outlined, FieldTokens.holidayText, '祝日：$jpName'),
 
           // 会社休み
           if (holidayType != null)
-            row(Icons.business_outlined, JsColors.error,
+            row(Icons.business_outlined, FieldTokens.statusError,
                 '会社休み（${holidayType == 'legal' ? '法定休日' : '所定休日'}）')
           else
-            row(Icons.business_outlined, JsColors.silver, '会社休み：なし'),
+            row(Icons.business_outlined, FieldTokens.textSupport, '会社休み：なし'),
 
           // 自分の休み
           if (rest != null)
-            row(Icons.event_busy_outlined, JsColors.accent,
+            row(Icons.event_busy_outlined, FieldTokens.accent,
                 '自分の休み：${restLabel(rest['portion'] as String?)}'
                 '${(rest['reason'] as String?) != null ? '（${rest['reason']}）' : ''}')
           else
-            row(Icons.event_available_outlined, JsColors.silver, '自分の休み：なし'),
+            row(Icons.event_available_outlined, FieldTokens.textSupport, '自分の休み：なし'),
 
           // 日報の有無 ＋ DayReportsScreen への導線（既存遷移を維持）
           if (dayReps.isNotEmpty) ...[
-            row(Icons.description_outlined, JsColors.gold,
+            row(Icons.description_outlined, FieldTokens.accent,
                 '日報：${dayReps.length}件'),
             SizedBox(
               width: double.infinity,
@@ -6749,14 +6750,14 @@ class _CalendarTabState extends State<CalendarTab> {
                 icon: const Icon(Icons.open_in_new, size: 16),
                 label: const Text('日報を確認'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  foregroundColor: FieldTokens.textBody,
                   side: const BorderSide(
-                      color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                      color: FieldTokens.textBody, width: 1.5),
                 ),
               ),
             ),
           ] else
-            row(Icons.description_outlined, JsColors.silver, '日報：なし'),
+            row(Icons.description_outlined, FieldTokens.textSupport, '日報：なし'),
         ],
       ),
     );
@@ -6806,12 +6807,12 @@ class _DayCell extends StatelessWidget {
   Widget build(BuildContext context) {
     // (d) 文字色: 日曜赤 ＞ 祝日朱 ＞ 土曜水色 ＞ 平日。判定は呼び出し側が実曜日で作る。
     final Color textColor = isSunday
-        ? JsColors.error
+        ? FieldTokens.statusError
         : isJpHoliday
-            ? JsPalette.holidayText
+            ? FieldTokens.holidayText
             : isSaturday
-                ? JsPalette.saturday
-                : JsColors.offWhite;
+                ? FieldTokens.saturday
+                : FieldTokens.textBody;
 
     final hasRest  = restPortion != null;
     final fullRest = restPortion == 'full';
@@ -6825,14 +6826,14 @@ class _DayCell extends StatelessWidget {
         decoration: BoxDecoration(
           // セル塗り＝会社休業日のみ（選択の表現には使わない＝意味を混ぜない）
           color: isCompanyHoliday
-              ? JsColors.error.withValues(alpha: 0.12)
+              ? FieldTokens.statusError.withValues(alpha: 0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           // 選択＝本文色の枠2px / 今日＝淡い金の枠1.5px（顔＝brand）
           border: isSelected
-              ? Border.all(color: JsColors.offWhite, width: 2)
+              ? Border.all(color: FieldTokens.textBody, width: 2)
               : isToday
-                  ? Border.all(color: JsPalette.brand, width: 1.5)
+                  ? Border.all(color: FieldTokens.brand, width: 1.5)
                   : null,
         ),
         child: Stack(
@@ -6848,11 +6849,11 @@ class _DayCell extends StatelessWidget {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.fromBorderSide(
-                                BorderSide(color: JsColors.accent, width: 1.5)),
+                                BorderSide(color: FieldTokens.accent, width: 1.5)),
                           ),
                         )
                       : const CustomPaint(
-                          painter: _DashedRingPainter(color: JsColors.accent),
+                          painter: _DashedRingPainter(color: FieldTokens.accent),
                         ),
                 ),
               ),
@@ -6874,10 +6875,9 @@ class _DayCell extends StatelessWidget {
                     width: 5,
                     height: 5,
                     margin: const EdgeInsets.only(top: 2),
-                    // 日報提出済ドット＝【ポイント】。値は不変（gold は accent の別名）だが
-                    // 意味の正しい名前へ寄せる。
+                    // 日報提出済ドット＝【ポイント】。accent(#6FD6B4)。
                     decoration: const BoxDecoration(
-                      color: JsColors.accent,
+                      color: FieldTokens.accent,
                       shape: BoxShape.circle,
                     ),
                   )
@@ -6930,13 +6930,13 @@ class ForemanManagementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.black,
-        iconTheme: const IconThemeData(color: JsPalette.brand),
+        backgroundColor: FieldTokens.bgBase,
+        iconTheme: const IconThemeData(color: FieldTokens.brand),
         title: const Text('管理・集計',
             style: TextStyle(
-                color: JsPalette.brand,
+                color: FieldTokens.brand,
                 fontSize: 18,
                 fontWeight: FontWeight.bold)),
       ),

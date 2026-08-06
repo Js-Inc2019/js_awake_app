@@ -9,7 +9,7 @@
 //     実働     = total_net_minutes / 60 を小数1桁      （h）
 //     残業     = overtime.total_min                    （分）
 //     休日出勤 = holiday_work_days                     （日）
-//   色も同じ割り当て（success / gold / warning / error）。
+//   色も同じ割り当て（statusSuccess / accent / statusWarning / statusError）。
 //
 // ★36協定アラート（GET /attendance/compliance-alerts）は呼ばない。
 //   法令判断は会社の責任であり、職人に法令判断をさせないため（法務設計と整合）。
@@ -22,7 +22,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart' show API_URL;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'monthly_history_screen.dart' show JsStatChip;
 
 // ─────────────────────────────────────────────
@@ -163,14 +163,14 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
 
     return Column(
       children: [
-        // ① 月ナビ（既存の流儀そのまま: gunmetal 帯 + 前月/当月/翌月 + 再読込）
+        // ① 月ナビ（既存の流儀そのまま: surfaceCard 帯 + 前月/当月/翌月 + 再読込）
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsPalette.brand),
+                icon: const Icon(Icons.chevron_left, color: FieldTokens.brand),
                 onPressed: _prevMonth,
                 visualDensity: VisualDensity.compact,
               ),
@@ -179,7 +179,7 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
                   child: Text(
                     '${_selectedMonth.year}年${_selectedMonth.month}月',
                     style: const TextStyle(
-                        color: JsPalette.brand,
+                        color: FieldTokens.brand,
                         fontSize: 17,
                         fontWeight: FontWeight.bold),
                   ),
@@ -187,13 +187,13 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? JsColors.silver : JsPalette.brand),
+                    color: isCurrentMonth ? FieldTokens.textSupport : FieldTokens.brand),
                 onPressed: isCurrentMonth ? null : _nextMonth,
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
                 icon: const Icon(Icons.refresh,
-                    color: JsColors.silver, size: 18),
+                    color: FieldTokens.textSupport, size: 18),
                 onPressed: _load,
                 visualDensity: VisualDensity.compact,
               ),
@@ -209,7 +209,7 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
   Widget _buildBody() {
     if (_loading) {
       return const Center(
-          child: CircularProgressIndicator(color: JsColors.gold));
+          child: CircularProgressIndicator(color: FieldTokens.accent));
     }
     if (_error != null) {
       return _errorView(_error!);
@@ -231,12 +231,12 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.error_outline,
-                  color: JsColors.warning, size: 32),
+                  color: FieldTokens.statusWarning, size: 32),
               const SizedBox(height: 8),
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: JsColors.warning, fontSize: 13),
+                style: const TextStyle(color: FieldTokens.statusWarning, fontSize: 13),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -244,9 +244,9 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
                 icon: const Icon(Icons.refresh, size: 16),
                 label: const Text('再試行'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: JsFormTokens.outlineButtonBorder,
+                  foregroundColor: FieldTokens.textBody,
                   side: const BorderSide(
-                      color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                      color: FieldTokens.textBody, width: 1.5),
                 ),
               ),
             ],
@@ -266,22 +266,22 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
       children: [
         Row(
           children: [
-            JsStatChip('出勤日数', daysWorked, JsColors.success),
+            JsStatChip('出勤日数', daysWorked, FieldTokens.statusSuccess),
             const SizedBox(width: 4),
             // 実働だけは単位付き（h）。int に落とすと _StaffMonthlySheet と単位が食い違うため
             // JsStatChip の valueText を使う（count は同値の分ではなく参考の丸め値を入れない）。
-            JsStatChip('実働', 0, JsColors.gold, valueText: _netHours),
+            JsStatChip('実働', 0, FieldTokens.accent, valueText: _netHours),
             const SizedBox(width: 4),
-            JsStatChip('残業', _overtimeMin, JsColors.warning),
+            JsStatChip('残業', _overtimeMin, FieldTokens.statusWarning),
             const SizedBox(width: 4),
-            JsStatChip('休日出勤', _intOf('holiday_work_days'), JsColors.error),
+            JsStatChip('休日出勤', _intOf('holiday_work_days'), FieldTokens.statusError),
           ],
         ),
         const SizedBox(height: 12),
         // 単位を明示（チップの数字だけでは「残業=分」が読み取れないため）
         const Text(
           '出勤日数・休日出勤は日数／残業は分',
-          style: TextStyle(color: JsColors.silver, fontSize: 11),
+          style: TextStyle(color: FieldTokens.textSupport, fontSize: 11),
         ),
         // ★「0件」は失敗ではない。取得できたうえでの事実として言葉でも伝える。
         if (daysWorked == 0) ...[
@@ -289,14 +289,14 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
           const Text(
             'この月の出勤記録はありません',
             textAlign: TextAlign.center,
-            style: TextStyle(color: JsColors.textStrong, fontSize: 13),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 13),
           ),
         ],
         const SizedBox(height: 16),
         Text(
           note,
           style: TextStyle(
-              color: JsColors.gold.withValues(alpha: 0.85), fontSize: 11),
+              color: FieldTokens.accent.withValues(alpha: 0.85), fontSize: 11),
         ),
       ],
     );

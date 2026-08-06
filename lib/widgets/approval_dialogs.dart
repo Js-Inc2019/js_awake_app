@@ -1,7 +1,7 @@
 // lib/widgets/approval_dialogs.dart - 承認/差戻しダイアログ 共通部品
 // OFFICE(pending_reports_screen.dart)から移植。値を Navigator.pop で返す純UI部品。
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class RevisionReasonDialog extends StatefulWidget {
   const RevisionReasonDialog({super.key, this.transportTypes});
@@ -36,12 +36,12 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: JsColors.gunmetal,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      title: const Text('修正依頼', style: TextStyle(color: JsColors.textStrong, fontSize: 17)),
+      title: const Text('修正依頼', style: TextStyle(color: FieldTokens.textBody, fontSize: 17)),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('修正理由（複数選択可）', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const Text('修正理由（複数選択可）', style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -57,15 +57,15 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: sel ? JsColors.warning.withValues(alpha: 0.2) : JsColors.surface,
+                    color: sel ? FieldTokens.statusWarning.withValues(alpha: 0.2) : FieldTokens.surfaceCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: sel ? JsColors.warning : JsColors.divider,
+                      color: sel ? FieldTokens.statusWarning : FieldTokens.outline,
                       width: sel ? 1.5 : 1,
                     ),
                   ),
                   child: Text(label, style: TextStyle(
-                    color: sel ? JsColors.warning : JsColors.offWhite,
+                    color: sel ? FieldTokens.statusWarning : FieldTokens.textBody,
                     fontSize: 13,
                     fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                   )),
@@ -74,24 +74,24 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
             }).toList(),
           ),
           const SizedBox(height: 14),
-          const Text('コメント（任意）', style: TextStyle(color: JsColors.silver, fontSize: 12)),
+          const Text('コメント（任意）', style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 6),
           TextField(
             controller: _commentCtrl,
             maxLines: 3,
-            style: const TextStyle(color: JsColors.offWhite),
+            style: const TextStyle(color: FieldTokens.textBody),
             decoration: InputDecoration(
               hintText: '任意：直し方の補足や、他に気づいた点があれば記入',
-              hintStyle: const TextStyle(color: JsColors.silver),
+              hintStyle: const TextStyle(color: FieldTokens.textSupport),
               filled: true,
-              fillColor: JsColors.surface,
+              fillColor: FieldTokens.surfaceCard,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: JsColors.divider),
+                borderSide: const BorderSide(color: FieldTokens.outline),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: JsColors.divider),
+                borderSide: const BorderSide(color: FieldTokens.outline),
               ),
             ),
           ),
@@ -100,7 +100,7 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
+          child: const Text('キャンセル', style: TextStyle(color: FieldTokens.textSupport)),
         ),
         ElevatedButton(
           onPressed: _selected.isEmpty
@@ -110,7 +110,7 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
                   'comment': _commentCtrl.text.trim().isNotEmpty ? _commentCtrl.text.trim() : null,
                 }),
           style: ElevatedButton.styleFrom(
-            backgroundColor: JsColors.warning,
+            backgroundColor: FieldTokens.statusWarning,
             foregroundColor: const Color(0xFF3D1E00),
           ),
           child: const Text('送信'),
@@ -142,11 +142,11 @@ class _OriginConfirmDialogState extends State<OriginConfirmDialog> {
   Widget build(BuildContext context) {
     final pc = Theme.of(context).colorScheme.primary;
     return AlertDialog(
-      backgroundColor: JsColors.gunmetal,
+      backgroundColor: FieldTokens.surfaceCard,
       title: Text('起点の確認', style: TextStyle(color: pc)),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         const Text('この日報の起点を確認・変更してください',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
         const SizedBox(height: 16),
         _OriginTile(
           label: '自宅',
@@ -173,7 +173,7 @@ class _OriginConfirmDialogState extends State<OriginConfirmDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('キャンセル', style: TextStyle(color: JsColors.silver)),
+          child: const Text('キャンセル', style: TextStyle(color: FieldTokens.textSupport)),
         ),
         ElevatedButton(
           onPressed: () => Navigator.pop(context, true),
@@ -210,18 +210,18 @@ class _OriginTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? pc.withValues(alpha: 0.15) : JsColors.surface,
+          color: selected ? pc.withValues(alpha: 0.15) : FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected ? pc : JsColors.divider,
+            color: selected ? pc : FieldTokens.outline,
             width: selected ? 2 : 1,
           ),
         ),
         child: Row(children: [
-          Icon(icon, color: selected ? pc : JsColors.silver, size: 20),
+          Icon(icon, color: selected ? pc : FieldTokens.textSupport, size: 20),
           const SizedBox(width: 12),
           Text(label, style: TextStyle(
-            color: selected ? pc : JsColors.offWhite,
+            color: selected ? pc : FieldTokens.textBody,
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             fontSize: 15,
           )),

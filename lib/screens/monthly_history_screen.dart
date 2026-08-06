@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show API_URL;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 // 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
@@ -127,28 +127,28 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
       children: [
         // 月選択バー
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left, color: JsColors.gold),
+                icon: const Icon(Icons.chevron_left, color: FieldTokens.accent),
                 onPressed: _prevMonth,
               ),
               Text(
                 '${_selectedMonth.year}年${_selectedMonth.month}月',
                 style: const TextStyle(
-                    color: JsColors.offWhite, fontSize: 18, fontWeight: FontWeight.bold),
+                    color: FieldTokens.textBody, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? JsColors.divider : JsColors.gold),
+                    color: isCurrentMonth ? FieldTokens.outline : FieldTokens.accent),
                 onPressed: isCurrentMonth ? null : _nextMonth,
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.refresh, color: JsColors.silver, size: 20),
+                icon: const Icon(Icons.refresh, color: FieldTokens.textSupport, size: 20),
                 onPressed: _load,
                 tooltip: '再読み込み',
               ),
@@ -160,19 +160,19 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(children: [
-              JsStatChip('合計', total, JsColors.silver,
+              JsStatChip('合計', total, FieldTokens.textSupport,
                   selected: _filterStatus == null,
                   onTap: () => setState(() => _filterStatus = null)),
               const SizedBox(width: 8),
-              JsStatChip('承認', approved, JsColors.success,
+              JsStatChip('承認', approved, FieldTokens.statusSuccess,
                   selected: _filterStatus == 'approved',
                   onTap: () => _toggleFilter('approved')),
               const SizedBox(width: 8),
-              JsStatChip('差戻', rejected, JsColors.error,
+              JsStatChip('差戻', rejected, FieldTokens.statusError,
                   selected: _filterStatus == 'rejected',
                   onTap: () => _toggleFilter('rejected')),
               const SizedBox(width: 8),
-              JsStatChip('未承認', pending, JsColors.warning,
+              JsStatChip('未承認', pending, FieldTokens.statusWarning,
                   selected: _filterStatus == 'pending',
                   onTap: () => _toggleFilter('pending')),
             ]),
@@ -180,17 +180,17 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         // リスト
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+              ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
               : _error != null
-                  ? Center(child: Text(_error!, style: const TextStyle(color: JsColors.error)))
+                  ? Center(child: Text(_error!, style: const TextStyle(color: FieldTokens.statusError)))
                   : _reports.isEmpty
                       ? const Center(
                           child: Text('この月の記録はありません',
-                              style: TextStyle(color: JsColors.silver)))
+                              style: TextStyle(color: FieldTokens.textSupport)))
                       : displayed.isEmpty
                           ? const Center(
                               child: Text('該当する記録はありません',
-                                  style: TextStyle(color: JsColors.silver)))
+                                  style: TextStyle(color: FieldTokens.textSupport)))
                           : ListView.builder(
                               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                               itemCount: sortedDates.length,
@@ -236,7 +236,7 @@ class MonthlyHistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: const Text('月間履歴'),
         leading: IconButton(
@@ -310,9 +310,9 @@ class JsReportTile extends StatelessWidget {
     late final Color sc;
     late final String sl;
     switch (status) {
-      case 'approved': sc = JsColors.success; sl = '承認済'; break;
-      case 'rejected': sc = JsColors.error;   sl = '差戻し'; break;
-      default:         sc = JsColors.silver;  sl = '未承認'; break;
+      case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
+      case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
+      default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
     }
     final date       = report['report_date']   as String? ?? '';
     final content    = report['work_content']  as String? ?? '作業内容 未入力';
@@ -324,7 +324,7 @@ class JsReportTile extends StatelessWidget {
     final isRejected  = status == 'rejected';
     final accentColor = myCompanyId.isEmpty
         ? null
-        : (_isOwn ? JsColors.gold : const Color(0xFF4FC3F7));
+        : (_isOwn ? FieldTokens.accent : const Color(0xFF4FC3F7));
 
     return GestureDetector(
       onTap: () {
@@ -336,7 +336,7 @@ class JsReportTile extends StatelessWidget {
         } else {
           showModalBottomSheet(
             context: context,
-            backgroundColor: JsColors.gunmetal,
+            backgroundColor: FieldTokens.surfaceCard,
             isScrollControlled: true,
             shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -347,10 +347,10 @@ class JsReportTile extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-              color: isRejected ? JsColors.error : JsColors.divider),
+              color: isRejected ? FieldTokens.statusError : FieldTokens.outline),
         ),
         child: IntrinsicHeight(
           child: Row(
@@ -380,12 +380,12 @@ class JsReportTile extends StatelessWidget {
                             Row(children: [
                               Text(date,
                                   style: const TextStyle(
-                                      color: JsColors.silver, fontSize: 12)),
+                                      color: FieldTokens.textSupport, fontSize: 12)),
                               if (trans.isNotEmpty) ...[
                                 const SizedBox(width: 8),
                                 Text(trans,
                                     style: const TextStyle(
-                                        color: JsColors.silver, fontSize: 11)),
+                                        color: FieldTokens.textSupport, fontSize: 11)),
                               ],
                               if (accentColor != null && workerName.isNotEmpty) ...[
                                 const SizedBox(width: 8),
@@ -399,24 +399,24 @@ class JsReportTile extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(content,
                                 style: const TextStyle(
-                                    color: JsColors.offWhite, fontSize: 14),
+                                    color: FieldTokens.textBody, fontSize: 14),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis),
                             if (addr.isNotEmpty)
                               Text(addr,
                                   style: const TextStyle(
-                                      color: JsColors.silver, fontSize: 11),
+                                      color: FieldTokens.textSupport, fontSize: 11),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis),
                             if (isRejected) ...[
                               const SizedBox(height: 6),
                               const Row(children: [
                                 Icon(Icons.arrow_forward,
-                                    color: JsColors.error, size: 13),
+                                    color: FieldTokens.statusError, size: 13),
                                 SizedBox(width: 4),
                                 Text('是正依頼を確認',
                                     style: TextStyle(
-                                        color: JsColors.error,
+                                        color: FieldTokens.statusError,
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold)),
                               ]),
@@ -461,9 +461,9 @@ class JsReportDetailSheet extends StatelessWidget {
     final Color sc;
     final String sl;
     switch (status) {
-      case 'approved': sc = JsColors.success; sl = '承認済'; break;
-      case 'rejected': sc = JsColors.error;   sl = '差戻し'; break;
-      default:         sc = JsColors.silver;  sl = '未承認'; break;
+      case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
+      case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
+      default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
     }
 
     final date        = report['report_date']    as String? ?? '';
@@ -493,7 +493,7 @@ class JsReportDetailSheet extends StatelessWidget {
                 width: 40, height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: JsColors.divider,
+                  color: FieldTokens.outline,
                   borderRadius: BorderRadius.circular(2)),
               ),
             ),
@@ -502,7 +502,7 @@ class JsReportDetailSheet extends StatelessWidget {
               children: [
                 Text(date,
                     style: const TextStyle(
-                        color: JsColors.silver, fontSize: 13)),
+                        color: FieldTokens.textSupport, fontSize: 13)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -554,18 +554,18 @@ class JsDetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: JsColors.gold, size: 18),
+          Icon(icon, color: FieldTokens.accent, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+                    style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
                 const SizedBox(height: 2),
                 Text(value,
                     style: const TextStyle(
-                        color: JsColors.offWhite, fontSize: 14)),
+                        color: FieldTokens.textBody, fontSize: 14)),
               ],
             ),
           ),
@@ -597,11 +597,11 @@ class _DateRow extends StatelessWidget {
     final Color sc;
     final String sl;
     if (hasRejected) {
-      sc = JsColors.error;   sl = '差戻';
+      sc = FieldTokens.statusError;   sl = '差戻';
     } else if (allApproved) {
-      sc = JsColors.success; sl = '承認済';
+      sc = FieldTokens.statusSuccess; sl = '承認済';
     } else {
-      sc = JsColors.warning; sl = '未承認';
+      sc = FieldTokens.statusWarning; sl = '未承認';
     }
 
     final parts = dateStr.split('-');
@@ -615,10 +615,10 @@ class _DateRow extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-              color: hasRejected ? JsColors.error : JsColors.divider),
+              color: hasRejected ? FieldTokens.statusError : FieldTokens.outline),
         ),
         child: Row(children: [
           Expanded(
@@ -627,13 +627,13 @@ class _DateRow extends StatelessWidget {
               children: [
                 Text(label,
                     style: const TextStyle(
-                        color: JsColors.gold,
+                        color: FieldTokens.accent,
                         fontSize: 15,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 2),
                 Text('${reports.length}件',
                     style: const TextStyle(
-                        color: JsColors.silver, fontSize: 12)),
+                        color: FieldTokens.textSupport, fontSize: 12)),
               ],
             ),
           ),
@@ -649,7 +649,7 @@ class _DateRow extends StatelessWidget {
                     color: sc, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.chevron_right, color: JsColors.silver, size: 18),
+          const Icon(Icons.chevron_right, color: FieldTokens.textSupport, size: 18),
         ]),
       ),
     );

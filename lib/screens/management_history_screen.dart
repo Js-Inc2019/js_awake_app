@@ -10,12 +10,12 @@
 //     管理       = ForemanManagementBody  (home_screen.dart:5079・職長のみ)
 //   ★上4行の行番号は「集計」追加に合わせて実ファイルで数え直した値（旧値は陳腐化していた）。
 //
-// TabBar の見た目（Container(color: JsColors.gunmetal) + 既定 TabBar）は
+// TabBar の見た目（Container(color: FieldTokens.surfaceCard) + 既定 TabBar）は
 // home_screen.dart:4264-4273（_ForemanManagementBody）および :4341-4350（_ReviewTab）と同一。
 // 新しい色・余白・フォントは一切導入していない。
 import 'package:flutter/material.dart';
 
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'home_screen.dart' show CalendarTab, ReviewTab, ForemanManagementBody;
 import 'monthly_history_screen.dart' show MonthlyHistoryBody;
 import 'monthly_stats_screen.dart' show MonthlyStatsBody;
@@ -104,7 +104,7 @@ class _ManagementHistoryScreenState extends State<ManagementHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
-    // 見た目は従来どおり（Container(gunmetal) + 既定 TabBar / TabBarView）。
+    // 見た目は従来どおり（Container(surfaceCard) + 既定 TabBar / TabBarView）。
     // DefaultTabController を明示の TabController へ置き換えただけで、
     // 各セグメントの中身は1行も変更していない。
     final tabs = _labels.map((t) => Tab(text: t)).toList();
@@ -123,7 +123,7 @@ class _ManagementHistoryScreenState extends State<ManagementHistoryScreen>
     return Column(
       children: [
         Container(
-          color: JsColors.gunmetal,
+          color: FieldTokens.surfaceCard,
           child: TabBar(
             controller: _ctrl,
             isScrollable: false,

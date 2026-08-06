@@ -6,11 +6,11 @@
 //   imageQuality:80 + maxWidth:1920 を必ず指定。
 // ・種別ごと maxCount 枚（既定5）。到達で＋タイル非活性＋「上限n枚」表示。
 // ・重要操作はラベル必須（＋タイルは「＋撮影」ラベル付き・アイコンのみ禁止）。
-// ・配色は core/theme/js_colors.dart（Asphalt Dawn）準拠・直書きHEX禁止。
+// ・配色は core/theme/field_tokens.dart（Asphalt Dawn）準拠・直書きHEX禁止。
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class PhotoStripField extends StatelessWidget {
   const PhotoStripField({
@@ -70,7 +70,7 @@ class PhotoStripField extends StatelessWidget {
             InteractiveViewer(child: Image.file(File(path), fit: BoxFit.contain)),
             IconButton(
               onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.close, color: JsColors.textWhite),
+              icon: const Icon(Icons.close, color: FieldTokens.textBody),
             ),
           ],
         ),
@@ -90,25 +90,25 @@ class PhotoStripField extends StatelessWidget {
           child: Row(
             children: [
               Text(label,
-                  style: const TextStyle(color: JsColors.textMid, fontSize: 12)),
+                  style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: JsColors.surfaceAlt,
+                  color: FieldTokens.surfaceRaised,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: atLimit ? JsColors.accent : JsColors.border),
+                      color: atLimit ? FieldTokens.accent : FieldTokens.outline),
                 ),
                 child: Text('${paths.length}/$maxCount',
                     style: TextStyle(
-                        color: atLimit ? JsColors.accent : JsColors.textMid,
+                        color: atLimit ? FieldTokens.accent : FieldTokens.textSupport,
                         fontSize: 11)),
               ),
               if (atLimit) ...[
                 const SizedBox(width: 8),
                 Text('上限$maxCount枚',
-                    style: const TextStyle(color: JsColors.accent, fontSize: 11)),
+                    style: const TextStyle(color: FieldTokens.accent, fontSize: 11)),
               ],
             ],
           ),
@@ -119,7 +119,7 @@ class PhotoStripField extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(note!,
                 style: const TextStyle(
-                    color: JsFormTokens.textMuted, fontSize: 11)),
+                    color: FieldTokens.textFaint, fontSize: 11)),
           ),
         // 「＋撮影」を左端固定（スクロール外＝何枚撮っても絶対に隠れない）＋
         // サムネは横スクロール。表示は逆順（最新が左＝＋タイルの隣）だが paths の順序は不変。
@@ -187,7 +187,7 @@ class PhotoStripField extends StatelessWidget {
                     decoration: const BoxDecoration(
                         color: Colors.black54, shape: BoxShape.circle),
                     child: const Icon(Icons.close,
-                        size: 16, color: JsColors.textWhite),
+                        size: 16, color: FieldTokens.textBody),
                   ),
                 ),
               ),
@@ -209,17 +209,17 @@ class PhotoStripField extends StatelessWidget {
             width: _thumb,
             height: _thumb,
             decoration: BoxDecoration(
-              color: JsColors.surface,
+              color: FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: JsColors.border),
+              border: Border.all(color: FieldTokens.outline),
             ),
             child: const Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.camera_alt, color: JsColors.accent, size: 22),
+                Icon(Icons.camera_alt, color: FieldTokens.accent, size: 22),
                 SizedBox(height: 4),
                 Text('＋撮影',
-                    style: TextStyle(color: JsColors.accent, fontSize: 11)),
+                    style: TextStyle(color: FieldTokens.accent, fontSize: 11)),
               ],
             ),
           ),

@@ -1,7 +1,7 @@
 // ============================================================
 // lib/screens/membership_select_screen.dart
 // requires_selection（複数所属）時の役割選択画面。
-// Asphalt Dawn テーマ（core/theme/js_colors.dart）を使用。
+// Asphalt Dawn テーマ（core/theme/field_tokens.dart）を使用。
 //
 // - 呼び出し元（login_screen）から pre_auth_token と、FIELD用に
 //   role='worker'|'boss' でフィルタ済みの memberships（2件以上）を受け取る。
@@ -19,7 +19,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class MembershipSelectScreen extends StatefulWidget {
   /// verify-pin / verify-device が返した pre_auth_token（メモリ保持のみ）。
@@ -59,7 +59,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
 
   Color _roleColor(String? role) {
     // boss は職長カラー、worker はゴールドアクセント（Asphalt Dawn）。
-    return role == 'boss' ? JsColors.foremanBase : JsColors.accent;
+    return role == 'boss' ? FieldTokens.foremanBase : FieldTokens.accent;
   }
 
   Future<void> _select(Map<String, dynamic> membership) async {
@@ -127,27 +127,27 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(children: [
-          Icon(Icons.timer_off, color: JsColors.accent),
+          Icon(Icons.timer_off, color: FieldTokens.accent),
           SizedBox(width: 8),
           Flexible(
             child: Text('時間切れです',
-                style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+                style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
           ),
         ]),
         content: const Text(
           'もう一度ログインしてください',
-          style: TextStyle(color: JsColors.textMid, height: 1.7),
+          style: TextStyle(color: FieldTokens.textSupport, height: 1.7),
         ),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
-              backgroundColor: JsColors.accent,
-              foregroundColor: JsColors.background,
+              backgroundColor: FieldTokens.accent,
+              foregroundColor: FieldTokens.bgBase,
             ),
             child: const Text('OK',
                 style: TextStyle(fontWeight: FontWeight.bold)),
@@ -161,10 +161,10 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
   Widget build(BuildContext context) {
     final submitting = _submittingId != null;
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.background,
-        foregroundColor: JsColors.accent,
+        backgroundColor: FieldTokens.bgBase,
+        foregroundColor: FieldTokens.accent,
         elevation: 0,
         // 選択せず戻れる（袋小路なし）。送信中は誤操作防止で無効化。
         leading: IconButton(
@@ -189,7 +189,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                     const Text(
                       'どの役割で入りますか？',
                       style: TextStyle(
-                        color: JsColors.textStrong,
+                        color: FieldTokens.textBody,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.5,
@@ -199,7 +199,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                     const SizedBox(height: 8),
                     const Text(
                       '複数の所属があります。入る役割を選んでください',
-                      style: TextStyle(color: JsColors.textMid, fontSize: 13),
+                      style: TextStyle(color: FieldTokens.textSupport, fontSize: 13),
                       textAlign: TextAlign.center,
                     ),
                     if (_errorMessage != null) ...[
@@ -207,14 +207,14 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: JsColors.error.withValues(alpha: 0.1),
-                          border: Border.all(color: JsColors.error),
+                          color: FieldTokens.statusError.withValues(alpha: 0.1),
+                          border: Border.all(color: FieldTokens.statusError),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
                           _errorMessage!,
                           style: const TextStyle(
-                              color: JsColors.error, fontSize: 13),
+                              color: FieldTokens.statusError, fontSize: 13),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -249,7 +249,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
     final anySubmitting = _submittingId != null;
 
     return Material(
-      color: JsColors.surface,
+      color: FieldTokens.surfaceCard,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -297,7 +297,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                       Text(
                         companyName,
                         style: const TextStyle(
-                          color: JsColors.textStrong,
+                          color: FieldTokens.textBody,
                           fontSize: 14,
                         ),
                       ),
@@ -307,7 +307,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                       Text(
                         workerId,
                         style: const TextStyle(
-                          color: JsColors.textMid,
+                          color: FieldTokens.textSupport,
                           fontSize: 12,
                           letterSpacing: 0.5,
                         ),
@@ -322,10 +322,10 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: JsColors.accent),
+                      strokeWidth: 2, color: FieldTokens.accent),
                 )
               else
-                const Icon(Icons.chevron_right, color: JsColors.textMid),
+                const Icon(Icons.chevron_right, color: FieldTokens.textSupport),
             ],
           ),
         ),

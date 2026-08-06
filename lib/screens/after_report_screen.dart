@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 
 // 報告完了ビュー（日報タブ index1 を占有）。
@@ -22,8 +22,8 @@ import '../utils/business_date.dart';
 //  ・「今日はここまで」を主ボタンへ昇格し、見出し直下＝最上部エリアに置く
 //    （旧・末尾の案内文『今日はここまでなら、そのまま閉じてOK』はこれに置換）
 //  ・塗り面（α0.08）を全廃。枠は暗枠1px のみ。区切りは1px線＋余白
-//  ・色は意味だけ: 未送信の警告 = JsColors.warning。続行3行は単色（textStrong/textMid）
-//    ＝ JsColors.foremanBase(紫) / JsColors.actionCyan の装飾用途は撤去した
+//  ・色は意味だけ: 未送信の警告 = FieldTokens.statusWarning。続行3行は単色（textBody/textSupport）
+//    ＝ FieldTokens.foremanBase(紫) / FieldTokens.accent の装飾用途は撤去した
 class AfterReportBody extends StatefulWidget {
   const AfterReportBody({
     super.key,
@@ -73,25 +73,25 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               const Text('報告完了',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      color: JsColors.textStrong, fontSize: 22, fontWeight: FontWeight.bold)),
+                      color: FieldTokens.textBody, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
               Text(_headerSubtitle,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: JsColors.textMid, fontSize: 12)),
+                  style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
             ] else ...[
               const Text('未送信（再送待ち）',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      color: JsColors.textStrong, fontSize: 22, fontWeight: FontWeight.bold)),
+                      color: FieldTokens.textBody, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
               Text('${widget.workerName}さんの報告は保存されました',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: JsColors.textMid, fontSize: 12)),
+                  style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
               const SizedBox(height: 10),
               const Text(
                 '通信状況により未送信です。電波の良い場所で自動再送されます。',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: JsColors.warning, fontSize: 12),
+                style: TextStyle(color: FieldTokens.statusWarning, fontSize: 12),
               ),
               const SizedBox(height: 12),
               // 再送は続行3行と同じ新様式。ただし文字/アイコンは warning のまま
@@ -100,7 +100,7 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                 icon: Icons.refresh,
                 title: '今すぐ再送する',
                 subtitle: '保存済みの報告をもう一度送信',
-                accent: JsColors.warning,
+                accent: FieldTokens.statusWarning,
                 onTap: () => widget.onRetry?.call(),
               ),
             ],
@@ -117,11 +117,11 @@ class _AfterReportBodyState extends State<AfterReportBody> {
 
             const SizedBox(height: 24),
             // 区切りは1px線＋余白のみ（カード・塗り面は使わない）
-            const Divider(height: 1, thickness: 1, color: JsColors.divider),
+            const Divider(height: 1, thickness: 1, color: FieldTokens.outline),
             const SizedBox(height: 20),
 
             const Text('続けて報告',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
             const SizedBox(height: 12),
 
             // ⏰ 追加の申告（残業／休憩の短縮。ラッチなし＝何度でも申告できる）
@@ -146,9 +146,9 @@ class _AfterReportBodyState extends State<AfterReportBody> {
 }
 
 // 主ボタン「今日はここまで」。生成り枠1.5px＋同色文字・塗りなし・高さ56・角丸10。
-// 色は JsFormTokens.outlineButtonBorder（= JsColors.textStrong = JsPalette.textBody #EAE3D0）。
-// js_colors.dart:183 がこのトークンの用途を「枠1.5px＋文字」と明記しており、
-// home_screen.dart:4728-4730 / 6112-6114 が同じ width:1.5 で使っている既存様式に揃えた。
+// 色は FieldTokens.textBody(#EAE3D0)。field_tokens.dart の同トークンの doc が
+// 「生成り抜きボタンの枠1.5px＋文字にも使う」と明記しており、
+// home_screen.dart が同じ width:1.5 で使っている既存様式に揃えた。
 class _PrimaryOutlineButton extends StatelessWidget {
   const _PrimaryOutlineButton({required this.label, required this.onTap});
   final String label;
@@ -165,12 +165,12 @@ class _PrimaryOutlineButton extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                  color: FieldTokens.textBody, width: 1.5),
             ),
             child: Center(
               child: Text(label,
                   style: const TextStyle(
-                      color: JsFormTokens.outlineButtonBorder,
+                      color: FieldTokens.textBody,
                       fontSize: 16,
                       fontWeight: FontWeight.bold)),
             ),
@@ -180,9 +180,9 @@ class _PrimaryOutlineButton extends StatelessWidget {
 }
 
 // 次の行動の1行。A案で塗り面（旧: 背景α0.08 + 枠α0.4 + 行ごとの色）を撤去した。
-//   ・面は透明。枠は暗枠1px = JsFormTokens.chipBorder(= JsPalette.outline #2E333A)
+//   ・面は透明。枠は暗枠1px = FieldTokens.outline(= FieldTokens.outline #2E333A)
 //     ＝ home_screen.dart の二次様式 _StepBackButton:2555 と同一トークン
-//   ・アイコン/サブ/シェブロンは単色 JsColors.textMid、タイトルのみ JsColors.textStrong
+//   ・アイコン/サブ/シェブロンは単色 FieldTokens.textSupport、タイトルのみ FieldTokens.textBody
 //   ・accent は「未送信の再送行」だけが渡す意味色。null のときは単色に落ちる。
 class _ActionCard extends StatelessWidget {
   const _ActionCard({
@@ -205,8 +205,8 @@ class _ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 単色統一。accent が来た行だけ意味色（warning）で塗り分ける。
-    final sub   = accent ?? JsColors.textMid;
-    final head  = accent ?? JsColors.textStrong;
+    final sub   = accent ?? FieldTokens.textSupport;
+    final head  = accent ?? FieldTokens.textBody;
 
     return Material(
       color: Colors.transparent,
@@ -219,7 +219,7 @@ class _ActionCard extends StatelessWidget {
           decoration: BoxDecoration(
             // 塗り面なし（透明）。枠のみで領域を示す。
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JsFormTokens.chipBorder),
+            border: Border.all(color: FieldTokens.outline),
           ),
           child: Row(
             children: [

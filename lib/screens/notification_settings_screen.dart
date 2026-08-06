@@ -7,7 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../main.dart' show showJsSnackbar;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../services/notification_service.dart';
 // 打刻のお知らせは会社設定（attendance_settings）。/attendance 系はこのサービスが持つ。
 import '../services/work_mode_service.dart';
@@ -150,7 +150,7 @@ class _NotificationSettingsScreenState
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: JsColors.surface,
+      backgroundColor: FieldTokens.surfaceCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -168,7 +168,7 @@ class _NotificationSettingsScreenState
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
                         child: const Text('キャンセル',
-                            style: TextStyle(color: JsColors.textMid)),
+                            style: TextStyle(color: FieldTokens.textSupport)),
                       ),
                       const Spacer(),
                       TextButton(
@@ -182,13 +182,13 @@ class _NotificationSettingsScreenState
                         },
                         child: const Text('決定',
                             style: TextStyle(
-                                color: JsColors.accent,
+                                color: FieldTokens.accent,
                                 fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1, color: JsColors.border),
+                const Divider(height: 1, color: FieldTokens.outline),
                 Expanded(
                   child: Row(
                     children: [
@@ -198,14 +198,14 @@ class _NotificationSettingsScreenState
                           scrollController: FixedExtentScrollController(
                               initialItem: selHour),
                           itemExtent: 40,
-                          backgroundColor: JsColors.surface,
+                          backgroundColor: FieldTokens.surfaceCard,
                           onSelectedItemChanged: (i) => selHour = i,
                           children: [
                             for (int h = 0; h < 24; h++)
                               Center(
                                 child: Text('${h.toString().padLeft(2, '0')}時',
                                     style: const TextStyle(
-                                        color: JsColors.textStrong,
+                                        color: FieldTokens.textBody,
                                         fontSize: 20)),
                               ),
                           ],
@@ -217,14 +217,14 @@ class _NotificationSettingsScreenState
                           scrollController: FixedExtentScrollController(
                               initialItem: selMinIndex),
                           itemExtent: 40,
-                          backgroundColor: JsColors.surface,
+                          backgroundColor: FieldTokens.surfaceCard,
                           onSelectedItemChanged: (i) => selMinIndex = i,
                           children: [
                             for (final m in minuteOptions)
                               Center(
                                 child: Text('${m.toString().padLeft(2, '0')}分',
                                     style: const TextStyle(
-                                        color: JsColors.textStrong,
+                                        color: FieldTokens.textBody,
                                         fontSize: 20)),
                               ),
                           ],
@@ -244,9 +244,9 @@ class _NotificationSettingsScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.background,
+        backgroundColor: FieldTokens.bgBase,
         title: const Text('通知設定'),
       ),
       body: SafeArea(child: _buildBody()),
@@ -256,25 +256,25 @@ class _NotificationSettingsScreenState
   Widget _buildBody() {
     if (_loading) {
       return const Center(
-          child: CircularProgressIndicator(color: JsColors.accent));
+          child: CircularProgressIndicator(color: FieldTokens.accent));
     }
     if (_error) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, color: JsColors.textMid, size: 48),
+            const Icon(Icons.cloud_off, color: FieldTokens.textSupport, size: 48),
             const SizedBox(height: 12),
             const Text('設定を読み込めませんでした',
-                style: TextStyle(color: JsColors.textMid, fontSize: 14)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 14)),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('再試行'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: JsColors.accent,
-                side: const BorderSide(color: JsColors.accent),
+                foregroundColor: FieldTokens.accent,
+                side: const BorderSide(color: FieldTokens.accent),
               ),
             ),
           ],
@@ -288,21 +288,21 @@ class _NotificationSettingsScreenState
         // a. 日報リマインダ ON/OFF
         Container(
           decoration: BoxDecoration(
-            color: JsColors.surface,
+            color: FieldTokens.surfaceCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: JsColors.border),
+            border: Border.all(color: FieldTokens.outline),
           ),
           child: SwitchListTile(
             value: _remindEnabled,
             onChanged: (v) => setState(() => _remindEnabled = v),
-            activeThumbColor: JsColors.accent,
+            activeThumbColor: FieldTokens.accent,
             title: const Text('日報リマインダ',
                 style: TextStyle(
-                    color: JsColors.textStrong,
+                    color: FieldTokens.textBody,
                     fontSize: 15,
                     fontWeight: FontWeight.w600)),
             subtitle: const Text('未提出の日に通知でお知らせします',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           ),
         ),
         const SizedBox(height: 20),
@@ -311,8 +311,8 @@ class _NotificationSettingsScreenState
         Text('通知する時刻',
             style: TextStyle(
                 color: _remindEnabled
-                    ? JsColors.textMid
-                    : JsColors.textWeak,
+                    ? FieldTokens.textSupport
+                    : FieldTokens.textFaint,
                 fontSize: 12)),
         const SizedBox(height: 8),
         _TimeRow(
@@ -362,20 +362,20 @@ class _NotificationSettingsScreenState
 
         // d. 注記
         const Text('日報を提出済みの日は通知されません',
-            style: TextStyle(color: JsColors.textWeak, fontSize: 12)),
+            style: TextStyle(color: FieldTokens.textFaint, fontSize: 12)),
         const SizedBox(height: 32),
 
         // ── 打刻のお知らせ（読み取り専用・会社が管理する）──────────────
         //   取得できなかったときは節ごと出さない（嘘の値を見せない）。
         if (_punchLoaded) ...[
           const Text('打刻のお知らせ',
-              style: TextStyle(color: JsColors.textMid, fontSize: 12)),
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              color: JsColors.surface,
+              color: FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: JsColors.border),
+              border: Border.all(color: FieldTokens.outline),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(children: [
@@ -386,7 +386,7 @@ class _NotificationSettingsScreenState
           ),
           const SizedBox(height: 8),
           const Text('この設定は会社が管理します。変更はOFFICEの勤怠設定から',
-              style: TextStyle(color: JsColors.textWeak, fontSize: 12)),
+              style: TextStyle(color: FieldTokens.textFaint, fontSize: 12)),
           const SizedBox(height: 32),
         ],
 
@@ -399,9 +399,9 @@ class _NotificationSettingsScreenState
             // 生成り抜き（画面内の主ボタン）
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
-              foregroundColor: JsFormTokens.outlineButtonBorder,
+              foregroundColor: FieldTokens.textBody,
               disabledBackgroundColor: Colors.transparent,
-              disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+              disabledForegroundColor: FieldTokens.textFaint,
               elevation: 0,
               shadowColor: Colors.transparent,
               shape: RoundedRectangleBorder(
@@ -410,8 +410,8 @@ class _NotificationSettingsScreenState
             ).copyWith(
               side: WidgetStateProperty.resolveWith((states) => BorderSide(
                     color: states.contains(WidgetState.disabled)
-                        ? JsFormTokens.outlineButtonDisabled
-                        : JsFormTokens.outlineButtonBorder,
+                        ? FieldTokens.textFaint
+                        : FieldTokens.textBody,
                     width: 1.5,
                   )),
             ),
@@ -422,7 +422,7 @@ class _NotificationSettingsScreenState
                     // 面が透明になったのでスピナーも枠色（生成り）へ
                     child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        color: JsFormTokens.outlineButtonDisabled),
+                        color: FieldTokens.textFaint),
                   )
                 : const Text('保存する',
                     style: TextStyle(
@@ -446,11 +446,11 @@ class _PunchSummaryRow extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         children: [
           Text(label,
-              style: const TextStyle(color: JsColors.textMid, fontSize: 13)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
           const Spacer(),
           Text(value,
               style: const TextStyle(
-                  color: JsColors.textStrong,
+                  color: FieldTokens.textBody,
                   fontSize: 15,
                   fontWeight: FontWeight.bold)),
         ],
@@ -477,16 +477,16 @@ class _TimeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final off = time == null;
     // 全体OFF時はグレーアウト（操作不可）
-    final Color labelColor = enabled ? JsColors.textMid : JsColors.textWeak;
+    final Color labelColor = enabled ? FieldTokens.textSupport : FieldTokens.textFaint;
     final Color valueColor = !enabled
-        ? JsColors.textWeak
-        : (off ? JsColors.textWeak : JsColors.textStrong);
+        ? FieldTokens.textFaint
+        : (off ? FieldTokens.textFaint : FieldTokens.textBody);
 
     return Container(
       decoration: BoxDecoration(
-        color: JsColors.surface,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JsColors.border),
+        border: Border.all(color: FieldTokens.outline),
       ),
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
       child: Row(
@@ -514,7 +514,7 @@ class _TimeRow extends StatelessWidget {
                     if (enabled && !off) ...[
                       const SizedBox(width: 6),
                       const Icon(Icons.expand_more,
-                          color: JsColors.textMid, size: 18),
+                          color: FieldTokens.textSupport, size: 18),
                     ],
                   ],
                 ),
@@ -528,14 +528,14 @@ class _TimeRow extends StatelessWidget {
             children: [
               Text('通知しない',
                   style: TextStyle(
-                      color: enabled ? JsColors.textWeak : JsColors.textWeak,
+                      color: enabled ? FieldTokens.textFaint : FieldTokens.textFaint,
                       fontSize: 10)),
               Transform.scale(
                 scale: 0.85,
                 child: Switch(
                   value: off,
                   onChanged: enabled ? onToggleOff : null,
-                  activeThumbColor: JsColors.accent,
+                  activeThumbColor: FieldTokens.accent,
                 ),
               ),
             ],

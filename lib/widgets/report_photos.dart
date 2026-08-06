@@ -1,7 +1,7 @@
 // lib/widgets/report_photos.dart - 日報写真 共通Widget
 import 'package:flutter/material.dart';
 import '../services/reports_service.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 // ─── 日報写真（オンデマンド取得＋サムネ帯＋拡大） ──────────────────────
 // 「写真を見る」タップで GET /reports/:id を叩き photos[] を取得。
@@ -92,7 +92,7 @@ class ReportPhotosState extends State<ReportPhotos> {
             InteractiveViewer(child: Image.network(url, fit: BoxFit.contain)),
             IconButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              icon: const Icon(Icons.close, color: JsColors.offWhite),
+              icon: const Icon(Icons.close, color: FieldTokens.textBody),
             ),
           ],
         ),
@@ -116,7 +116,7 @@ class ReportPhotosState extends State<ReportPhotos> {
             color: Colors.black26,
             alignment: Alignment.center,
             child: const Text('読込不可',
-                style: TextStyle(color: JsColors.silver, fontSize: 10)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
           ),
         ),
       ),
@@ -127,7 +127,7 @@ class ReportPhotosState extends State<ReportPhotos> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+        Text(label, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
         const SizedBox(height: 4),
         SizedBox(
           height: 88,
@@ -170,7 +170,7 @@ class ReportPhotosState extends State<ReportPhotos> {
         children: [
           Expanded(
             child: Text(_error!,
-                style: const TextStyle(color: JsColors.silver, fontSize: 12)),
+                style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           ),
           TextButton(
             onPressed: _loading ? null : _fetch,
@@ -185,7 +185,7 @@ class ReportPhotosState extends State<ReportPhotos> {
       return const Align(
         alignment: Alignment.centerLeft,
         child: Text('写真なし',
-            style: TextStyle(color: JsColors.silver, fontSize: 12)),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
       );
     }
 

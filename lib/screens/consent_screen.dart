@@ -1,6 +1,6 @@
 // lib/screens/consent_screen.dart
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class ConsentScreen extends StatefulWidget {
   final VoidCallback onAgreed;
@@ -104,11 +104,11 @@ class _ConsentScreenState extends State<ConsentScreen> {
   Widget build(BuildContext context) {
     final isLast = _currentPage == _details.length - 1;
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: const Text('利用規約・同意確認'),
-        backgroundColor: JsColors.black,
-        foregroundColor: JsColors.textStrong,
+        backgroundColor: FieldTokens.bgBase,
+        foregroundColor: FieldTokens.textBody,
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
@@ -127,7 +127,7 @@ class _ConsentScreenState extends State<ConsentScreen> {
                     width: i == _currentPage ? 20 : 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: i == _currentPage ? JsColors.gold : JsColors.border,
+                      color: i == _currentPage ? FieldTokens.accent : FieldTokens.outline,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   );
@@ -140,7 +140,7 @@ class _ConsentScreenState extends State<ConsentScreen> {
               child: Text(
                 '${_currentPage + 1} / ${_details.length}　${_titles[_currentPage]}',
                 style: const TextStyle(
-                  color: JsColors.gold,
+                  color: FieldTokens.accent,
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
                 ),
@@ -160,14 +160,14 @@ class _ConsentScreenState extends State<ConsentScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: JsColors.surface,
+                      color: FieldTokens.surfaceCard,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: JsColors.border),
+                      border: Border.all(color: FieldTokens.outline),
                     ),
                     child: Text(
                       _details[i],
                       style: const TextStyle(
-                        color: JsColors.textMid,
+                        color: FieldTokens.textSupport,
                         fontSize: 13.5,
                         height: 1.8,
                       ),
@@ -189,22 +189,22 @@ class _ConsentScreenState extends State<ConsentScreen> {
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: _agreed ? JsColors.gold : Colors.transparent,
+                          color: _agreed ? FieldTokens.accent : Colors.transparent,
                           border: Border.all(
-                            color: _agreed ? JsColors.gold : JsColors.textMid,
+                            color: _agreed ? FieldTokens.accent : FieldTokens.textSupport,
                             width: 2,
                           ),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: _agreed
-                            ? const Icon(Icons.check, size: 16, color: JsPalette.onAccent)
+                            ? const Icon(Icons.check, size: 16, color: FieldTokens.onAccent)
                             : null,
                       ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
                           '上記すべての内容を確認し、同意します',
-                          style: TextStyle(color: JsColors.textStrong, fontSize: 13),
+                          style: TextStyle(color: FieldTokens.textBody, fontSize: 13),
                         ),
                       ),
                     ],
@@ -221,8 +221,8 @@ class _ConsentScreenState extends State<ConsentScreen> {
                       child: OutlinedButton(
                         onPressed: _prevPage,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: JsColors.silver,
-                          side: const BorderSide(color: JsColors.border),
+                          foregroundColor: FieldTokens.textSupport,
+                          side: const BorderSide(color: FieldTokens.outline),
                           minimumSize: const Size(0, 48),
                         ),
                         child: const Text('戻る'),
@@ -239,16 +239,16 @@ class _ConsentScreenState extends State<ConsentScreen> {
                             } : null)
                           : _nextPage,
                       // 生成り抜き（画面内の主ボタン）: 面は透明・枠1.5px・
-                      // 無効時は枠と文字を outlineButtonDisabled へ。
+                      // 無効時は枠と文字を textFaint へ。
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
                         foregroundColor: isLast && !_agreed
-                            ? JsFormTokens.outlineButtonDisabled
-                            : JsFormTokens.outlineButtonBorder,
+                            ? FieldTokens.textFaint
+                            : FieldTokens.textBody,
                         minimumSize: const Size(0, 48),
                         disabledBackgroundColor: Colors.transparent,
                         disabledForegroundColor:
-                            JsFormTokens.outlineButtonDisabled,
+                            FieldTokens.textFaint,
                         elevation: 0,
                         shadowColor: Colors.transparent,
                       ).copyWith(
@@ -256,8 +256,8 @@ class _ConsentScreenState extends State<ConsentScreen> {
                             BorderSide(
                               color: states.contains(WidgetState.disabled) ||
                                       (isLast && !_agreed)
-                                  ? JsFormTokens.outlineButtonDisabled
-                                  : JsFormTokens.outlineButtonBorder,
+                                  ? FieldTokens.textFaint
+                                  : FieldTokens.textBody,
                               width: 1.5,
                             )),
                       ),

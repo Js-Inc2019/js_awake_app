@@ -2,7 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
- import '../core/theme/js_colors.dart';
+ import '../core/theme/field_tokens.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -124,11 +124,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: Text(_appBarTitle),
-        backgroundColor: JsColors.background,
-        foregroundColor: JsColors.accent,
+        backgroundColor: FieldTokens.bgBase,
+        foregroundColor: FieldTokens.accent,
         elevation: 0,
         leading: _onBack != null
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: _onBack)
@@ -148,10 +148,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _stepIndicator(current: 0, total: 2),
       const SizedBox(height: 28),
       const Text('招待コードを入力',
-          style: TextStyle(color: JsPalette.accentDeep, fontSize: 22, fontWeight: FontWeight.bold)),
+          style: TextStyle(color: FieldTokens.accentDeep, fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
       const Text('管理者から受け取った招待コードを入力してください',
-          style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+          style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
       const SizedBox(height: 32),
       _field(controller: _inviteCtrl, label: '招待コード', icon: Icons.vpn_key, caps: true),
       if (_error != null) _errorBox(_error!),
@@ -162,7 +162,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('ログイン画面に戻る',
-              style: TextStyle(color: JsColors.textMid)),
+              style: TextStyle(color: FieldTokens.textSupport)),
         ),
       ),
     ]);
@@ -173,10 +173,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _stepIndicator(current: 1, total: 2),
       const SizedBox(height: 28),
       const Text('PINを設定',
-          style: TextStyle(color: JsPalette.accentDeep, fontSize: 22, fontWeight: FontWeight.bold)),
+          style: TextStyle(color: FieldTokens.accentDeep, fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
       const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
-          style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+          style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
       const SizedBox(height: 28),
       _field(
         controller: _pinCtrl,
@@ -187,7 +187,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         maxLen: 6,
         suffix: IconButton(
           icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility,
-              color: JsColors.textMid),
+              color: FieldTokens.textSupport),
           onPressed: () => setState(() => _obscurePin = !_obscurePin),
         ),
       ),
@@ -201,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         maxLen: 6,
         suffix: IconButton(
           icon: Icon(_obscureConf ? Icons.visibility_off : Icons.visibility,
-              color: JsColors.textMid),
+              color: FieldTokens.textSupport),
           onPressed: () => setState(() => _obscureConf = !_obscureConf),
         ),
       ),
@@ -231,13 +231,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       width: 28, height: 28,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: (active || done) ? JsColors.accent : JsColors.surfaceAlt,
+        color: (active || done) ? FieldTokens.accent : FieldTokens.surfaceRaised,
       ),
       child: Center(
         child: done
-            ? const Icon(Icons.check, color: JsPalette.onAccent, size: 16)
+            ? const Icon(Icons.check, color: FieldTokens.onAccent, size: 16)
             : Text('${idx + 1}', style: TextStyle(
-                color: active ? JsPalette.onAccent : JsColors.textMid,
+                color: active ? FieldTokens.onAccent : FieldTokens.textSupport,
                 fontWeight: FontWeight.bold,
                 fontSize: 13)),
       ),
@@ -247,7 +247,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _line(bool active) => Expanded(
     child: Container(
         height: 2,
-        color: active ? JsColors.accent : JsColors.border),
+        color: active ? FieldTokens.accent : FieldTokens.outline),
   );
 
   Widget _field({
@@ -274,26 +274,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ],
       decoration: InputDecoration(
         labelText:  label,
-        prefixIcon: Icon(icon, color: JsColors.textMid),
+        prefixIcon: Icon(icon, color: FieldTokens.textSupport),
         suffixIcon: suffix,
         filled:     true,
-        fillColor:  JsColors.surface,
-        counterStyle: const TextStyle(color: JsColors.textMid),
+        fillColor:  FieldTokens.surfaceCard,
+        counterStyle: const TextStyle(color: FieldTokens.textSupport),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.border),
+          borderSide: const BorderSide(color: FieldTokens.outline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.border),
+          borderSide: const BorderSide(color: FieldTokens.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.accent, width: 2),
+          borderSide: const BorderSide(color: FieldTokens.accent, width: 2),
         ),
-        labelStyle: const TextStyle(color: JsColors.textMid),
+        labelStyle: const TextStyle(color: FieldTokens.textSupport),
       ),
-      style: const TextStyle(color: JsColors.textStrong),
+      style: const TextStyle(color: FieldTokens.textBody),
     );
   }
 
@@ -310,17 +310,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         // 生成り抜き（画面内の主ボタン）
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
-          foregroundColor: JsFormTokens.outlineButtonBorder,
+          foregroundColor: FieldTokens.textBody,
           disabledBackgroundColor: Colors.transparent,
-          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          disabledForegroundColor: FieldTokens.textFaint,
           elevation: 0,
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ).copyWith(
           side: WidgetStateProperty.resolveWith((states) => BorderSide(
                 color: states.contains(WidgetState.disabled)
-                    ? JsFormTokens.outlineButtonDisabled
-                    : JsFormTokens.outlineButtonBorder,
+                    ? FieldTokens.textFaint
+                    : FieldTokens.textBody,
                 width: 1.5,
               )),
         ),
@@ -331,7 +331,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 // 面が透明になったのでスピナーも枠色（生成り）へ
                 child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    color: JsFormTokens.outlineButtonDisabled))
+                    color: FieldTokens.textFaint))
             : Text(label,
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
       ),

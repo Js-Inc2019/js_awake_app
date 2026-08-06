@@ -1,6 +1,6 @@
 // lib/widgets/slide_to_confirm.dart
  import 'package:flutter/material.dart';
- import '../core/theme/js_colors.dart';
+ import '../core/theme/field_tokens.dart';
 
 // ── 配色（新原則）─────────────────────────────────────────────────────────
 //   枠＝生成り（押せるもの）／ポイント＝エメラルド（つまみ・満ちた面）。
@@ -8,10 +8,10 @@
 //   つまみ  : accent 塗り・矢印 onAccent
 //   完了時  : トラック全面 accent 塗り＋文言 onAccent＋
 //             つまみは onAccent 地に accent のチェック（「満ちる」表現）
-const _trackBorder = JsFormTokens.outlineButtonBorder; // = JsColors.textStrong
-const _trackLabel  = JsColors.textStrong;
-const _knobFill    = JsPalette.accent;
-const _knobOn      = JsPalette.onAccent;
+const _trackBorder = FieldTokens.textBody;
+const _trackLabel  = FieldTokens.textBody;
+const _knobFill    = FieldTokens.accent;
+const _knobOn      = FieldTokens.onAccent;
 
 class SlideToConfirm extends StatefulWidget {
   const SlideToConfirm({

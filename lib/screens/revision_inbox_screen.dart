@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show showJsSnackbar;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../config/constants.dart';
 import 'revision_edit_screen.dart';
 // 作業3: 移動手段の複数対応。既存の transportNamesOf を再利用する（新設しない）。
@@ -115,14 +115,14 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
   @override
   Widget build(BuildContext context) {
     return _loading
-        ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+        ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
         : _hasError
             ? _errorView()
             : _revisions.isEmpty
                 ? _emptyView()
                 : RefreshIndicator(
                 onRefresh: _load,
-                color: JsColors.gold,
+                color: FieldTokens.accent,
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: _revisions.length,
@@ -141,7 +141,7 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
                           // 本人以外 → 読み取り専用の詳細（現状維持）。
                           showModalBottomSheet(
                             context: context,
-                            backgroundColor: JsColors.gunmetal,
+                            backgroundColor: FieldTokens.surfaceCard,
                             isScrollControlled: true,
                             shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -170,10 +170,10 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inbox, color: JsColors.silver, size: 64),
+          Icon(Icons.inbox, color: FieldTokens.textSupport, size: 64),
           SizedBox(height: 16),
           Text('差し戻しはありません',
-              style: TextStyle(color: JsColors.silver, fontSize: 16)),
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 16)),
         ],
       ),
     );
@@ -184,19 +184,19 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.error_outline, color: JsColors.error, size: 64),
+          const Icon(Icons.error_outline, color: FieldTokens.statusError, size: 64),
           const SizedBox(height: 16),
           const Text('取得に失敗しました',
-              style: TextStyle(color: JsColors.error, fontSize: 16)),
+              style: TextStyle(color: FieldTokens.statusError, fontSize: 16)),
           const SizedBox(height: 24),
           ElevatedButton.icon(
             onPressed: _load,
             // 生成り抜き（画面内の主ボタン）
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
-              foregroundColor: JsFormTokens.outlineButtonBorder,
+              foregroundColor: FieldTokens.textBody,
               side: const BorderSide(
-                  color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                  color: FieldTokens.textBody, width: 1.5),
               elevation: 0,
               shadowColor: Colors.transparent,
             ),
@@ -225,9 +225,9 @@ class RevisionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: JsColors.gunmetal,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JsColors.divider),
+        border: Border.all(color: FieldTokens.outline),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -235,14 +235,14 @@ class RevisionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('日報: $reportDate',
-                style: const TextStyle(color: JsColors.offWhite, fontWeight: FontWeight.bold)),
+                style: const TextStyle(color: FieldTokens.textBody, fontWeight: FontWeight.bold)),
             if (workContent.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
                 workContent,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: JsColors.offWhite, fontSize: 12),
+                style: const TextStyle(color: FieldTokens.textBody, fontSize: 12),
               ),
             ],
             if (bossNote.isNotEmpty) ...[
@@ -251,20 +251,20 @@ class RevisionCard extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: JsColors.warning.withValues(alpha: 0.1),
+                  color: FieldTokens.statusWarning.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Row(children: [
-                      Icon(Icons.comment_outlined, size: 14, color: JsColors.gold),
+                      Icon(Icons.comment_outlined, size: 14, color: FieldTokens.accent),
                       SizedBox(width: 6),
                       Text('差戻し理由',
-                          style: TextStyle(color: JsColors.gold, fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: TextStyle(color: FieldTokens.accent, fontSize: 12, fontWeight: FontWeight.bold)),
                     ]),
                     const SizedBox(height: 6),
-                    Text(bossNote, style: const TextStyle(color: JsColors.offWhite, fontSize: 13)),
+                    Text(bossNote, style: const TextStyle(color: FieldTokens.textBody, fontSize: 13)),
                   ],
                 ),
               ),
@@ -277,8 +277,8 @@ class RevisionCard extends StatelessWidget {
                 icon: Icon(isMine ? Icons.send : Icons.visibility, size: 16),
                 label: Text(isMine ? '直して再提出' : '詳細を見る'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: JsColors.gold,
-                  side: const BorderSide(color: JsColors.gold),
+                  foregroundColor: FieldTokens.accent,
+                  side: const BorderSide(color: FieldTokens.accent),
                   minimumSize: const Size(0, 40),
                 ),
               ),
@@ -317,9 +317,9 @@ class ReportDetailSheet extends StatelessWidget {
     final approved = r['approved'] == true;
     final revision = r['revision_requested'] == true;
     final Color sc; final String sl;
-    if (approved)      { sc = JsColors.success; sl = '承認済'; }
-    else if (revision) { sc = JsColors.warning; sl = '差戻し'; }
-    else               { sc = JsColors.silver;  sl = '未承認'; }
+    if (approved)      { sc = FieldTokens.statusSuccess; sl = '承認済'; }
+    else if (revision) { sc = FieldTokens.statusWarning; sl = '差戻し'; }
+    else               { sc = FieldTokens.textSupport;  sl = '未承認'; }
 
     final reportId   = r['report_id'] as String? ?? r['id'] as String? ?? '';
     final submitted  = _jst(r['created_at'] as String?);
@@ -350,13 +350,13 @@ class ReportDetailSheet extends StatelessWidget {
                 width: 40, height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                    color: JsColors.divider, borderRadius: BorderRadius.circular(2)),
+                    color: FieldTokens.outline, borderRadius: BorderRadius.circular(2)),
               ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(date, style: const TextStyle(color: JsColors.silver, fontSize: 13)),
+                Text(date, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -382,11 +382,11 @@ class ReportDetailSheet extends StatelessWidget {
               _row(Icons.local_parking, '駐車料金', '¥$parking'),
             // 差戻し履歴
             if (bossNote.isNotEmpty)
-              _noteBox('事務からの修正依頼', bossNote, JsColors.gold, Icons.feedback_outlined),
+              _noteBox('事務からの修正依頼', bossNote, FieldTokens.accent, Icons.feedback_outlined),
             if (workerNote.isNotEmpty)
-              _noteBox('職人の再提出メモ', workerNote, JsColors.silver, Icons.reply),
+              _noteBox('職人の再提出メモ', workerNote, FieldTokens.textSupport, Icons.reply),
             const SizedBox(height: 12),
-            const Text('写真', style: TextStyle(color: JsColors.silver, fontSize: 11)),
+            const Text('写真', style: TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
             const SizedBox(height: 6),
             ReportPhotos(reportId: reportId, report: r),
           ],
@@ -400,16 +400,16 @@ class ReportDetailSheet extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: JsColors.gold, size: 18),
+        Icon(icon, color: FieldTokens.accent, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              Text(label, style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
               const SizedBox(height: 2),
               Text(value,
-                  style: const TextStyle(color: JsColors.offWhite, fontSize: 14, height: 1.4)),
+                  style: const TextStyle(color: FieldTokens.textBody, fontSize: 14, height: 1.4)),
             ],
           ),
         ),
@@ -435,7 +435,7 @@ class ReportDetailSheet extends StatelessWidget {
           Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
         ]),
         const SizedBox(height: 6),
-        Text(body, style: const TextStyle(color: JsColors.offWhite, fontSize: 13, height: 1.5)),
+        Text(body, style: const TextStyle(color: FieldTokens.textBody, fontSize: 13, height: 1.5)),
       ],
     ),
   );

@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/notification_service.dart';
 import '../widgets/punch_remind_dialog.dart';
@@ -85,7 +85,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
         ..clearSnackBars()
         ..showSnackBar(const SnackBar(
           content: Text('既読化に失敗しました'),
-          backgroundColor: JsColors.error,
+          backgroundColor: FieldTokens.statusError,
           behavior: SnackBarBehavior.floating,
         ));
     }
@@ -179,25 +179,25 @@ class NotificationListBodyState extends State<NotificationListBody> {
   Widget _buildBody() {
     if (_loading) {
       return const Center(
-          child: CircularProgressIndicator(color: JsColors.accent));
+          child: CircularProgressIndicator(color: FieldTokens.accent));
     }
     if (_error) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, color: JsColors.textMid, size: 48),
+            const Icon(Icons.cloud_off, color: FieldTokens.textSupport, size: 48),
             const SizedBox(height: 12),
             const Text('お知らせを読み込めませんでした',
-                style: TextStyle(color: JsColors.textMid, fontSize: 14)),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 14)),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('再試行'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: JsColors.accent,
-                side: const BorderSide(color: JsColors.accent),
+                foregroundColor: FieldTokens.accent,
+                side: const BorderSide(color: FieldTokens.accent),
               ),
             ),
           ],
@@ -206,8 +206,8 @@ class NotificationListBodyState extends State<NotificationListBody> {
     }
     // 空・非空どちらも Pull-to-refresh 可能にする（空でもスクロール領域を確保）
     return RefreshIndicator(
-      color: JsColors.accent,
-      backgroundColor: JsColors.surface,
+      color: FieldTokens.accent,
+      backgroundColor: FieldTokens.surfaceCard,
       onRefresh: _load,
       child: _items.isEmpty
           ? ListView(
@@ -216,7 +216,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 Center(
                   child: Text('お知らせはありません',
                       style:
-                          TextStyle(color: JsColors.textMid, fontSize: 14)),
+                          TextStyle(color: FieldTokens.textSupport, fontSize: 14)),
                 ),
               ],
             )
@@ -225,7 +225,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: _items.length,
               separatorBuilder: (_, __) =>
-                  const Divider(height: 1, color: JsColors.border),
+                  const Divider(height: 1, color: FieldTokens.outline),
               itemBuilder: (_, i) => _NotificationRow(
                 item: _items[i],
                 expanded: _expanded.contains((_items[i]['id'] ?? '').toString()),
@@ -261,9 +261,9 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
   Widget build(BuildContext context) {
     final hasItems = _bodyKey.currentState?.hasItems ?? false;
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.background,
+        backgroundColor: FieldTokens.bgBase,
         title: const Text('お知らせ'),
         actions: [
           TextButton(
@@ -271,7 +271,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             child: Text(
               'すべて既読',
               style: TextStyle(
-                color: hasItems ? JsColors.accent : JsColors.textWeak,
+                color: hasItems ? FieldTokens.accent : FieldTokens.textFaint,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
               ),
@@ -318,7 +318,7 @@ class _NotificationRow extends StatelessWidget {
       onTap: onTap,
       child: Container(
         // 未読=surface明るめ／既読=沈み(background)。既読でも展開・ボタンは使える。
-        color: unread ? JsColors.surface : JsColors.background,
+        color: unread ? FieldTokens.surfaceCard : FieldTokens.bgBase,
         padding: const EdgeInsets.fromLTRB(12, 14, 16, 14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -330,7 +330,7 @@ class _NotificationRow extends StatelessWidget {
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: unread ? JsColors.accent : Colors.transparent,
+                  color: unread ? FieldTokens.accent : Colors.transparent,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -347,8 +347,8 @@ class _NotificationRow extends StatelessWidget {
                           title.isEmpty ? '(無題)' : title,
                           style: TextStyle(
                             color: unread
-                                ? JsColors.textStrong
-                                : JsColors.textMid,
+                                ? FieldTokens.textBody
+                                : FieldTokens.textSupport,
                             fontSize: 15,
                             fontWeight:
                                 unread ? FontWeight.bold : FontWeight.w600,
@@ -359,7 +359,7 @@ class _NotificationRow extends StatelessWidget {
                       Text(
                         _relativeTime(createdAt),
                         style: const TextStyle(
-                            color: JsColors.textWeak, fontSize: 11),
+                            color: FieldTokens.textFaint, fontSize: 11),
                       ),
                     ],
                   ),
@@ -371,7 +371,7 @@ class _NotificationRow extends StatelessWidget {
                       maxLines: expanded ? null : 1,
                       overflow: expanded ? null : TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: JsColors.textMid,
+                          color: FieldTokens.textSupport,
                           fontSize: 13,
                           height: 1.4),
                     ),
@@ -382,7 +382,7 @@ class _NotificationRow extends StatelessWidget {
                     Text(
                       _absoluteTime(createdAt),
                       style: const TextStyle(
-                          color: JsColors.textWeak, fontSize: 11),
+                          color: FieldTokens.textFaint, fontSize: 11),
                     ),
                     if (type == 'report_remind') ...[
                       const SizedBox(height: 10),
@@ -452,8 +452,8 @@ class _ActionButton extends StatelessWidget {
       icon: Icon(icon, size: 16),
       label: Text(label),
       style: OutlinedButton.styleFrom(
-        foregroundColor: JsColors.accent,
-        side: const BorderSide(color: JsColors.accent),
+        foregroundColor: FieldTokens.accent,
+        side: const BorderSide(color: FieldTokens.accent),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         visualDensity: VisualDensity.compact,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,

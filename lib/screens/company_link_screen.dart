@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show showJsSnackbar;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../config/constants.dart';
 import '../widgets/search_suggest_field.dart';
 
@@ -101,9 +101,9 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
 
   Color _statusColor(String? status) {
     switch (status) {
-      case 'active':   return JsColors.success;
-      case 'rejected': return JsColors.error;
-      default:         return JsColors.gold;
+      case 'active':   return FieldTokens.statusSuccess;
+      case 'rejected': return FieldTokens.statusError;
+      default:         return FieldTokens.accent;
     }
   }
 
@@ -118,44 +118,44 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.black,
+        backgroundColor: FieldTokens.bgBase,
         title: const Text('協力申請',
-            style: TextStyle(color: JsPalette.brand, fontWeight: FontWeight.bold)),
-        iconTheme: const IconThemeData(color: JsColors.silver),
+            style: TextStyle(color: FieldTokens.brand, fontWeight: FontWeight.bold)),
+        iconTheme: const IconThemeData(color: FieldTokens.textSupport),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: JsColors.silver),
+            icon: const Icon(Icons.refresh, color: FieldTokens.textSupport),
             onPressed: _load,
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _submitting ? null : _showRequestSheet,
-        backgroundColor: JsColors.gold,
-        foregroundColor: JsPalette.onAccent,
+        backgroundColor: FieldTokens.accent,
+        foregroundColor: FieldTokens.onAccent,
         icon: const Icon(Icons.add),
         label: const Text('新しく申請する', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: JsColors.gold))
+          ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
           : _links.isEmpty
               ? const Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.handshake_outlined,
-                        color: JsColors.silver, size: 48),
+                        color: FieldTokens.textSupport, size: 48),
                     SizedBox(height: 12),
                     Text('協力申請はありません',
-                        style: TextStyle(color: JsColors.silver)),
+                        style: TextStyle(color: FieldTokens.textSupport)),
                     SizedBox(height: 6),
                     Text('右下のボタンから申請できます',
-                        style: TextStyle(color: JsColors.silver, fontSize: 12)),
+                        style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
                   ]),
                 )
               : RefreshIndicator(
                   onRefresh: _load,
-                  color: JsColors.gold,
+                  color: FieldTokens.accent,
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
                     itemCount: _links.length,
@@ -171,13 +171,13 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
                       return Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: JsColors.surface,
+                          color: FieldTokens.surfaceCard,
                           borderRadius: BorderRadius.circular(10),
                           border: Border(
                             left:   BorderSide(color: sc, width: 3),
-                            top:    const BorderSide(color: JsColors.border),
-                            right:  const BorderSide(color: JsColors.border),
-                            bottom: const BorderSide(color: JsColors.border),
+                            top:    const BorderSide(color: FieldTokens.outline),
+                            right:  const BorderSide(color: FieldTokens.outline),
+                            bottom: const BorderSide(color: FieldTokens.outline),
                           ),
                         ),
                         child: Row(children: [
@@ -187,20 +187,20 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
                               children: [
                                 Text(companyName,
                                     style: const TextStyle(
-                                        color: JsColors.offWhite,
+                                        color: FieldTokens.textBody,
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14)),
                                 if (reason != null && reason.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text('理由: $reason',
                                       style: const TextStyle(
-                                          color: JsColors.error, fontSize: 11)),
+                                          color: FieldTokens.statusError, fontSize: 11)),
                                 ],
                                 if (date.isNotEmpty) ...[
                                   const SizedBox(height: 2),
                                   Text(date,
                                       style: const TextStyle(
-                                          color: JsColors.silver, fontSize: 11)),
+                                          color: FieldTokens.textSupport, fontSize: 11)),
                                 ],
                               ],
                             ),
@@ -301,7 +301,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Container(
       decoration: const BoxDecoration(
-        color: JsColors.surface,
+        color: FieldTokens.surfaceCard,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       padding: EdgeInsets.only(bottom: bottom),
@@ -314,14 +314,14 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: JsColors.border,
+              color: FieldTokens.outline,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           const Text(
             '協力申請',
             style: TextStyle(
-                color: JsColors.gold,
+                color: FieldTokens.accent,
                 fontWeight: FontWeight.bold,
                 fontSize: 15),
           ),
@@ -331,7 +331,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: LinearProgressIndicator(
-                  color: JsColors.gold, backgroundColor: Colors.transparent),
+                  color: FieldTokens.accent, backgroundColor: Colors.transparent),
             ),
           // 候補リスト（検索欄の上に表示）
           if (_searched && _results.isEmpty)
@@ -339,7 +339,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Text(
                 '該当する会社が見つかりません',
-                style: TextStyle(color: JsColors.silver, fontSize: 13),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 13),
               ),
             )
           else
@@ -359,10 +359,10 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: JsColors.surface,
+                      color: FieldTokens.surfaceCard,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: JsColors.border),
+                          color: FieldTokens.outline),
                     ),
                     child: Row(
                       children: [
@@ -373,7 +373,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                               Text(
                                 name,
                                 style: const TextStyle(
-                                    color: JsColors.offWhite,
+                                    color: FieldTokens.textBody,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 14),
                               ),
@@ -382,7 +382,7 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                                 Text(
                                   city,
                                   style: const TextStyle(
-                                      color: JsColors.silver,
+                                      color: FieldTokens.textSupport,
                                       fontSize: 11),
                                 ),
                               ],
@@ -396,8 +396,8 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
                             onPressed: () => widget.onSelect(
                                 c['company_id'] as String, name),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: JsColors.gold,
-                              foregroundColor: JsPalette.onAccent,
+                              backgroundColor: FieldTokens.accent,
+                              foregroundColor: FieldTokens.onAccent,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14),
                               shape: RoundedRectangleBorder(

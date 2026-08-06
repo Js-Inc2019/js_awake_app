@@ -1,6 +1,6 @@
 // lib/screens/pending_approval_screen.dart
 import 'package:flutter/material.dart';
- import '../core/theme/js_colors.dart';
+ import '../core/theme/field_tokens.dart';
 import 'home_screen.dart';
 
 class PendingApprovalScreen extends StatelessWidget {
@@ -9,7 +9,7 @@ class PendingApprovalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -22,7 +22,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '承認待ちです',
                   style: TextStyle(
-                    color: JsColors.textStrong,
+                    color: FieldTokens.textBody,
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
                   ),
@@ -31,7 +31,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '管理者が承認すると\nフル機能が使えます',
                   style: TextStyle(
-                    color: JsColors.textMid,
+                    color: FieldTokens.textSupport,
                     fontSize: 15,
                     height: 1.8,
                   ),
@@ -41,7 +41,7 @@ class PendingApprovalScreen extends StatelessWidget {
                 const Text(
                   '現在は日報送信のみ\nご利用いただけます',
                   style: TextStyle(
-                    color: JsColors.textMid,
+                    color: FieldTokens.textSupport,
                     fontSize: 15,
                     height: 1.8,
                   ),
@@ -59,9 +59,9 @@ class PendingApprovalScreen extends StatelessWidget {
                       );
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: JsColors.surface,
-                      foregroundColor: JsColors.textStrong,
-                      side: const BorderSide(color: JsColors.border),
+                      backgroundColor: FieldTokens.surfaceCard,
+                      foregroundColor: FieldTokens.textBody,
+                      side: const BorderSide(color: FieldTokens.outline),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

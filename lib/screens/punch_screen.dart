@@ -7,18 +7,18 @@ import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
 // N1: slide_to_confirm.dart の import は撤去（打刻をボタン+確認ダイアログ化したため）。
 //   ウィジェット本体(lib/widgets/slide_to_confirm.dart)は他からの復帰に備えて残す。
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 import 'rest_day_screen.dart';
 import 'rest_day_done_screen.dart';
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
-const _bg     = JsColors.background;
-const _card   = JsColors.surface;
-const _gold   = JsColors.accent;
-const _text   = JsPalette.textBody;
-const _label  = JsColors.textMid;
-const _border = JsColors.border;
+const _bg     = FieldTokens.bgBase;
+const _card   = FieldTokens.surfaceCard;
+const _accent = FieldTokens.accent;
+const _text   = FieldTokens.textBody;
+const _label  = FieldTokens.textSupport;
+const _border = FieldTokens.outline;
 
 // ── file-level helpers ────────────────────────────────────────────────────────
 String _hhmm(String? iso) {
@@ -197,20 +197,20 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         title: const Text('本日は休み登録済みです',
-            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: const Text('日報を出すには、本日の休み登録を取り消す必要があります。',
-            style: TextStyle(color: JsColors.textStrong)),
+            style: TextStyle(color: FieldTokens.textBody)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('戻る', style: TextStyle(color: JsColors.textMid)),
+            child: const Text('戻る', style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('休みを取り消して続行',
-                style: TextStyle(color: JsColors.accent)),
+                style: TextStyle(color: FieldTokens.accent)),
           ),
         ],
       ),
@@ -415,17 +415,17 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         title: Text(isIn ? '出勤' : '退勤',
-            style: const TextStyle(color: JsColors.textStrong, fontSize: 16)),
+            style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 現在時刻が主役（金 #D9C08A ＝ JsPalette.brand）。
+            // 現在時刻が主役（金 #D9C08A ＝ FieldTokens.brand）。
             Text(
               hhmm,
               style: const TextStyle(
-                color: JsPalette.brand,
+                color: FieldTokens.brand,
                 fontSize: 40,
                 fontWeight: FontWeight.w300,
                 letterSpacing: 2,
@@ -436,7 +436,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             Text(
               isIn ? 'この時刻で出勤しますか？' : '退勤して日報の作成に進みます',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: JsColors.textStrong),
+              style: const TextStyle(color: FieldTokens.textBody),
             ),
           ],
         ),
@@ -444,12 +444,12 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsColors.textMid)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(isIn ? '出勤する' : '退勤する',
-                style: const TextStyle(color: JsColors.accent)),
+                style: const TextStyle(color: FieldTokens.accent)),
           ),
         ],
       ),
@@ -467,22 +467,22 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         title: const Text('現場移動',
-            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: const Text(
             '現在地を記録して、この現場の日報を作成します。',
-            style: TextStyle(color: JsColors.textStrong)),
+            style: TextStyle(color: FieldTokens.textBody)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsColors.textMid)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('日報を作成',
-                style: TextStyle(color: JsColors.accent)),
+                style: TextStyle(color: FieldTokens.accent)),
           ),
         ],
       ),
@@ -556,20 +556,20 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         title: const Text('本日は報告済みです',
-            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         content: const Text('本日は既に日報を提出済みです。休みとして登録しますか？',
-            style: TextStyle(color: JsColors.textStrong)),
+            style: TextStyle(color: FieldTokens.textBody)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('戻る', style: TextStyle(color: JsColors.textMid)),
+            child: const Text('戻る', style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('休みとして登録',
-                style: TextStyle(color: JsColors.accent)),
+                style: TextStyle(color: FieldTokens.accent)),
           ),
         ],
       ),
@@ -582,7 +582,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (_loading) {
       return const Scaffold(
         backgroundColor: _bg,
-        body: Center(child: CircularProgressIndicator(color: _gold)),
+        body: Center(child: CircularProgressIndicator(color: _accent)),
       );
     }
 
@@ -637,14 +637,14 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     //   件数・遷移先は親から下ろした既存の値だけを使う。
                     if (widget.revisionCount > 0)
                       _AttentionRow(
-                        accent: JsColors.warning,          // 差し戻し = warning系
+                        accent: FieldTokens.statusWarning,          // 差し戻し = warning系
                         label:  '差し戻し',
                         count:  widget.revisionCount,
                         onTap:  widget.onOpenRevisions,
                       ),
                     if (widget.pendingApprovalCount > 0)
                       _AttentionRow(
-                        accent: JsColors.accent,           // 承認待ち = accent系
+                        accent: FieldTokens.accent,           // 承認待ち = accent系
                         label:  '承認待ち',
                         count:  widget.pendingApprovalCount,
                         onTap:  widget.onOpenPendingApprovals,
@@ -740,7 +740,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     //     消すと2件目が作れなくなる。
     final hideReportButton = showExtraDeclaration && reportDone;
 
-    // 増設ボタン本体（二次様式＝暗枠1px・textMid系。高さは2択行と同じ 52）＋直下の注記。
+    // 増設ボタン本体（二次様式＝暗枠1px・textSupport系。高さは2択行と同じ 52）＋直下の注記。
     // 押下先は親の既存ハンドラをそのまま呼ぶだけ（判定も実処理もここには作らない）。
     // ★ボタンと注記を1ブロックにまとめる: 下の2分岐はどちらも showExtraDeclaration で
     //   ゲート済みなので、これを置くだけで「ボタンが出る時だけ注記も出る」が構造的に成立する
@@ -751,19 +751,19 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         _SecondaryOutlineButton(
           label:     '⏰ 追加の申告',
           icon:      Icons.more_time,
-          color:     JsColors.textMid,
+          color:     FieldTokens.textSupport,
           onPressed: widget.onExtraDeclaration == null
               ? null
               : () => widget.onExtraDeclaration!(),
         ),
         const SizedBox(height: 4),
         // 何を申告できるのかをボタンの直下で言う。スタイルは同一ファイル内の既存注記
-        //   （:855 の「業務日 …」補足行と同じ JsColors.textSecondary / fontSize 11）を流用。
+        //   （:855 の「業務日 …」補足行と同じ FieldTokens.textSupport / fontSize 11）を流用。
         //   新しい色・独自トークンは定義しない。
         const Text(
           '※残業や休憩の短縮を、あとから申告できます',
           textAlign: TextAlign.center,
-          style: TextStyle(color: JsColors.textSecondary, fontSize: 11),
+          style: TextStyle(color: FieldTokens.textSupport, fontSize: 11),
         ),
       ],
     );
@@ -847,7 +847,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
               // 出勤中の右側＝現場移動（エメラルド枠の二次。確認ダイアログは温存）
               : _SecondaryOutlineButton(
                   label:     '現場移動',
-                  color:     JsColors.accent,
+                  color:     FieldTokens.accent,
                   onPressed: _busy ? null : _onMoveToNextSiteTap,
                 ),
         ),
@@ -887,11 +887,11 @@ class _ShiftTypeSelector extends StatelessWidget {
             height: 46,                       // タッチターゲット 44pt以上
             decoration: BoxDecoration(
               color: sel
-                  ? JsColors.gold.withValues(alpha: 0.15)
-                  : JsColors.gunmetal,
+                  ? FieldTokens.accent.withValues(alpha: 0.15)
+                  : FieldTokens.surfaceCard,
               borderRadius: BorderRadius.circular(23),
               border: Border.all(
-                color: sel ? JsColors.gold : JsColors.divider,
+                color: sel ? FieldTokens.accent : FieldTokens.outline,
                 width: sel ? 1.5 : 1,
               ),
             ),
@@ -900,12 +900,12 @@ class _ShiftTypeSelector extends StatelessWidget {
               children: [
                 Icon(icon,
                     size: 16,
-                    color: sel ? JsColors.gold : JsColors.silver),
+                    color: sel ? FieldTokens.accent : FieldTokens.textSupport),
                 const SizedBox(width: 6),
                 Text(
                   label,
                   style: TextStyle(
-                    color: sel ? JsColors.gold : JsColors.silver,
+                    color: sel ? FieldTokens.accent : FieldTokens.textSupport,
                     fontSize: 14,
                     fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                   ),
@@ -929,19 +929,19 @@ class _ShiftTypeSelector extends StatelessWidget {
         Text(
           '業務日 $businessDate',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: JsColors.textSecondary, fontSize: 11),
+          style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11),
         ),
         // 夜勤を選んでいるときだけ、業務日の切替時刻を注記する。
         //   判定は上の chip(:803) と同じ形（selected == 'night'）＝新しい判定は作らない。
         //   ★表示だけ。業務日の算出（businessDateForShift）には一切触れていない。
-        //   スタイルは直上の補足行をそのまま流用（JsColors.textSecondary / fontSize 11）＝
+        //   スタイルは直上の補足行をそのまま流用（FieldTokens.textSupport / fontSize 11）＝
         //   新しい色・独自トークンは定義しない。
         if (selected == 'night') ...[
           const SizedBox(height: 2),
           const Text(
             '※夜勤は正午が切替（午前中は前夜分を表示）',
             textAlign: TextAlign.center,
-            style: TextStyle(color: JsColors.textSecondary, fontSize: 11),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11),
           ),
         ],
       ],
@@ -959,14 +959,14 @@ class _ModePill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: isActual ? _gold.withValues(alpha: 0.15) : _card,
+        color: isActual ? _accent.withValues(alpha: 0.15) : _card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isActual ? _gold : _border),
+        border: Border.all(color: isActual ? _accent : _border),
       ),
       child: Text(
         isActual ? '実勤務モード' : 'みなし',
         style: TextStyle(
-          color: isActual ? _gold : _label,
+          color: isActual ? _accent : _label,
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
@@ -1215,9 +1215,9 @@ class _BreakInfoRow extends StatelessWidget {
         child: const Text(
           '変更',
           style: TextStyle(
-            color: _gold, fontSize: 12,
+            color: _accent, fontSize: 12,
             decoration: TextDecoration.underline,
-            decorationColor: _gold,
+            decorationColor: _accent,
           ),
         ),
       ),
@@ -1228,7 +1228,7 @@ class _BreakInfoRow extends StatelessWidget {
 // ── _PunchPrimaryButton ───────────────────────────────────────────────────────
 // N1: 出勤／退勤の主ボタン（旧 SlideToConfirm の置き換え）。
 //   生成り枠1.5px＋同色文字＝_ReportOutlineButton と同一の「主」様式に揃える
-//   （トークンは JsFormTokens.outlineButtonBorder。塗り面は作らない）。
+//   （トークンは FieldTokens.textBody。塗り面は作らない）。
 //   高さ 52（_kOpButtonHeight）。busy 中は押下不可＋インジケータ。
 //   ★このボタンは打刻しない。押下先は必ず確認ダイアログ（_confirmPunch）を経由する。
 class _PunchPrimaryButton extends StatelessWidget {
@@ -1251,15 +1251,15 @@ class _PunchPrimaryButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: busy ? null : onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: JsFormTokens.outlineButtonBorder,
-          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          foregroundColor: FieldTokens.textBody,
+          disabledForegroundColor: FieldTokens.textFaint,
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ).copyWith(
           side: WidgetStateProperty.resolveWith((states) => BorderSide(
                 color: states.contains(WidgetState.disabled)
-                    ? JsFormTokens.outlineButtonDisabled
-                    : JsFormTokens.outlineButtonBorder,
+                    ? FieldTokens.textFaint
+                    : FieldTokens.textBody,
                 width: 1.5,
               )),
         ),
@@ -1267,7 +1267,7 @@ class _PunchPrimaryButton extends StatelessWidget {
             ? const SizedBox(
                 width: 20, height: 20,
                 child: CircularProgressIndicator(
-                    color: JsFormTokens.outlineButtonDisabled, strokeWidth: 2.5),
+                    color: FieldTokens.textFaint, strokeWidth: 2.5),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1286,9 +1286,9 @@ class _PunchPrimaryButton extends StatelessWidget {
 
 // ── _SecondaryOutlineButton ───────────────────────────────────────────────────
 // N1: 2択行の右側に置く二次ボタン（枠1px＋同色文字・塗りなし）。
-//   色は呼び出し側が意味で決める（出勤中の「現場移動」= JsColors.accent＝エメラルド）。
+//   色は呼び出し側が意味で決める（出勤中の「現場移動」= FieldTokens.accent＝エメラルド）。
 // N7: 任意の先頭アイコンを追加（既定 null＝従来の描画は1ピクセルも変わらない）。
-//   「⏰ 追加の申告」だけが icon: Icons.more_time / color: JsColors.textMid（暗枠）を渡す。
+//   「⏰ 追加の申告」だけが icon: Icons.more_time / color: FieldTokens.textSupport（暗枠）を渡す。
 class _SecondaryOutlineButton extends StatelessWidget {
   const _SecondaryOutlineButton({
     required this.label,
@@ -1310,7 +1310,7 @@ class _SecondaryOutlineButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
-          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          disabledForegroundColor: FieldTokens.textFaint,
           side: BorderSide(color: color),
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1358,14 +1358,14 @@ class _ReportOutlineButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: JsFormTokens.outlineButtonBorder,
-          disabledForegroundColor: JsFormTokens.outlineButtonDisabled,
+          foregroundColor: FieldTokens.textBody,
+          disabledForegroundColor: FieldTokens.textFaint,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ).copyWith(
           side: WidgetStateProperty.resolveWith((states) => BorderSide(
                 color: states.contains(WidgetState.disabled)
-                    ? JsFormTokens.outlineButtonDisabled
-                    : JsFormTokens.outlineButtonBorder,
+                    ? FieldTokens.textFaint
+                    : FieldTokens.textBody,
                 width: 1.5,
               )),
         ),
@@ -1383,7 +1383,7 @@ class _ReportOutlineButton extends StatelessWidget {
 // 親 _PunchScreenState が単一の真実源として保持し、日報報告ゲートと共有する。
 //   rested=true → 「本日休み 登録済み」＋タップでねぎらい画面
 //   rested=false（or 照会失敗=fail-open）→ 「本日休み」＋タップで休み登録画面
-// 序列は日報報告より下（OutlinedButton・textMid系の控えめ配色）。
+// 序列は日報報告より下（OutlinedButton・textSupport系の控えめ配色）。
 class _RestDayButton extends StatelessWidget {
   const _RestDayButton({
     required this.rested,
@@ -1433,11 +1433,11 @@ class _RestDayButton extends StatelessWidget {
       width: double.infinity,
       height: height,
       child: OutlinedButton(
-        // 暗枠1px・textMid系（日報＝生成り枠より一段下の序列）
+        // 暗枠1px・textSupport系（日報＝生成り枠より一段下の序列）
         onPressed: loading ? null : () => _onTap(context),
         style: OutlinedButton.styleFrom(
-          foregroundColor: JsColors.textMid,
-          side: const BorderSide(color: JsColors.textMid),
+          foregroundColor: FieldTokens.textSupport,
+          side: const BorderSide(color: FieldTokens.textSupport),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: EdgeInsets.zero,
         ),
@@ -1565,14 +1565,14 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: selected ? _gold.withValues(alpha: 0.15) : _card,
+                    color: selected ? _accent.withValues(alpha: 0.15) : _card,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: selected ? _gold : _border),
+                    border: Border.all(color: selected ? _accent : _border),
                   ),
                   child: Text(
                     '$min 分',
                     style: TextStyle(
-                      color: selected ? _gold : _label,
+                      color: selected ? _accent : _label,
                       fontSize: 13,
                       fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                     ),
@@ -1617,7 +1617,7 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: _gold),
+                borderSide: const BorderSide(color: _accent),
               ),
             ),
           ),
@@ -1639,7 +1639,7 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
             child: ElevatedButton(
               onPressed: _submitting ? null : _submit,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _gold,
+                backgroundColor: _accent,
                 disabledBackgroundColor: _border,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),

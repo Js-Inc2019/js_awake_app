@@ -1,6 +1,6 @@
 // lib/screens/consent_view_screen.dart - 同意内容閲覧専用画面
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 class ConsentViewScreen extends StatelessWidget {
   const ConsentViewScreen({super.key});
@@ -63,14 +63,14 @@ class ConsentViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
         title: const Text('同意内容の確認'),
-        backgroundColor: JsColors.black,
-        foregroundColor: JsColors.textStrong,
+        backgroundColor: FieldTokens.bgBase,
+        foregroundColor: FieldTokens.textBody,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: JsPalette.brand),
+          icon: const Icon(Icons.arrow_back_ios, color: FieldTokens.brand),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -80,9 +80,9 @@ class ConsentViewScreen extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 16),
         itemBuilder: (_, i) => Container(
           decoration: BoxDecoration(
-            color: JsColors.surface,
+            color: FieldTokens.surfaceCard,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JsColors.border),
+            border: Border.all(color: FieldTokens.outline),
           ),
           child: ExpansionTile(
             initiallyExpanded: i == 0,
@@ -92,14 +92,14 @@ class ConsentViewScreen extends StatelessWidget {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: JsColors.gold.withValues(alpha: 0.15),
+                color: FieldTokens.accent.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Center(
                 child: Text(
                   '${i + 1}',
                   style: const TextStyle(
-                    color: JsColors.gold,
+                    color: FieldTokens.accent,
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
@@ -109,18 +109,18 @@ class ConsentViewScreen extends StatelessWidget {
             title: Text(
               _titles[i],
               style: const TextStyle(
-                color: JsColors.textStrong,
+                color: FieldTokens.textBody,
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            iconColor: JsColors.gold,
-            collapsedIconColor: JsColors.textMid,
+            iconColor: FieldTokens.accent,
+            collapsedIconColor: FieldTokens.textSupport,
             children: [
               Text(
                 _details[i],
                 style: const TextStyle(
-                  color: JsColors.textMid,
+                  color: FieldTokens.textSupport,
                   fontSize: 13,
                   height: 1.8,
                 ),

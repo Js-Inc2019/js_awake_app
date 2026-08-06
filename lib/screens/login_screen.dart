@@ -17,7 +17,7 @@ import 'membership_select_screen.dart';
 import '../config/constants.dart';
 import '../utils/device_id.dart';
 import '../main.dart' show bossPinOk;
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 
 const String _apiBase = kApiBaseUrl;
 
@@ -26,7 +26,7 @@ const String _apiBase = kApiBaseUrl;
 //   library-private 定数（先頭 _）にしている。
 const String _kCurrentConsentVersion = '1.0';
 
-// ─── 配色は lib/core/theme/js_colors.dart のトークンへ統一（画面ローカル定数は撤去）─────
+// ─── 配色は lib/core/theme/field_tokens.dart のトークンへ統一（画面ローカル定数は撤去）─────
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -506,16 +506,16 @@ class _LoginScreenState extends State<LoginScreen> {
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
-            backgroundColor: JsColors.surface,
+            backgroundColor: FieldTokens.surfaceCard,
             title: const Row(children: [
-              Icon(Icons.warning_amber, color: JsColors.accent),
+              Icon(Icons.warning_amber, color: FieldTokens.accent),
               SizedBox(width: 8),
               Flexible(child: Text('PINコードを必ず記録してください',
-                style: TextStyle(color: JsColors.textStrong, fontSize: 15))),
+                style: TextStyle(color: FieldTokens.textBody, fontSize: 15))),
             ]),
             content: const Text(
               'PINコードを忘れた場合、\nログインできなくなります。\n\nメモ帳などに必ず控えてから\n次へ進んでください。',
-              style: TextStyle(color: JsColors.textStrong, height: 1.7)),
+              style: TextStyle(color: FieldTokens.textBody, height: 1.7)),
             actions: [
               ElevatedButton(
                 onPressed: () async {
@@ -523,8 +523,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   await _saveAndNavigate(_pendingData!);
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: JsColors.accent,
-                  foregroundColor: JsPalette.onAccent),
+                  backgroundColor: FieldTokens.accent,
+                  foregroundColor: FieldTokens.onAccent),
                 child: const Text('記録しました。次へ進む',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               ),
@@ -600,27 +600,27 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
           '仮登録として申請します',
-          style: TextStyle(color: JsColors.accent, fontSize: 16),
+          style: TextStyle(color: FieldTokens.accent, fontSize: 16),
         ),
         content: const Text(
           '職長・事務スタッフに通知されます\n承認後にフル機能が使えます\nよろしいですか？',
-          style: TextStyle(color: JsColors.textStrong, height: 1.7),
+          style: TextStyle(color: FieldTokens.textBody, height: 1.7),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('キャンセル',
-                style: TextStyle(color: JsColors.textMid)),
+                style: TextStyle(color: FieldTokens.textSupport)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: JsColors.accent,
-              foregroundColor: JsPalette.onAccent,
+              backgroundColor: FieldTokens.accent,
+              foregroundColor: FieldTokens.onAccent,
             ),
             child: const Text('確認'),
           ),
@@ -867,18 +867,18 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('時間切れです',
-            style: TextStyle(color: JsColors.accent, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.accent, fontSize: 16)),
         content: const Text('もう一度ログインしてください',
-            style: TextStyle(color: JsColors.textStrong, height: 1.7)),
+            style: TextStyle(color: FieldTokens.textBody, height: 1.7)),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
-              backgroundColor: JsColors.accent,
-              foregroundColor: JsPalette.onAccent,
+              backgroundColor: FieldTokens.accent,
+              foregroundColor: FieldTokens.onAccent,
             ),
             child: const Text('OK'),
           ),
@@ -894,18 +894,18 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('ご案内',
-            style: TextStyle(color: JsColors.accent, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.accent, fontSize: 16)),
         content: const Text('この端末の役割はOFFICEアプリをご利用ください',
-            style: TextStyle(color: JsColors.textStrong, height: 1.7)),
+            style: TextStyle(color: FieldTokens.textBody, height: 1.7)),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
-              backgroundColor: JsColors.accent,
-              foregroundColor: JsPalette.onAccent,
+              backgroundColor: FieldTokens.accent,
+              foregroundColor: FieldTokens.onAccent,
             ),
             child: const Text('OK'),
           ),
@@ -986,26 +986,26 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: JsColors.background,
-        body: Center(child: CircularProgressIndicator(color: JsColors.accent)),
+        backgroundColor: FieldTokens.bgBase,
+        body: Center(child: CircularProgressIndicator(color: FieldTokens.accent)),
       );
     }
     if (_step == 1) return _buildPinSetupScreen();
     if (_showPinLogin) return _buildPinLoginScreen();
     if (_biometricFailed) {
       return Scaffold(
-        backgroundColor: JsColors.background,
+        backgroundColor: FieldTokens.bgBase,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.fingerprint, color: JsColors.accent, size: 80),
+              const Icon(Icons.fingerprint, color: FieldTokens.accent, size: 80),
               const SizedBox(height: 24),
               const Text('Login',
-                  style: TextStyle(color: JsColors.textStrong, fontSize: 20, fontWeight: FontWeight.bold)),
+                  style: TextStyle(color: FieldTokens.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text(_errorMessage ?? '',
-                  style: const TextStyle(color: JsColors.textMid),
+                  style: const TextStyle(color: FieldTokens.textSupport),
                   textAlign: TextAlign.center),
               const SizedBox(height: 32),
               ElevatedButton.icon(
@@ -1015,9 +1015,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 // 生成り抜き（画面内の主ボタン）
                 style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     side: const BorderSide(
-                        color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                        color: FieldTokens.textBody, width: 1.5),
                     elevation: 0,
                     shadowColor: Colors.transparent,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14)),
@@ -1028,11 +1028,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   _biometricFailed = false;
                   _showPinLogin = true;
                 }),
-                icon: const Icon(Icons.lock_outline, color: JsColors.accent),
+                icon: const Icon(Icons.lock_outline, color: FieldTokens.accent),
                 label: const Text('PIN入力',
-                    style: TextStyle(color: JsColors.accent)),
+                    style: TextStyle(color: FieldTokens.accent)),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: JsColors.accent),
+                  side: const BorderSide(color: FieldTokens.accent),
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 ),
               ),
@@ -1042,7 +1042,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   MaterialPageRoute(builder: (_) => const RecoveryScreen()),
                 ),
                 child: const Text('機種変更（新しいデバイスで再登録）',
-                    style: TextStyle(color: JsColors.textMid, fontSize: 12)),
+                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
               ),
             ],
           ),
@@ -1052,7 +1052,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // ─── 新設計ランディングページ ─────────────────────────────
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
@@ -1063,7 +1063,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text(
                 '株式会社J\'s',
                 style: TextStyle(
-                  color: JsColors.accent,
+                  color: FieldTokens.accent,
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1,
@@ -1073,7 +1073,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 6),
               const Text(
                 '勤務管理システム',
-                style: TextStyle(color: JsColors.textMid, fontSize: 16),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 48),
@@ -1085,9 +1085,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: OutlinedButton(
                       onPressed: () => _biometricThenLogin(resetPinState: true),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: JsColors.accent,
+                        foregroundColor: FieldTokens.accent,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: JsColors.border),
+                        side: const BorderSide(color: FieldTokens.outline),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                       ),
@@ -1103,9 +1103,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         _errorMessage = null;
                       }),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: JsColors.accent,
+                        foregroundColor: FieldTokens.accent,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: JsColors.border),
+                        side: const BorderSide(color: FieldTokens.outline),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                       ),
@@ -1122,20 +1122,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     MaterialPageRoute(builder: (_) => const RecoveryScreen()),
                   ),
                   child: const Text('機種変更・再インストールの方はこちら',
-                      style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                      style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
                 ),
               ),
               const SizedBox(height: 40),
 
               // ── はじめての方 セクション ──────────────────
               const Row(children: [
-                Expanded(child: Divider(color: JsColors.border)),
+                Expanded(child: Divider(color: FieldTokens.outline)),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 14),
                   child: Text('はじめての方',
-                      style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                      style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
                 ),
-                Expanded(child: Divider(color: JsColors.border)),
+                Expanded(child: Divider(color: FieldTokens.outline)),
               ]),
               const SizedBox(height: 24),
 
@@ -1146,7 +1146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 maxLength: 6,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: JsColors.textStrong,
+                  color: FieldTokens.textBody,
                   fontSize: 32,
                   letterSpacing: 14,
                   fontWeight: FontWeight.bold,
@@ -1156,9 +1156,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   counterText: '',
                   hintText: '● ● ● ●',
                   hintStyle: const TextStyle(
-                      color: JsColors.hint, letterSpacing: 8, fontSize: 24),
+                      color: FieldTokens.textHint, letterSpacing: 8, fontSize: 24),
                   filled: true,
-                  fillColor: JsColors.surfaceAlt,
+                  fillColor: FieldTokens.surfaceRaised,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -1166,14 +1166,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(
-                        color: JsColors.accent, width: 2),
+                        color: FieldTokens.accent, width: 2),
                   ),
                 ),
               ),
               const SizedBox(height: 8),
               const Text(
                 '管理者から受け取った6桁の番号を入れてください',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
@@ -1194,9 +1194,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     side: const BorderSide(
-                        color: JsFormTokens.outlineButtonBorder, width: 1.5),
+                        color: FieldTokens.textBody, width: 1.5),
                     elevation: 0,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
@@ -1216,7 +1216,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     _errorMessage = null;
                   }),
                   style: TextButton.styleFrom(
-                    foregroundColor: JsColors.textMid,
+                    foregroundColor: FieldTokens.textSupport,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1224,7 +1224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: const Text(
                     '招待コードがない方（応急登録）',
                     style: TextStyle(
-                      color: JsColors.textMid,
+                      color: FieldTokens.textSupport,
                       fontSize: 12,
                       fontWeight: FontWeight.w300,
                     ),
@@ -1263,9 +1263,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _selfRegister,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: JsColors.surface,
-                      foregroundColor: JsColors.accent,
-                      side: const BorderSide(color: JsColors.accent),
+                      backgroundColor: FieldTokens.surfaceCard,
+                      foregroundColor: FieldTokens.accent,
+                      side: const BorderSide(color: FieldTokens.accent),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1304,27 +1304,27 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return TextField(
       controller: controller,
-      style: const TextStyle(color: JsColors.textStrong),
+      style: const TextStyle(color: FieldTokens.textBody),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: JsColors.textMid, fontSize: 13),
-        prefixIcon: const Icon(Icons.edit_note, color: JsColors.textMid),
+        labelStyle: const TextStyle(color: FieldTokens.textSupport, fontSize: 13),
+        prefixIcon: const Icon(Icons.edit_note, color: FieldTokens.textSupport),
         suffixIcon: showMic
-            ? const Icon(Icons.mic_none, color: JsColors.textMid)
+            ? const Icon(Icons.mic_none, color: FieldTokens.textSupport)
             : null,
         filled: true,
-        fillColor: JsColors.surfaceAlt,
+        fillColor: FieldTokens.surfaceRaised,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.border),
+          borderSide: const BorderSide(color: FieldTokens.outline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.border),
+          borderSide: const BorderSide(color: FieldTokens.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: JsColors.accent, width: 2),
+          borderSide: const BorderSide(color: FieldTokens.accent, width: 2),
         ),
       ),
     );
@@ -1333,12 +1333,12 @@ class _LoginScreenState extends State<LoginScreen> {
   // ─── PIN ログイン画面 ─────────────────────────────────────
   Widget _buildPinLoginScreen() {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: _isUpdateRecovery
           ? null
           : AppBar(
-              backgroundColor: JsColors.background,
-              foregroundColor: JsColors.accent,
+              backgroundColor: FieldTokens.bgBase,
+              foregroundColor: FieldTokens.accent,
               elevation: 0,
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -1359,11 +1359,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lock_outline, color: JsColors.accent, size: 64),
+              const Icon(Icons.lock_outline, color: FieldTokens.accent, size: 64),
               const SizedBox(height: 24),
               const Text('PINでログイン',
                   style: TextStyle(
-                      color: JsColors.textStrong,
+                      color: FieldTokens.textBody,
                       fontSize: 22,
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -1372,15 +1372,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: JsColors.surfaceAlt,
+                    color: FieldTokens.surfaceRaised,
                     border:
-                        Border.all(color: JsColors.accent, width: 1),
+                        Border.all(color: FieldTokens.accent, width: 1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
                     'アプリのアップデートのため、\nPINコードでの再認証が必要です',
                     style: TextStyle(
-                        color: JsColors.accent, fontSize: 13, height: 1.6),
+                        color: FieldTokens.accent, fontSize: 13, height: 1.6),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -1388,7 +1388,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ] else ...[
                 const Text('登録済みのPINを入力してください',
                     style: TextStyle(
-                        color: JsColors.textMid, fontSize: 13)),
+                        color: FieldTokens.textSupport, fontSize: 13)),
                 const SizedBox(height: 40),
               ],
               TextField(
@@ -1397,29 +1397,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 keyboardType: TextInputType.number,
                 maxLength: 6,
                 style: const TextStyle(
-                    color: JsColors.textStrong, fontSize: 24, letterSpacing: 8),
+                    color: FieldTokens.textBody, fontSize: 24, letterSpacing: 8),
                 textAlign: TextAlign.center,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: InputDecoration(
                   counterText: '',
                   hintText: '● ● ● ●',
                   hintStyle: const TextStyle(
-                      color: JsColors.hint, letterSpacing: 8),
+                      color: FieldTokens.textHint, letterSpacing: 8),
                   filled: true,
-                  fillColor: JsColors.surfaceAlt,
+                  fillColor: FieldTokens.surfaceRaised,
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(
-                          color: JsColors.accent, width: 2)),
+                          color: FieldTokens.accent, width: 2)),
                   suffixIcon: IconButton(
                     icon: Icon(
                         _obscureLoginPin
                             ? Icons.visibility_off
                             : Icons.visibility,
-                        color: JsColors.textMid),
+                        color: FieldTokens.textSupport),
                     onPressed: () =>
                         setState(() => _obscureLoginPin = !_obscureLoginPin),
                   ),
@@ -1441,10 +1441,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     disabledBackgroundColor: Colors.transparent,
                     disabledForegroundColor:
-                        JsFormTokens.outlineButtonDisabled,
+                        FieldTokens.textFaint,
                     elevation: 0,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
@@ -1453,8 +1453,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     side: WidgetStateProperty.resolveWith((states) =>
                         BorderSide(
                           color: states.contains(WidgetState.disabled)
-                              ? JsFormTokens.outlineButtonDisabled
-                              : JsFormTokens.outlineButtonBorder,
+                              ? FieldTokens.textFaint
+                              : FieldTokens.textBody,
                           width: 1.5,
                         )),
                   ),
@@ -1465,7 +1465,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: JsFormTokens.outlineButtonDisabled))
+                              color: FieldTokens.textFaint))
                       : const Text('ログイン',
                           style: TextStyle(
                               fontSize: 17, fontWeight: FontWeight.bold)),
@@ -1484,7 +1484,7 @@ class _LoginScreenState extends State<LoginScreen> {
   // ─── PIN 設定画面（旧フロー互換）────────────────────────────
   Widget _buildPinSetupScreen() {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -1494,46 +1494,46 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Text('株式会社J\'s',
                   style: TextStyle(
-                      color: JsPalette.brand,
+                      color: FieldTokens.brand,
                       fontSize: 28,
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('勤務管理システム',
-                  style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+                  style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
               const SizedBox(height: 40),
               const Text('PINを設定',
                   style: TextStyle(
-                      color: JsPalette.accentDeep,
+                      color: FieldTokens.accentDeep,
                       fontSize: 22,
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
-                  style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
               const SizedBox(height: 28),
               TextField(
                 controller: _pinCtrl,
                 obscureText: _obscurePin,
                 keyboardType: TextInputType.number,
                 maxLength: 6,
-                style: const TextStyle(color: JsColors.textStrong),
+                style: const TextStyle(color: FieldTokens.textBody),
                 decoration: InputDecoration(
                   labelText: 'PIN（4〜6桁）',
-                  labelStyle: const TextStyle(color: JsColors.textMid),
+                  labelStyle: const TextStyle(color: FieldTokens.textSupport),
                   prefixIcon:
-                      const Icon(Icons.lock, color: JsColors.textMid),
+                      const Icon(Icons.lock, color: FieldTokens.textSupport),
                   counterText: '',
                   enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: JsColors.border),
+                      borderSide: const BorderSide(color: FieldTokens.outline),
                       borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: JsColors.accent),
+                      borderSide: const BorderSide(color: FieldTokens.accent),
                       borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
                     icon: Icon(
                         _obscurePin
                             ? Icons.visibility_off
                             : Icons.visibility,
-                        color: JsColors.textMid),
+                        color: FieldTokens.textSupport),
                     onPressed: () =>
                         setState(() => _obscurePin = !_obscurePin),
                   ),
@@ -1545,25 +1545,25 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: _obscureConf,
                 keyboardType: TextInputType.number,
                 maxLength: 6,
-                style: const TextStyle(color: JsColors.textStrong),
+                style: const TextStyle(color: FieldTokens.textBody),
                 decoration: InputDecoration(
                   labelText: 'PIN確認',
-                  labelStyle: const TextStyle(color: JsColors.textMid),
+                  labelStyle: const TextStyle(color: FieldTokens.textSupport),
                   prefixIcon: const Icon(Icons.lock_outline,
-                      color: JsColors.textMid),
+                      color: FieldTokens.textSupport),
                   counterText: '',
                   enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: JsColors.border),
+                      borderSide: const BorderSide(color: FieldTokens.outline),
                       borderRadius: BorderRadius.circular(8)),
                   focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: JsColors.accent),
+                      borderSide: const BorderSide(color: FieldTokens.accent),
                       borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
                     icon: Icon(
                         _obscureConf
                             ? Icons.visibility_off
                             : Icons.visibility,
-                        color: JsColors.textMid),
+                        color: FieldTokens.textSupport),
                     onPressed: () =>
                         setState(() => _obscureConf = !_obscureConf),
                   ),
@@ -1583,10 +1583,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     disabledBackgroundColor: Colors.transparent,
                     disabledForegroundColor:
-                        JsFormTokens.outlineButtonDisabled,
+                        FieldTokens.textFaint,
                     elevation: 0,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
@@ -1595,8 +1595,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     side: WidgetStateProperty.resolveWith((states) =>
                         BorderSide(
                           color: states.contains(WidgetState.disabled)
-                              ? JsFormTokens.outlineButtonDisabled
-                              : JsFormTokens.outlineButtonBorder,
+                              ? FieldTokens.textFaint
+                              : FieldTokens.textBody,
                           width: 1.5,
                         )),
                   ),
@@ -1607,7 +1607,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: JsFormTokens.outlineButtonDisabled))
+                              color: FieldTokens.textFaint))
                       : const Text('PINを設定してはじめる',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),

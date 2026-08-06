@@ -1,11 +1,11 @@
 // ============================================================
 // lib/screens/rest_day_screen.dart - 本日休み（登録・修正 兼用）
-// 色は必ず js_colors.dart のトークン（JsColors / JsPalette / JsFormTokens）を使う。
+// 色は必ず field_tokens.dart のトークン（FieldTokens）を使う。
 // Color(0x 直書き・Colors.* は使わない。
 // ============================================================
 
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
 import '../main.dart' show showJsSnackbar;
 import 'rest_day_done_screen.dart';
@@ -108,18 +108,18 @@ class _RestDayScreenState extends State<RestDayScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: JsColors.surface,
+        backgroundColor: FieldTokens.surfaceCard,
         title: const Text('本日の休み登録を取り消しますか？',
-            style: TextStyle(color: JsColors.textStrong, fontSize: 16)),
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('戻る', style: TextStyle(color: JsColors.textMid)),
+            child: const Text('戻る', style: TextStyle(color: FieldTokens.textSupport)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('取消する',
-                style: TextStyle(color: JsPalette.statusWarning)),
+                style: TextStyle(color: FieldTokens.statusWarning)),
           ),
         ],
       ),
@@ -149,10 +149,10 @@ class _RestDayScreenState extends State<RestDayScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JsColors.background,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.surface,
-        foregroundColor: JsColors.textStrong,
+        backgroundColor: FieldTokens.surfaceCard,
+        foregroundColor: FieldTokens.textBody,
         elevation: 0,
         title: const Text('本日休み'),
       ),
@@ -166,7 +166,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
               Text(
                 _dateLabel(),
                 style: const TextStyle(
-                    color: JsColors.textStrong,
+                    color: FieldTokens.textBody,
                     fontSize: 22,
                     fontWeight: FontWeight.bold),
               ),
@@ -174,7 +174,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
 
               // 区分チップ3択（単一選択・解除不可＝必ずどれか1つ。既定=終日）
               const Text('区分',
-                  style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 10,
@@ -185,14 +185,14 @@ class _RestDayScreenState extends State<RestDayScreen> {
                     label: Text(p['label']!),
                     selected: selected,
                     showCheckmark: false,
-                    backgroundColor: JsColors.surface,
-                    selectedColor: JsFormTokens.chipSelected,
+                    backgroundColor: FieldTokens.surfaceCard,
+                    selectedColor: FieldTokens.outlineStrong,
                     side: BorderSide(
                         color: selected
-                            ? JsFormTokens.chipSelected
-                            : JsFormTokens.chipBorder),
+                            ? FieldTokens.outlineStrong
+                            : FieldTokens.outline),
                     labelStyle: TextStyle(
-                      color: selected ? JsColors.textStrong : JsColors.textMid,
+                      color: selected ? FieldTokens.textBody : FieldTokens.textSupport,
                       fontWeight:
                           selected ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -205,7 +205,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
               const SizedBox(height: 24),
 
               const Text('理由（任意）',
-                  style: TextStyle(color: JsColors.textMid, fontSize: 13)),
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
               const SizedBox(height: 10),
 
               // 理由チップ4択（単一選択・再タップで解除）
@@ -218,14 +218,14 @@ class _RestDayScreenState extends State<RestDayScreen> {
                     label: Text(r['label']!),
                     selected: selected,
                     showCheckmark: false,
-                    backgroundColor: JsColors.surface,
-                    selectedColor: JsFormTokens.chipSelected,
+                    backgroundColor: FieldTokens.surfaceCard,
+                    selectedColor: FieldTokens.outlineStrong,
                     side: BorderSide(
                         color: selected
-                            ? JsFormTokens.chipSelected
-                            : JsFormTokens.chipBorder),
+                            ? FieldTokens.outlineStrong
+                            : FieldTokens.outline),
                     labelStyle: TextStyle(
-                      color: selected ? JsColors.textStrong : JsColors.textMid,
+                      color: selected ? FieldTokens.textBody : FieldTokens.textSupport,
                       fontWeight:
                           selected ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -240,7 +240,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
               const SizedBox(height: 14),
               const Text(
                 '※理由は任意です。有給は事務の確認後に休暇の記録へ反映されます。',
-                style: TextStyle(color: JsColors.textMid, fontSize: 12),
+                style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
               ),
 
               const SizedBox(height: 32),
@@ -253,10 +253,10 @@ class _RestDayScreenState extends State<RestDayScreen> {
                   // 生成り抜き（画面内の主ボタン）
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    foregroundColor: JsFormTokens.outlineButtonBorder,
+                    foregroundColor: FieldTokens.textBody,
                     disabledBackgroundColor: Colors.transparent,
                     disabledForegroundColor:
-                        JsFormTokens.outlineButtonDisabled,
+                        FieldTokens.textFaint,
                     elevation: 0,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
@@ -265,8 +265,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
                     side: WidgetStateProperty.resolveWith((states) =>
                         BorderSide(
                           color: states.contains(WidgetState.disabled)
-                              ? JsFormTokens.outlineButtonDisabled
-                              : JsFormTokens.outlineButtonBorder,
+                              ? FieldTokens.textFaint
+                              : FieldTokens.textBody,
                           width: 1.5,
                         )),
                   ),
@@ -277,7 +277,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
                           // 面が透明になったのでスピナーも枠色（生成り）へ
                           child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: JsFormTokens.outlineButtonDisabled))
+                              color: FieldTokens.textFaint))
                       : Text(
                           widget.editMode ? '変更を保存' : '休みを登録する',
                           style: const TextStyle(
@@ -292,7 +292,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
                 TextButton(
                   onPressed: _busy ? null : _cancelRest,
                   child: const Text('休みを取り消す',
-                      style: TextStyle(color: JsPalette.statusWarning)),
+                      style: TextStyle(color: FieldTokens.statusWarning)),
                 ),
               ],
             ],

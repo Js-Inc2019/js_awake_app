@@ -1,6 +1,6 @@
 // lib/screens/day_reports_screen.dart
 import 'package:flutter/material.dart';
-import '../core/theme/js_colors.dart';
+import '../core/theme/field_tokens.dart';
 import 'monthly_history_screen.dart' show JsReportTile;
 
 class DayReportsScreen extends StatefulWidget {
@@ -92,18 +92,18 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
           decoration: BoxDecoration(
-            color: JsColors.gold.withValues(alpha: 0.12),
+            color: FieldTokens.accent.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(4),
             border: Border.all(
-                color: JsColors.gold.withValues(alpha: 0.5), width: 0.5),
+                color: FieldTokens.accent.withValues(alpha: 0.5), width: 0.5),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.local_parking, color: JsColors.gold, size: 9),
+              const Icon(Icons.local_parking, color: FieldTokens.accent, size: 9),
               const SizedBox(width: 2),
               Text('¥$fee',
-                  style: const TextStyle(color: JsColors.gold, fontSize: 10)),
+                  style: const TextStyle(color: FieldTokens.accent, fontSize: 10)),
             ],
           ),
         ),
@@ -116,7 +116,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
         child: Padding(
           padding: const EdgeInsets.only(right: 10, bottom: 8),
           child: Text('$prefix ¥$fee',
-              style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
         ),
       );
 
@@ -134,19 +134,19 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
       items.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
-          Icon(icon, color: JsColors.gold, size: 13),
+          Icon(icon, color: FieldTokens.accent, size: 13),
           const SizedBox(width: 4),
           Expanded(
             child: Text(label,
                 style: const TextStyle(
-                    color: JsColors.gold,
+                    color: FieldTokens.accent,
                     fontSize: 12,
                     fontWeight: FontWeight.bold),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
           Text('${entry.value.length}件',
-              style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
         ]),
       ));
       for (final r in entry.value) {
@@ -185,7 +185,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
                 overflow: TextOverflow.ellipsis),
           ),
           Text('${compReps.length}件',
-              style: const TextStyle(color: JsColors.silver, fontSize: 11)),
+              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
           if (fee > 0) ...[
             const SizedBox(width: 8),
             Text('¥$fee',
@@ -208,14 +208,14 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
   Widget build(BuildContext context) {
     final d = widget.date;
     return Scaffold(
-      backgroundColor: JsColors.black,
+      backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
-        backgroundColor: JsColors.black,
-        iconTheme: const IconThemeData(color: JsPalette.brand),
+        backgroundColor: FieldTokens.bgBase,
+        iconTheme: const IconThemeData(color: FieldTokens.brand),
         title: Text(
           '${d.month}月${d.day}日の日報',
           style: const TextStyle(
-              color: JsPalette.brand,
+              color: FieldTokens.brand,
               fontSize: 18,
               fontWeight: FontWeight.bold),
         ),
@@ -229,7 +229,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
     if (reports.isEmpty) {
       return const Center(
         child: Text('この日の日報はありません',
-            style: TextStyle(color: JsColors.silver, fontSize: 13)),
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
       );
     }
 
@@ -250,7 +250,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
             child: Text(
               '${reports.length}件',
               style: const TextStyle(
-                  color: JsColors.gold,
+                  color: FieldTokens.accent,
                   fontSize: 13,
                   fontWeight: FontWeight.bold),
             ),
@@ -261,7 +261,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                border: Border.all(color: JsColors.gold),
+                border: Border.all(color: FieldTokens.accent),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Row(
@@ -271,14 +271,14 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
                     _isWorkerView
                         ? Icons.person_outline
                         : Icons.location_on,
-                    color: JsColors.gold,
+                    color: FieldTokens.accent,
                     size: 13,
                   ),
                   const SizedBox(width: 3),
                   Text(
                     _isWorkerView ? '人別' : '現場別',
                     style: const TextStyle(
-                        color: JsColors.gold, fontSize: 11),
+                        color: FieldTokens.accent, fontSize: 11),
                   ),
                 ],
               ),
@@ -293,14 +293,14 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Row(children: [
-              Expanded(child: Divider(color: JsColors.divider)),
+              Expanded(child: Divider(color: FieldTokens.outline)),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
                 child: Text('協力業者',
                     style: TextStyle(
-                        color: JsColors.silver, fontSize: 11)),
+                        color: FieldTokens.textSupport, fontSize: 11)),
               ),
-              Expanded(child: Divider(color: JsColors.divider)),
+              Expanded(child: Divider(color: FieldTokens.outline)),
             ]),
           ),
         // ── 協力ブロック ──
