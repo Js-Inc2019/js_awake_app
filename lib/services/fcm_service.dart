@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
@@ -43,11 +44,16 @@ class FcmService {
         const InitializationSettings(android: androidInit, iOS: iosInit),
         onDidReceiveNotificationResponse: (NotificationResponse response) {
           final payload = response.payload;
-          if (payload == null) return;
+          if (payload == null) {
+            debugPrint('FCM tap: local notification payload is null — no navigation');
+            return;
+          }
           try {
             final data = jsonDecode(payload) as Map<String, dynamic>;
             handleNotificationTap(data);
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('FCM tap: payload decode failed — no navigation: $e');
+          }
         },
       );
 
@@ -62,7 +68,11 @@ class FcmService {
 
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         final notification = message.notification;
-        if (notification == null) return;
+        if (notification == null) {
+          // data-only メッセージ。表示するものが無いので何も出ない（＝仕様）。
+          debugPrint('FCM onMessage: notification block is null (data-only) — nothing shown');
+          return;
+        }
         _showLocal(
           title:     notification.title ?? '',
           body:      notification.body  ?? '',
@@ -77,20 +87,73 @@ class FcmService {
 
       FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
 
+      var initialTimedOut = false;
       final initial = await FirebaseMessaging.instance
           .getInitialMessage()
-          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+          .timeout(const Duration(seconds: 10), onTimeout: () {
+        initialTimedOut = true;
+        return null;
+      });
+      if (initialTimedOut) {
+        // 「コールド起動タップ無し」と区別が付かないまま10秒待って諦めた状態。
+        debugPrint('FCM init: getInitialMessage timed out after 10s — cold-start tap (if any) is lost');
+      }
       if (initial != null) pendingTapData = initial.data;
     } finally {
       if (!_ready.isCompleted) _ready.complete();
     }
   }
 
+  // ─── iOS: APNs トークンの到着待ち ──────────────────────────────
+  // iOS では FCM トークンは APNs トークンの上に発行される。APNs 登録が
+  // 済む前に getToken() を呼ぶと null か例外になり、以後トークンが
+  // BE に載らない＝「無言で通知が来ない」状態になる（沈黙障害）。
+  // そこで getToken() の前に getAPNSToken() を待つ。
+  //   ・null の間は 500ms 間隔でリトライ、上限 20 回（＝約10秒）
+  //   ・上限到達しても例外は投げず、debugPrint で明示して先へ進む（fail-soft）
+  // Android はこの経路を一切通らない（呼び出し側で Platform.isIOS 分岐）。
+  static const _apnsMaxAttempts = 20;
+  static const _apnsInterval    = Duration(milliseconds: 500);
+
+  Future<String?> _awaitApnsToken() async {
+    for (var i = 1; i <= _apnsMaxAttempts; i++) {
+      String? apns;
+      try {
+        apns = await FirebaseMessaging.instance.getAPNSToken();
+      } catch (e) {
+        // 取得自体が投げるケース（未登録・権限未確定など）。握り潰さず出す。
+        debugPrint('FCM getAPNSToken threw (attempt $i/$_apnsMaxAttempts): $e');
+        apns = null;
+      }
+      if (apns != null && apns.isNotEmpty) {
+        // ★秘匿: APNs トークンの生値は出さない。長さと試行回数のみ。
+        debugPrint('FCM APNs token ready (attempt $i/$_apnsMaxAttempts, len=${apns.length})');
+        return apns;
+      }
+      if (i < _apnsMaxAttempts) await Future.delayed(_apnsInterval);
+    }
+    debugPrint(
+        'FCM APNs token still null after ~${_apnsMaxAttempts * _apnsInterval.inMilliseconds ~/ 1000}s '
+        '— continuing to getToken() anyway (fail-soft; push may not arrive on this device)');
+    return null;
+  }
+
   Future<void> registerToken() async {
     if (kIsWeb) return;
     try {
+      // iOS のみ APNs 待ち。Android の経路・タイミングは不変。
+      if (Platform.isIOS) await _awaitApnsToken();
+
       final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) await _postToken(token);
+      if (token == null) {
+        // 旧実装はここを無言で素通りしていた（token 未登録に気付けない）。
+        debugPrint('FCM registerToken: getToken() returned null — token NOT registered');
+        return;
+      }
+      // ★秘匿: 末尾4文字と長さのみ。全文は出さない。
+      final tail = token.length >= 4 ? token.substring(token.length - 4) : '****';
+      debugPrint('FCM registerToken: token acquired (…$tail, len=${token.length})');
+      await _postToken(token);
     } catch (e) {
       debugPrint('FCM registerToken error: $e');
     }
@@ -99,13 +162,21 @@ class FcmService {
   Future<void> requestNotificationPermission() async {
     if (kIsWeb) return;
     try {
-      await FirebaseMessaging.instance.requestPermission(
+      final settings = await FirebaseMessaging.instance.requestPermission(
         alert:       true,
         badge:       true,
         sound:       true,
         provisional: false,
       );
-    } catch (_) {}
+      // 旧実装は結果を捨てていた＝拒否されても無言。何が起きたか出す。
+      debugPrint('FCM permission: ${settings.authorizationStatus}');
+      if (settings.authorizationStatus != AuthorizationStatus.authorized &&
+          settings.authorizationStatus != AuthorizationStatus.provisional) {
+        debugPrint('FCM permission: NOT granted — push will not be shown on this device');
+      }
+    } catch (e) {
+      debugPrint('FCM requestPermission error: $e');
+    }
   }
 
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
@@ -114,10 +185,14 @@ class FcmService {
         type != 'report_reminder' &&
         type != 'punch_remind_in' &&
         type != 'punch_remind_out') {
+      debugPrint('FCM tap: unknown type "$type" — ignored (no navigation)');
       return;
     }
     final loggedIn = await AuthService().isLoggedIn();
-    if (!loggedIn) return;
+    if (!loggedIn) {
+      debugPrint('FCM tap: not logged in — navigation for type "$type" skipped');
+      return;
+    }
 
     // ── 打刻のお知らせ（punch_remind_in / punch_remind_out）──
     // 下の既存2type の分岐を1バイトも変えないため、ここで処理して return する。
@@ -165,13 +240,23 @@ class FcmService {
   //   （空 Bearer を BE に投げないため）。headers/timeout/fail-soft は不変。
   Future<void> _postToken(String token) async {
     try {
-      if (!await AuthService().isLoggedIn()) return;
+      if (!await AuthService().isLoggedIn()) {
+        debugPrint('FCM token post: not logged in — token NOT sent to BE');
+        return;
+      }
       final headers = await AuthService().getAuthHeaders();
-      await http.post(
+      final res = await http.post(
         Uri.parse('$kApiBaseUrl/notifications/fcm-token'),
         headers: headers,
         body: jsonEncode({'fcm_token': token}),
       ).timeout(const Duration(seconds: 10));
+      // 旧実装はレスポンスを捨てていた＝400/500 でも成功と区別が付かなかった。
+      // ★秘匿: body は BE のエラーメッセージのみ想定だが、念のため status だけ出す。
+      if (res.statusCode != 200) {
+        debugPrint('FCM token post: BE returned ${res.statusCode} — token NOT registered');
+      } else {
+        debugPrint('FCM token post: OK (200)');
+      }
     } catch (e) {
       debugPrint('FCM token post error: $e');
     }
