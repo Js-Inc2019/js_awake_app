@@ -132,12 +132,15 @@ String _wbgtLevel(double wbgt) {
   return '危険';
 }
 
+// 段階は :127-133 の _wbgtLevel と同じ 21/25/28/31（環境省指針）。
+// ★T5工程2でトークン化。移行前は Safe に textSupport、Danger に statusError という
+//   意匠トークンを流用していた（値は同じなので見た目は変わっていない）。
 Color _wbgtColor(double wbgt) {
-  if (wbgt < 21) return FieldTokens.textSupport;
-  if (wbgt < 25) return const Color(0xFF43A047);
-  if (wbgt < 28) return const Color(0xFFF9A825);
-  if (wbgt < 31) return const Color(0xFFE65100);
-  return FieldTokens.statusError;
+  if (wbgt < 21) return FieldTokens.wbgtSafe;
+  if (wbgt < 25) return FieldTokens.wbgtCaution;
+  if (wbgt < 28) return FieldTokens.wbgtWarning;
+  if (wbgt < 31) return FieldTokens.wbgtSevere;
+  return FieldTokens.wbgtDanger;
 }
 
 // ─────────────────────────────────────────────
@@ -2018,7 +2021,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   ・🔔 お知らせ Icons.notifications_none（＋_unreadCount バッジ）→ ボトム「通知」タブへ
         //   ・⚙️ 設定 Icons.settings                                     → ボトム「設定」タブへ
         IconButton(
-          icon: const Icon(Icons.calculate, color: Color(0xFF00E5CC)),
+          icon: const Icon(Icons.calculate, color: FieldTokens.toolBrand),
           tooltip: 'TOOL',
           onPressed: _launchToolApp,
         ),
@@ -4133,7 +4136,7 @@ class _PunchWeatherRow extends StatelessWidget {
                           value: '${weather!.precipPct}',
                           unit:  '%',
                           valueColor: weather!.precipPct >= 50
-                              ? const Color(0xFF64B5F6)
+                              ? FieldTokens.externalBlue
                               : null),
                       _PunchWeatherItem(
                           label: '風速',
@@ -4236,17 +4239,17 @@ class _PunchForecastStrip extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text('${day.maxC.round()}°',
                     style: const TextStyle(
-                        color: Color(0xFFEF9A9A),
+                        color: FieldTokens.statusError,
                         fontSize: 11,
                         fontWeight: FontWeight.bold)),
                 Text('${day.minC.round()}°',
                     style: const TextStyle(
-                        color: Color(0xFF90CAF9), fontSize: 11)),
+                        color: FieldTokens.externalBlue, fontSize: 11)),
                 if (day.precipPct > 0)
                   Text('${day.precipPct}%',
                       style: TextStyle(
                           color: day.precipPct >= 50
-                              ? const Color(0xFF64B5F6)
+                              ? FieldTokens.externalBlue
                               : FieldTokens.textSupport,
                           fontSize: 9)),
               ],
@@ -4311,7 +4314,7 @@ class _PunchWbgtRow extends StatelessWidget {
             Expanded(
               child: Text(seasonWarning!,
                   style: const TextStyle(
-                      color: Color(0xFFFFCC80), fontSize: 10),
+                      color: FieldTokens.statusWarning, fontSize: 10),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
             ),
@@ -4406,7 +4409,7 @@ class _HealthCheckBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDanger = message.startsWith('🔴');
     final base =
-        isDanger ? const Color(0xFFB71C1C) : const Color(0xFFE65100);
+        isDanger ? FieldTokens.statusError : FieldTokens.statusWarning;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -4418,8 +4421,8 @@ class _HealthCheckBanner extends StatelessWidget {
         message,
         style: TextStyle(
             color: isDanger
-                ? const Color(0xFFEF9A9A)
-                : const Color(0xFFFFCC80),
+                ? FieldTokens.statusError
+                : FieldTokens.statusWarning,
             fontSize: 12,
             fontWeight: FontWeight.w500),
         maxLines: 1,
@@ -5628,7 +5631,7 @@ class PendingApprovalCard extends StatelessWidget {
                     label: const Text('修正依頼'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: FieldTokens.statusWarning,
-                      foregroundColor: const Color(0xFF3D1E00),
+                      foregroundColor: FieldTokens.onStatusWarning,
                     ),
                   ),
                 ),
@@ -6212,7 +6215,7 @@ class _CoopCard extends StatelessWidget {
                 isPerson
                     ? Icons.person_outline
                     : Icons.business_outlined,
-                color: const Color(0xFF4FC3F7),
+                color: FieldTokens.externalBlue,
                 size: 16,
               ),
               const SizedBox(width: 6),
@@ -6232,13 +6235,13 @@ class _CoopCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4FC3F7).withValues(alpha: 0.2),
+                    color: FieldTokens.externalBlue.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: const Text(
                     '個人',
                     style: TextStyle(
-                        color: Color(0xFF4FC3F7), fontSize: 10),
+                        color: FieldTokens.externalBlue, fontSize: 10),
                   ),
                 ),
             ],
@@ -6249,7 +6252,7 @@ class _CoopCard extends StatelessWidget {
               JsStatChip('延べ人工', reportCount, FieldTokens.textSupport),
               const SizedBox(width: 4),
               JsStatChip('職人', workerCount,
-                  const Color(0xFF4FC3F7)),
+                  FieldTokens.externalBlue),
               const SizedBox(width: 4),
               JsStatChip('現場', siteCount, FieldTokens.accent),
               const SizedBox(width: 4),

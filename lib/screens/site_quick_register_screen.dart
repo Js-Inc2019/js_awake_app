@@ -153,7 +153,11 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0x2EFFB800), // warning 約18%
+                // ★T5工程2: 移行前は #2EFFB800 だった。コメントは「warning 約18%」と
+                //   書かれていたが基色 #FFB800 は statusWarning(#E0603A) ではなく
+                //   worker2 と同値で、枠(statusWarning)と色相が食い違っていた。
+                //   地を statusWarning の18%へ変更し枠と色相を揃えた（見た目は変わる）。
+                color: FieldTokens.statusWarning.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: FieldTokens.statusWarning),
               ),
@@ -266,11 +270,11 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
     );
   }
 
-  // 仮登録(pending)現場のバッジ（本ファイル:140 の warning 約18% リテラルと同型）。
+  // 仮登録(pending)現場のバッジ（説明ボックスと同型＝地は statusWarning の18%・枠と文字は不透明）。
   Widget _pendingBadge() => Container(
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
     decoration: BoxDecoration(
-      color: const Color(0x2EFFB800),
+      color: FieldTokens.statusWarning.withValues(alpha: 0.18),
       borderRadius: BorderRadius.circular(5),
       border: Border.all(color: FieldTokens.statusWarning),
     ),

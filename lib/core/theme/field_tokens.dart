@@ -19,7 +19,10 @@
 //   ・文字 = textBody（本文・値） / textSupport（ラベル・補助） /
 //            textFaint（弱い補助・非活性） / textHint（placeholder 専用）
 //   ・強調 = accent 系。押せるもの＝accent、見せるだけの顔＝brand と役割を分ける。
-//   ・状態 = statusSuccess / statusWarning / statusError
+//   ・状態 = statusSuccess / statusWarning / statusError（＋塗り用の面と前景）
+//   ・外部 = externalBlue（他社・外部）。自社＝accent との対比でのみ使う。
+//   ・別系統 = wbgt*（環境省指針）／worker*・boss*（人物の役割）／toolBrand（他アプリの顔）。
+//             意匠を変えてもこれらは動かさない。
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -74,6 +77,16 @@ class FieldTokens {
   /// ブランド色（淡い金）。タイトル・顔に使う。押せるものには使わない
   static const Color brand = Color(0xFFD9C08A);
 
+  /// TOOL（ARC FLASH）ブランド色。TOOL の顔にのみ使う
+  /// （home_screen.dart の AppBar にある TOOL 起動アイコン1箇所）
+  static const Color toolBrand = Color(0xFF00E5CC);
+
+  // ─── 外部・他社の識別 ────────────────────────────────────
+  /// 他社・外部の識別色（自社＝accent との対比）。
+  /// 天気の寒色（週間予報の最低気温・降水確率≥50%）も同値で扱う。
+  /// ★T5工程2で externalBlue として独立。値は移行前の #4FC3F7 を温存
+  static const Color externalBlue = Color(0xFF4FC3F7);
+
   // ─── カレンダー専用 ──────────────────────────────────────
   // 「その日の性質」を表す文字色。会社の休業日設定とは無関係に固定で、
   // セル塗り（会社休業日）とは意味が別（両方同時に出てよい）。
@@ -92,8 +105,41 @@ class FieldTokens {
   /// 未提出・警告。未入力バッジ（枠線＋文字）にも使う
   static const Color statusWarning = Color(0xFFE0603A);
 
+  /// statusWarning 塗りの面に載る文字・アイコン（onAccent の warning 版）。
+  /// 差戻し／修正依頼など「橙塗りのボタン」の前景
+  static const Color onStatusWarning = Color(0xFF3D1E00);
+
   /// エラー。カレンダーの日曜文字色にも使う
   static const Color statusError = Color(0xFFE05252);
+
+  /// 危険を「面」で示すときの地（暗赤）。改ざん検知行の行地など。
+  /// 文字色の statusError とは役割が別で、surfaceCard の代わりに敷く
+  static const Color statusErrorSurface = Color(0xFF3D1515);
+
+  // ─── スクリム（半透明黒・面トークンでは表現できない重ね色）──────
+  /// 写真の上に置く操作ボタンの下敷き（黒54%）
+  static const Color scrimStrong = Color(0x8A000000);
+
+  /// 画像読込失敗プレースホルダの地（黒26%）
+  static const Color scrimWeak = Color(0x42000000);
+
+  // ─── WBGT 熱中症危険度（環境省指針・外部由来）─────────────────
+  // ★意匠トークン（面/文字/強調/状態）とは別系統。値の意味がアプリ外で
+  //   決まっているため、テーマを変えてもこの5色は独立して扱う。
+  //   OFFICE 側 core/theme/app_colors.dart の wbgtSafe〜wbgtDanger と同じ命名。
+  //   区分は home_screen.dart の _wbgtColor()/_wbgtLabel() が使う 21/25/28/31。
+  //   ★T5工程2で独立。それ以前は Safe が textSupport、Danger が statusError を
+  //     流用しており「文字色トークンを段階色に使う」状態だった。値は温存＝見た目不変。
+  /// ほぼ安全（wbgt < 21）
+  static const Color wbgtSafe = Color(0xFF7B7567);
+  /// 注意（21 ≤ wbgt < 25）
+  static const Color wbgtCaution = Color(0xFF43A047);
+  /// 警戒（25 ≤ wbgt < 28）
+  static const Color wbgtWarning = Color(0xFFF9A825);
+  /// 厳重警戒（28 ≤ wbgt < 31）
+  static const Color wbgtSevere = Color(0xFFE65100);
+  /// 危険（31 ≤ wbgt）
+  static const Color wbgtDanger = Color(0xFFE05252);
 
   // ─── 役割カラー（経験年数別）────────────────────────────────
   // ★Asphalt Dawn の意味名パレットに役割色の指定が無いため、値は旧構成から

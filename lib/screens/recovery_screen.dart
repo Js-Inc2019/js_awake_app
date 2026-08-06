@@ -327,13 +327,13 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    border: Border.all(color: Colors.red),
+                    color: FieldTokens.statusError.withValues(alpha: 0.1),
+                    border: Border.all(color: FieldTokens.statusError),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(_errorMessage!,
                       style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 13),
+                          color: FieldTokens.statusError, fontSize: 13),
                       textAlign: TextAlign.center),
                 ),
               ],

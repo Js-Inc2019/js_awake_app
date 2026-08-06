@@ -324,7 +324,7 @@ class JsReportTile extends StatelessWidget {
     final isRejected  = status == 'rejected';
     final accentColor = myCompanyId.isEmpty
         ? null
-        : (_isOwn ? FieldTokens.accent : const Color(0xFF4FC3F7));
+        : (_isOwn ? FieldTokens.accent : FieldTokens.externalBlue);
 
     return GestureDetector(
       onTap: () {

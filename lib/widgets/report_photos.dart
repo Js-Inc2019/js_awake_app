@@ -113,7 +113,7 @@ class ReportPhotosState extends State<ReportPhotos> {
           errorBuilder: (_, __, ___) => Container(
             width: 88,
             height: 88,
-            color: Colors.black26,
+            color: FieldTokens.scrimWeak,
             alignment: Alignment.center,
             child: const Text('読込不可',
                 style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),

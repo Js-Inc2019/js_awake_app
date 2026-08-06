@@ -343,12 +343,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     child: Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFB71C1C).withValues(alpha: 0.1),
-        border: Border.all(color: const Color(0xFFB71C1C)),
+        color: FieldTokens.statusError.withValues(alpha: 0.1),
+        border: Border.all(color: FieldTokens.statusError),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(msg,
-          style: const TextStyle(color: Color(0xFFB71C1C), fontSize: 13)),
+          style: const TextStyle(color: FieldTokens.statusError, fontSize: 13)),
     ),
   );
 }

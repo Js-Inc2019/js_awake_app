@@ -24,13 +24,12 @@ import 'notification_settings_screen.dart';
 import 'company_link_screen.dart';
 
 // ─── 経験年数 → バッジ色 ───────────────────────────────────
-Color experienceColor(int? years) {
-  final y = years ?? 0;
-  if (y >= 20) return const Color(0xFFCE93D8); // 紫: マスター
-  if (y >= 10) return const Color(0xFF4FC3F7); // 青: ベテラン
-  if (y >= 3)  return FieldTokens.accent;           // 金: 中堅
-  return const Color(0xFF9E9E9E);              // グレー: 新人
-}
+// ★T5工程2: 本ファイル独自の4段階（紫#CE93D8 / 青#4FC3F7 / accent / グレー#9E9E9E）を廃止し、
+//   FieldTokens.getWorkerAccent の8段階へ一本化した。
+//   ★見た目は変わる（全区分で色が変わる。新人グレーは失われる）。
+//   ★下の experienceTier は4ラベルのままなので、同じラベルでも年数で色が変わる区分が出る
+//     （例: 3年=worker3 と 9年=worker4 は共にラベル「中堅」だが色は別）。
+Color experienceColor(int? years) => FieldTokens.getWorkerAccent(years ?? 0);
 
 String experienceTier(int? years) {
   final y = years ?? 0;
@@ -89,7 +88,7 @@ class _ProfileData {
 
   // 経験年数でworkerのバッジ色が変わる
   Color get badgeColor {
-    if (role == 'boss') return const Color(0xFF4FC3F7);
+    if (role == 'boss') return FieldTokens.externalBlue;
     return experienceColor(experienceYears);
   }
 }
@@ -319,13 +318,13 @@ class ProfileBodyState extends State<ProfileBody> {
                             child: OutlinedButton.icon(
                               onPressed: _confirmLogout,
                               icon: const Icon(Icons.logout,
-                                  color: Colors.redAccent),
+                                  color: FieldTokens.statusError),
                               label: const Text('ログアウト',
                                   style:
-                                      TextStyle(color: Colors.redAccent)),
+                                      TextStyle(color: FieldTokens.statusError)),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(
-                                    color: Colors.redAccent),
+                                    color: FieldTokens.statusError),
                                 padding: const EdgeInsets.symmetric(
                                     vertical: 14),
                                 shape: RoundedRectangleBorder(
@@ -359,7 +358,7 @@ class ProfileBodyState extends State<ProfileBody> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('ログアウト',
-                style: TextStyle(color: Colors.redAccent)),
+                style: TextStyle(color: FieldTokens.statusError)),
           ),
         ],
       ),
@@ -811,7 +810,7 @@ class ProfileBodyState extends State<ProfileBody> {
               ? _dateStr(p.healthCheckDate!)
               : '未登録',
           valueColor: hcWarn != null
-              ? (hcWarn.startsWith('🔴') ? Colors.red[300]! : Colors.orange[300]!)
+              ? (hcWarn.startsWith('🔴') ? FieldTokens.statusError : FieldTokens.statusWarning)
               : null,
         ),
         if (hcWarn != null) ...[
@@ -821,8 +820,8 @@ class ProfileBodyState extends State<ProfileBody> {
             child: Text(hcWarn,
                 style: TextStyle(
                     color: hcWarn.startsWith('🔴')
-                        ? Colors.red[300]
-                        : Colors.orange[300],
+                        ? FieldTokens.statusError
+                        : FieldTokens.statusWarning,
                     fontSize: 12)),
           ),
         ],
@@ -1568,8 +1567,8 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                   return Text(warn,
                       style: TextStyle(
                           color: warn.startsWith('🔴')
-                              ? Colors.red[300]
-                              : Colors.orange[300],
+                              ? FieldTokens.statusError
+                              : FieldTokens.statusWarning,
                           fontSize: 12));
                 }),
               ],

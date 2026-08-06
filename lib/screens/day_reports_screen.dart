@@ -173,12 +173,12 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
           const Icon(Icons.business_outlined,
-              color: Color(0xFF4FC3F7), size: 13),
+              color: FieldTokens.externalBlue, size: 13),
           const SizedBox(width: 4),
           Expanded(
             child: Text(companyName,
                 style: const TextStyle(
-                    color: Color(0xFF4FC3F7),
+                    color: FieldTokens.externalBlue,
                     fontSize: 12,
                     fontWeight: FontWeight.bold),
                 maxLines: 1,
@@ -190,7 +190,7 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
             const SizedBox(width: 8),
             Text('¥$fee',
                 style: const TextStyle(
-                    color: Color(0xFF4FC3F7), fontSize: 11)),
+                    color: FieldTokens.externalBlue, fontSize: 11)),
           ],
         ]),
       ));

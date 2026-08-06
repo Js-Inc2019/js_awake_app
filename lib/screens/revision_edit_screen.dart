@@ -564,7 +564,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
           errorBuilder: (_, __, ___) => Container(
             width: 88,
             height: 88,
-            color: Colors.black26,
+            color: FieldTokens.scrimWeak,
             alignment: Alignment.center,
             child: const Text('読込不可',
                 style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
@@ -692,7 +692,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
                   ),
                   child: Text(e.value,
                       style: TextStyle(
-                        color: sel ? Colors.black : FieldTokens.textBody,
+                        color: sel ? FieldTokens.onAccent : FieldTokens.textBody,
                         fontSize: 14,
                         fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                       )),

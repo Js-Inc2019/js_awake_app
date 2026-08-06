@@ -101,13 +101,13 @@ class _InboxScreenState extends State<InboxScreen>
     final Color titleColor;
     if (status == 'tampered') {
       title = '⚠️ 改ざん検知';
-      titleColor = Colors.red;
+      titleColor = FieldTokens.statusError;
     } else if (status == 'ok') {
       title = '✅ 正常';
       titleColor = FieldTokens.accent;
     } else {
       title = '⚠️ 確認できませんでした';
-      titleColor = Colors.orange;
+      titleColor = FieldTokens.statusWarning;
     }
 
     showDialog(
@@ -170,8 +170,8 @@ class _InboxScreenState extends State<InboxScreen>
                 if (share['is_tampered'] == true)
                   const Chip(
                     label: Text('⚠️ 改ざん',
-                        style: TextStyle(color: Colors.white)),
-                    backgroundColor: Colors.red,
+                        style: TextStyle(color: FieldTokens.textBody)),
+                    backgroundColor: FieldTokens.statusError,
                   ),
               ],
             ),
@@ -261,13 +261,13 @@ class _InboxScreenState extends State<InboxScreen>
 
         return ListTile(
           tileColor: isTampered
-              ? const Color(0xFF3D1515)
+              ? FieldTokens.statusErrorSurface
               : FieldTokens.surfaceCard,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
             side: BorderSide(
               color: isTampered
-                  ? Colors.red
+                  ? FieldTokens.statusError
                   : isUnread
                       ? FieldTokens.accent
                       : Colors.transparent,
@@ -276,12 +276,12 @@ class _InboxScreenState extends State<InboxScreen>
           ),
           leading: CircleAvatar(
             backgroundColor: isTampered
-                ? Colors.red
+                ? FieldTokens.statusError
                 : FieldTokens.surfaceRaised,
             child: Icon(
               isTampered ? Icons.warning : Icons.inbox,
               color: isTampered
-                  ? Colors.white
+                  ? FieldTokens.textBody
                   : FieldTokens.accent,
             ),
           ),
@@ -373,13 +373,13 @@ class _InboxScreenState extends State<InboxScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.red,
+                  color: FieldTokens.statusError,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   '⚠️ $_tamperedCount',
                   style: const TextStyle(
-                      color: Colors.white, fontSize: 12),
+                      color: FieldTokens.textBody, fontSize: 12),
                 ),
               ),
             ],
@@ -477,19 +477,19 @@ class _StatusChip extends StatelessWidget {
 
     switch (status) {
       case 'read':
-        color = Colors.green;
+        color = FieldTokens.statusSuccess;
         label = '既読';
         break;
       case 'received':
-        color = Colors.blue;
+        color = FieldTokens.externalBlue;
         label = '受信済';
         break;
       case 'tampered':
-        color = Colors.red;
+        color = FieldTokens.statusError;
         label = '改ざん';
         break;
       default:
-        color = const Color(0xFF9E9E9E);
+        color = FieldTokens.textSupport;
         label = '送信済';
     }
 

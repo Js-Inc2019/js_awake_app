@@ -185,7 +185,7 @@ class PhotoStripField extends StatelessWidget {
                     margin: const EdgeInsets.all(2),
                     padding: const EdgeInsets.all(4),
                     decoration: const BoxDecoration(
-                        color: Colors.black54, shape: BoxShape.circle),
+                        color: FieldTokens.scrimStrong, shape: BoxShape.circle),
                     child: const Icon(Icons.close,
                         size: 16, color: FieldTokens.textBody),
                   ),

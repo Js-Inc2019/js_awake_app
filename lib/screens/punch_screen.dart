@@ -1584,11 +1584,11 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
           if (belowLegal) ...[
             const SizedBox(height: 10),
             Row(children: [
-              const Icon(Icons.shield_outlined, color: Color(0xFFE05252), size: 14),
+              const Icon(Icons.shield_outlined, color: FieldTokens.statusError, size: 14),
               const SizedBox(width: 4),
               Text(
                 '⚠️ これは法定休憩($floor分)を下回ります',
-                style: const TextStyle(color: Color(0xFFE05252), fontSize: 12),
+                style: const TextStyle(color: FieldTokens.statusError, fontSize: 12),
               ),
             ]),
           ],
@@ -1624,11 +1624,11 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
           if (_error != null) ...[
             const SizedBox(height: 8),
             Row(children: [
-              const Icon(Icons.error_outline, color: Color(0xFFE05252), size: 14),
+              const Icon(Icons.error_outline, color: FieldTokens.statusError, size: 14),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(_error!,
-                    style: const TextStyle(color: Color(0xFFE05252), fontSize: 12)),
+                    style: const TextStyle(color: FieldTokens.statusError, fontSize: 12)),
               ),
             ]),
           ],

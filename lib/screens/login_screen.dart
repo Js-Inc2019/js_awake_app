@@ -86,11 +86,11 @@ class _LoginScreenState extends State<LoginScreen> {
               content: const Text(
                 '生体認証に失敗しました。PINコードでログインしてください。',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: FieldTokens.textBody,
                     fontSize: 16,
                     fontWeight: FontWeight.bold),
               ),
-              backgroundColor: Colors.orange,
+              backgroundColor: FieldTokens.statusWarning,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14)),
@@ -676,7 +676,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(errMsg),
-            backgroundColor: Colors.red,
+            backgroundColor: FieldTokens.statusError,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ));
@@ -686,7 +686,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('通信エラー: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: FieldTokens.statusError,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ));
@@ -1281,13 +1281,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    border: Border.all(color: Colors.red),
+                    color: FieldTokens.statusError.withValues(alpha: 0.1),
+                    border: Border.all(color: FieldTokens.statusError),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(_errorMessage!,
                       style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 13)),
+                          color: FieldTokens.statusError, fontSize: 13)),
                 ),
               ],
             ],
@@ -1429,7 +1429,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 16),
                 Text(_errorMessage!,
                     style: const TextStyle(
-                        color: Colors.redAccent, fontSize: 13),
+                        color: FieldTokens.statusError, fontSize: 13),
                     textAlign: TextAlign.center),
               ],
               const SizedBox(height: 32),
@@ -1572,7 +1572,7 @@ class _LoginScreenState extends State<LoginScreen> {
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
                 Text(_errorMessage!,
-                    style: const TextStyle(color: Colors.redAccent)),
+                    style: const TextStyle(color: FieldTokens.statusError)),
               ],
               const SizedBox(height: 32),
               SizedBox(

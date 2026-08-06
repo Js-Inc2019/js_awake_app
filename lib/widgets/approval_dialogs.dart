@@ -111,7 +111,7 @@ class _RevisionReasonDialogState extends State<RevisionReasonDialog> {
                 }),
           style: ElevatedButton.styleFrom(
             backgroundColor: FieldTokens.statusWarning,
-            foregroundColor: const Color(0xFF3D1E00),
+            foregroundColor: FieldTokens.onStatusWarning,
           ),
           child: const Text('送信'),
         ),
@@ -140,7 +140,8 @@ class _OriginConfirmDialogState extends State<OriginConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final pc = Theme.of(context).colorScheme.primary;
+    final scheme = Theme.of(context).colorScheme;
+    final pc = scheme.primary;
     return AlertDialog(
       backgroundColor: FieldTokens.surfaceCard,
       title: Text('起点の確認', style: TextStyle(color: pc)),
@@ -179,7 +180,10 @@ class _OriginConfirmDialogState extends State<OriginConfirmDialog> {
           onPressed: () => Navigator.pop(context, true),
           style: ElevatedButton.styleFrom(
             backgroundColor: pc,
-            foregroundColor: pc.computeLuminance() > 0.4 ? Colors.black : Colors.white,
+            // ★T5工程2: 移行前は pc.computeLuminance() > 0.4 で黒/白を自前判定していたが、
+            //   「primary 塗りの上の前景」は app_theme.dart が onPrimary(= onAccent) として
+            //   既に定義しているのでテーマ参照へ是正した。
+            foregroundColor: scheme.onPrimary,
             minimumSize: const Size(80, 36),
           ),
           child: const Text('承認する'),

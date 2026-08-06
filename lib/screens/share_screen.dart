@@ -67,7 +67,7 @@ class _ShareScreenState extends State<ShareScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('送信先を選択してください'),
-          backgroundColor: Colors.red,
+          backgroundColor: FieldTokens.statusError,
         ),
       );
       return;
@@ -92,7 +92,7 @@ class _ShareScreenState extends State<ShareScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$_selectedCompanyNameに送信しました'),
-          backgroundColor: Colors.green,
+          backgroundColor: FieldTokens.statusSuccess,
         ),
       );
       Navigator.pop(context, true);
@@ -100,7 +100,7 @@ class _ShareScreenState extends State<ShareScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result['message'] ?? 'エラーが発生しました'),
-          backgroundColor: Colors.red,
+          backgroundColor: FieldTokens.statusError,
         ),
       );
     }
