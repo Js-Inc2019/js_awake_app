@@ -23,12 +23,13 @@ import 'privacy_policy_screen.dart';
 import 'notification_settings_screen.dart';
 import 'company_link_screen.dart';
 
-// ─── 経験年数 → バッジ色 ───────────────────────────────────
-// ★T5工程2: 本ファイル独自の4段階（紫#CE93D8 / 青#4FC3F7 / accent / グレー#9E9E9E）を廃止し、
-//   FieldTokens.getWorkerAccent の8段階へ一本化した。
-//   ★見た目は変わる（全区分で色が変わる。新人グレーは失われる）。
-//   ★下の experienceTier は4ラベルのままなので、同じラベルでも年数で色が変わる区分が出る
-//     （例: 3年=worker3 と 9年=worker4 は共にラベル「中堅」だが色は別）。
+// ─── 経験年数 → 経験色 ─────────────────────────────────────
+// 色の実体は FieldTokens.getWorkerAccent（field_tokens.dart:182-188）。
+// ★色の境界を下の experienceTier と同じ 1/3/10/20 に揃えたので、同じラベルの中で
+//   色が変わる区分は無くなった（移行前は8色・境界 1/3/5/10/15/20 でズレていた）。
+// ★0年はラベルが空文字になる区分で、色も textSupport（主張しない補助色）になる。
+// ★この色は「経験」だけを表す。役割（職人/職長）の区別は役割色（accent /
+//   FieldTokens.foremanBase）が担い、両者は混ぜない。
 Color experienceColor(int? years) => FieldTokens.getWorkerAccent(years ?? 0);
 
 String experienceTier(int? years) {
@@ -86,11 +87,13 @@ class _ProfileData {
     }
   }
 
-  // 経験年数でworkerのバッジ色が変わる
-  Color get badgeColor {
-    if (role == 'boss') return FieldTokens.externalBlue;
-    return experienceColor(experienceYears);
-  }
+  // アバター枠・経験ラベルに使う経験色。職人・職長で同一ルール（role では分岐しない）。
+  // 役割の区別は roleColor（下記）が担うので、ここに role 分岐を戻さないこと。
+  Color get badgeColor => experienceColor(experienceYears);
+
+  // 役割バッジに使う役割色。職長＝朱丹、それ以外＝accent。
+  Color get roleColor =>
+      role == 'boss' ? FieldTokens.foremanBase : FieldTokens.accent;
 }
 
 // プロフィール写真を data URI(base64) と http(s) URL の両対応で描画
@@ -709,7 +712,9 @@ class ProfileBodyState extends State<ProfileBody> {
   }
 
   Widget _buildHeader(_ProfileData p) {
-    final color = p.badgeColor;
+    // アバター枠と経験ラベル＝経験色 / 役割バッジ＝役割色。役割と経験を1色に混ぜない。
+    final expColor  = p.badgeColor;
+    final roleColor = p.roleColor;
     final tier  = (p.role == 'worker' || p.role == 'boss')
         ? experienceTier(p.experienceYears)
         : '';
@@ -720,7 +725,7 @@ class ProfileBodyState extends State<ProfileBody> {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: FieldTokens.surfaceCard,
-          border: Border.all(color: color, width: 2),
+          border: Border.all(color: expColor, width: 2),
         ),
         child: p.profileImageUrl != null
             ? ClipOval(child: _profileAvatarImage(p.profileImageUrl!))
@@ -731,29 +736,39 @@ class ProfileBodyState extends State<ProfileBody> {
           style: const TextStyle(
               color: FieldTokens.textBody, fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      // 役割バッジ（色は経験年数に連動）
+      // 役割バッジ（色は役割に連動。経験年数では変わらない）
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
+          color: roleColor.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.5)),
+          border: Border.all(color: roleColor.withValues(alpha: 0.5)),
         ),
         child: Text(p.roleLabel,
             style: TextStyle(
-                color: color, fontSize: 13, fontWeight: FontWeight.bold)),
+                color: roleColor, fontSize: 13, fontWeight: FontWeight.bold)),
       ),
+      // 経験ラベル（色は経験年数に連動）
       if (tier.isNotEmpty) ...[
         const SizedBox(height: 6),
         Text(tier,
             style: TextStyle(
-                color: color.withValues(alpha: 0.8), fontSize: 11)),
+                color: expColor.withValues(alpha: 0.8), fontSize: 11)),
       ],
     ]);
   }
 
   Widget _buildInfoCard(_ProfileData p) {
     final hcWarn = _healthWarnText(p.healthCheckDate);
+
+    // 経験年数の表示。0年は experienceTier が空文字なので「0年 ()」という
+    // 中身の無い括弧を出さず、色も主張しない（※getWorkerAccent(0) も同じ
+    // textSupport を返すが、「ラベルが無いときは主張しない」意図をここで明示する）。
+    final expTier  = experienceTier(p.experienceYears);
+    final expText  = expTier.isEmpty
+        ? '${p.experienceYears}年'
+        : '${p.experienceYears}年 ($expTier)';
+    final expColor = expTier.isEmpty ? FieldTokens.textSupport : p.badgeColor;
 
     return Container(
       decoration: BoxDecoration(
@@ -798,8 +813,8 @@ class ProfileBodyState extends State<ProfileBody> {
           _InfoRow(
             icon: Icons.star,
             label: '職人経験年数',
-            value: '${p.experienceYears}年 (${experienceTier(p.experienceYears)})',
-            valueColor: p.badgeColor,
+            value: expText,
+            valueColor: expColor,
           ),
         ],
         const Divider(height: 1, color: FieldTokens.outline),
@@ -1494,9 +1509,11 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // 経験年数プレビューバッジ
+                // 経験年数プレビューバッジ（面と枠＝役割色 / 文字＝経験色）
                 if (_expCtrl.text.isNotEmpty)
-                  _ExperienceBadgePreview(years: int.tryParse(_expCtrl.text)),
+                  _ExperienceBadgePreview(
+                      years: int.tryParse(_expCtrl.text),
+                      role: widget.initial.role),
               ]),
               const SizedBox(height: 20),
 
@@ -1670,24 +1687,29 @@ class _DropdownField<T> extends StatelessWidget {
 }
 
 // ─── 経験年数プレビューバッジ ───
+// ヘッダ（_buildHeader）と同じ分離ルール: 面と枠＝役割色 / 文字＝経験色。
+// role は呼び出し元（_ProfileEditScreenState）が widget.initial.role から渡す。
 class _ExperienceBadgePreview extends StatelessWidget {
-  const _ExperienceBadgePreview({this.years});
+  const _ExperienceBadgePreview({this.years, required this.role});
   final int? years;
+  final String role;
 
   @override
   Widget build(BuildContext context) {
-    final color = experienceColor(years);
+    final expColor  = experienceColor(years);
+    final roleColor =
+        role == 'boss' ? FieldTokens.foremanBase : FieldTokens.accent;
     final tier  = experienceTier(years);
     if (tier.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: roleColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+        border: Border.all(color: roleColor.withValues(alpha: 0.5)),
       ),
       child: Text(tier,
-          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+          style: TextStyle(color: expColor, fontSize: 12, fontWeight: FontWeight.bold)),
     );
   }
 }

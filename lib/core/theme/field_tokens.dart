@@ -141,31 +141,28 @@ class FieldTokens {
   /// 危険（31 ≤ wbgt）
   static const Color wbgtDanger = Color(0xFFE05252);
 
-  // ─── 役割カラー（経験年数別）────────────────────────────────
-  // ★Asphalt Dawn の意味名パレットに役割色の指定が無いため、値は旧構成から
-  //   一切変えずに温存している。意味名への収容は次工程で要指定。
-  //   現状 getWorkerAccent()（下記）以外からの参照は無い。
-  /// 経験1年未満
-  static const Color worker0 = Color(0xFFFF4444);
-  /// 未使用（getWorkerAccent の分岐は worker0/2/3/4/5/6/7 のみを返す）
-  static const Color worker1 = Color(0xFFFF8C00);
-  /// 経験1〜3年未満
-  static const Color worker2 = Color(0xFFFFB800);
-  /// 経験3〜5年未満
-  static const Color worker3 = Color(0xFF00C853);
-  /// 経験5〜10年未満
-  static const Color worker4 = Color(0xFF2979FF);
-  /// 経験10〜15年未満
-  static const Color worker5 = Color(0xFF00B4CC);
-  /// 経験15〜20年未満
-  static const Color worker6 = Color(0xFF7C4DFF);
-  /// 経験20年以上
-  static const Color worker7 = Color(0xFFA89868);
+  // ─── 経験カラー（経験年数別・ラベルと同じ4段階）──────────────
+  // ★ラベル（profile_screen.dart:35-42 experienceTier）の境界 1/3/10/20 に
+  //   色の境界を一致させた4本。移行前は8本（worker0〜worker7）で色の境界が
+  //   1/3/5/10/15/20 だったため、同じラベルの中で色が変わる区分が2つあった
+  //   （3-4年と5-9年＝共に「中堅」／10-14年と15-19年＝共に「ベテラン」）。
+  // ★旧色は statusError(#FF4444) / statusWarning(#FFB800) と同値を流用していて
+  //   状態色と混線していた。新色は状態色のどれとも重複しない値にしてある。
+  /// 経験1〜2年（新人）。新芽
+  static const Color workerNew = Color(0xFF8FBF6F);
+  /// 経験3〜9年（中堅）。水色
+  static const Color workerMid = Color(0xFF4FA3C4);
+  /// 経験10〜19年（ベテラン）。藤
+  static const Color workerVeteran = Color(0xFF7B6FD4);
+  /// 経験20年〜（マスター）。鉄鼠
+  static const Color workerMaster = Color(0xFF7D8A94);
 
   // ─── 職種カラー ─────────────────────────────────────────────
-  // ★同上・値は旧構成から未変更。
-  /// 職長。membership_select_screen.dart:62 が boss ロールの識別色に使う
-  static const Color foremanBase = Color(0xFF7C4DFF);
+  /// 職長。membership_select_screen.dart:62 が boss ロールの識別色に使い、
+  /// profile_screen.dart の役割バッジ・プレビューバッジも boss のとき本色を使う。
+  /// ★値は #7C4DFF（旧 worker6 と同値の紫）から朱丹へ差し替えた。経験色に紫系
+  ///   （workerVeteran #7B6FD4）が入るため、役割色と経験色が近似しないようにする。
+  static const Color foremanBase = Color(0xFFD4664A);
   /// 事務。現状参照なし
   static const Color officeBase = Color(0xFF00B4CC);
   /// 社長（金）。現状参照なし
@@ -175,24 +172,18 @@ class FieldTokens {
   /// 社長（深紅）。現状参照なし
   static const Color bossCrimson = Color(0xFFC62828);
 
-  // ─── 経験年数 → 役割カラー ──────────────────────────────────
-  /// 経験年数から役割カラーを引く。★現状 getForemanAccent() 以外からの参照は無い
+  // ─── 経験年数 → 経験カラー ──────────────────────────────────
+  /// 経験年数から経験カラーを引く。分岐の境界は experienceTier
+  /// （profile_screen.dart:35-42）と同一で、同じラベルの中で色は変わらない。
+  /// 参照元は profile_screen.dart:33 の experienceColor()。
+  /// ★0年（years < 1）はラベルが空文字になる区分なので、色でも意味を主張しない
+  ///   textSupport（ラベル・補助の温グレー :58）を返す。
+  ///   ※本トークン群に textMid は無く、補助文字色の意味名は textSupport。
   static Color getWorkerAccent(int years) {
-    if (years < 1) return worker0;
-    if (years < 3) return worker2;
-    if (years < 5) return worker3;
-    if (years < 10) return worker4;
-    if (years < 15) return worker5;
-    if (years < 20) return worker6;
-    return worker7;
-  }
-
-  /// 職長歴と作業員歴から色を合成する。★現状どこからも参照されていない
-  static Color getForemanAccent(int foremanYears, int workerYears) {
-    if (foremanYears >= 10) return foremanBase;
-    if (foremanYears >= 5) {
-      return Color.lerp(getWorkerAccent(workerYears), foremanBase, 0.6)!;
-    }
-    return Color.lerp(getWorkerAccent(workerYears), foremanBase, 0.3)!;
+    if (years < 1)  return textSupport;
+    if (years < 3)  return workerNew;
+    if (years < 10) return workerMid;
+    if (years < 20) return workerVeteran;
+    return workerMaster;
   }
 }
