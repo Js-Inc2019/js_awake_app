@@ -175,23 +175,44 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) as
     final owmId = (weatherArr.first as Map<String, dynamic>)['id'] as int? ?? 800;
     final desc = (weatherArr.first as Map<String, dynamic>)['description'] as String? ?? '';
     final temp      = ((curJ['main'] as Map)['temp'] as num).toDouble();
-    final rainPop   = ((curJ['clouds'] as Map?)?['all'] as int? ?? 0).clamp(0, 100);
     final humidity  = ((curJ['main'] as Map)['humidity'] as int?) ?? 60;
     final windSpeed = ((curJ['wind'] as Map<String, dynamic>?)?['speed'] as num?)?.toDouble();
+
+    // 予報は current と週間で共用するのでここで1回だけ復号する。
+    final fcJ = fcRes.statusCode == 200
+        ? jsonDecode(fcRes.body) as Map<String, dynamic>
+        : null;
+    final fcList = (fcJ?['list'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+
+    // 当日の降水確率。
+    // ★是正: 移行前はここで curJ['clouds']['all']（＝OWM の「雲量%」）を読み、
+    //   rainPop という名前で precipPct（降水確率%）に入れて :4177 の「降水確率」欄に
+    //   出していた。雲量と降水確率は別物なので、表示が嘘の記号になっていた。
+    // ★取り方は BE に揃える。js-office-api/routes/tools_weather.js:89-95 が
+    //   「降水確率は5日予報の最初の期間から取得」として
+    //   `Math.round((forecastRes.data.list?.[0]?.pop ?? 0) * 100)` を出しており、
+    //   ここも forecast の list[0].pop（0-1 の小数）を 0-100 の整数へ直す。
+    //   ＝週間側（下の maxPop）と同じ本物の pop 由来になり、同じ物差しに揃う。
+    // ★fail-soft: forecast が非200 / list が空 / pop 欠落 のいずれも 0 として扱う
+    //   （`?? 0` は tools_weather.js:95 と同じ流儀）。precipPct は int（null不可・:84）
+    //   なので型は変えない。0% と欠測を区別できない点は BE の既存の割り切りと同じ
+    //   （tools_weather.js:121-122 が同じ趣旨を明記している）。
+    final rainProbability = fcList.isEmpty
+        ? 0
+        : (((fcList.first['pop'] as num?) ?? 0) * 100).round().clamp(0, 100);
 
     final current = _WeatherData(
       icon:      _owmIdToIcon(owmId),
       desc:      desc,
       tempC:     temp,
-      precipPct: rainPop,
+      precipPct: rainProbability,
       humidity:  humidity,
       windSpeed: windSpeed,
     );
 
     final forecast = <_ForecastDay>[];
-    if (fcRes.statusCode == 200) {
-      final fcJ = jsonDecode(fcRes.body) as Map<String, dynamic>;
-      final items = (fcJ['list'] as List).cast<Map<String, dynamic>>();
+    if (fcList.isNotEmpty) {
+      final items = fcList;
       final Map<String, List<Map<String, dynamic>>> byDay = {};
       for (final item in items) {
         final dt = DateTime.fromMillisecondsSinceEpoch(
@@ -246,25 +267,45 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWttr() async {
     final rawDesc =
         ((cur['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ??
             '';
-    final precip   = int.tryParse(cur['precipMM'] as String? ?? '0') ?? 0;
     final humidity = int.tryParse(cur['humidity'] as String? ?? '60') ?? 60;
     final windKmh  = double.tryParse(cur['windspeedKmph'] as String? ?? '');
     final windMs   = windKmh != null
         ? double.parse((windKmh / 3.6).toStringAsFixed(1)) : null;
     final (icon, desc) = _mapDescStr(rawDesc);
 
+    final weatherDays = (j['weather'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+    // 当日の降水確率。
+    // ★是正: 移行前は current_condition の precipMM（＝降水「量」mm）を読み、
+    //   0-100 に clamp して precipPct（降水「確率」%）に入れていた。単位も意味も
+    //   別物で、OWM 側の clouds.all と同じ「嘘の記号」だった。
+    // ★wttr.in の j1 形式で降水確率に当たるのは hourly[].chanceofrain（%）で、
+    //   下の週間側 :316-318 が既に同じキーを使っている。ここも同じ扱いに揃える。
+    // ★ただし BE/OWM 側の「予報の最初の期間」とは合わせられない。wttr.in の
+    //   hourly[0] は当日 00:00 の枠で、参照時刻より前になりうるため。週間行が
+    //   その日について出しているのと同じ「当日の最大値」を採る。
+    // ★fail-soft: weather[0] が無い / hourly が空 / 解釈不能はすべて 0。
+    //   precipPct は int（null不可・:84）なので型は変えない。
+    final todayHourly = weatherDays.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : ((weatherDays.first['hourly'] as List?)?.cast<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[]);
+    final rainProbability = todayHourly
+        .map((h) => int.tryParse(h['chanceofrain'] as String? ?? '0') ?? 0)
+        .fold(0, (a, b) => a > b ? a : b)
+        .clamp(0, 100);
+
     final current = _WeatherData(
       icon:      icon,
       desc:      desc,
       tempC:     tempC,
-      precipPct: precip.clamp(0, 100),
+      precipPct: rainProbability,
       humidity:  humidity,
       windSpeed: windMs,
     );
 
     const weekJa = ['月', '火', '水', '木', '金', '土', '日'];
     final forecast = <_ForecastDay>[];
-    final weatherDays = (j['weather'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     for (final day in weatherDays.take(5)) {
       final dateStr = day['date'] as String? ?? '';
       DateTime? dt;
