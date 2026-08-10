@@ -7,10 +7,9 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../config/constants.dart';
 import '../widgets/photo_strip_field.dart';
 import '../widgets/punch_remind_dialog.dart';
 import '../widgets/search_suggest_field.dart';
@@ -58,6 +57,7 @@ import '../services/site_service.dart';
 import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
+import '../services/weather_service.dart';
 import '../services/profile_service.dart';
 import '../services/worker_service.dart';
 
@@ -73,7 +73,6 @@ String? _getSeasonWarning(DateTime now) {
   return null;
 }
 
-// OWM API キーは lib/config/constants.dart の kWeatherApiKey を使用
 
 // ─────────────────────────────────────────────
 // 天気データモデル
@@ -82,9 +81,31 @@ class _WeatherData {
   final String icon;
   final String desc;
   final double tempC;
-  final int precipPct;
+
+  /// 降水確率(%)。★null＝BE が返していない（未取得）。0 とは別の意味。
+  ///   `?? 0` を足さない（0% という嘘を作らないため・3状態規約）。
+  final int? precipPct;
   final int humidity;
   final double? windSpeed; // m/s
+
+  /// WBGT（暑さ指数）。BE の wbgt.value（weatherEngine.js は日本生気象学会
+  /// Ver.4 換算表のルックアップ）。★端末では計算しない＝2アプリで同じ数字になる。
+  final double? wbgtValue;
+
+  /// WBGT の危険度。BE の wbgt.level（'safe'|'caution'|'warning'|'severe'|'danger'）。
+  final String? wbgtLevel;
+
+  /// 気象アラート。BE の alert.level / alert.message（weatherEngine.js:250-276）。
+  /// message は絵文字込みの完成文＝端末で組み立て直さない。
+  final String? alertLevel;
+  final String? alertMessage;
+
+  /// 体感温度(℃)。★モデルで受けるだけ。表示追加はしない（段7の範囲外）。
+  final double? feelsLike;
+
+  /// 地点名。★同上（受けるだけ・未表示）。
+  final String? location;
+
   const _WeatherData({
     required this.icon,
     required this.desc,
@@ -92,6 +113,12 @@ class _WeatherData {
     required this.precipPct,
     this.humidity = 60,
     this.windSpeed,
+    this.wbgtValue,
+    this.wbgtLevel,
+    this.alertLevel,
+    this.alertMessage,
+    this.feelsLike,
+    this.location,
   });
 }
 
@@ -100,7 +127,9 @@ class _ForecastDay {
   final String icon;
   final double maxC;
   final double minC;
-  final int precipPct;
+
+  /// 日別の降水確率(%)。★null＝未取得（0% と区別する）。
+  final int? precipPct;
   const _ForecastDay({
     required this.weekday,
     required this.icon,
@@ -111,31 +140,24 @@ class _ForecastDay {
 }
 
 // ─────────────────────────────────────────────
-// WBGT（暑さ指数）計算
+// WBGT の表示ロジック
+//
+// ★段7で「計算」は退役した。旧実装（Stull 2011 の湿球温度近似）は
+//   端末側の独自式で、OFFICE 側の式とも BE とも違う数字を出していた。
+//   WBGT の真実源は BE ただ一つ（日本生気象学会 Ver.4 換算表）。
+// ★英語 level → 日本語ラベルの対応は OFFICE(dashboard_screen.dart の
+//   _kWbgtLabelJa)と同一。2アプリで同じ値・同じ言葉にする。
+// ★色だけは表示ロジックとして残す。閾値 21/25/28/31 は環境省指針で、
+//   トークン（FieldTokens.wbgt*）も現行のまま＝見た目は変わらない。
 // ─────────────────────────────────────────────
-double _calcWBGT(double tempC, int humidity) {
-  if (humidity <= 0) return tempC * 0.6;
-  final rh = humidity.toDouble().clamp(1.0, 100.0);
-  // Stull (2011) 湿球温度近似
-  final tw = tempC * atan(0.151977 * sqrt(rh + 8.313659))
-      + atan(tempC + rh)
-      - atan(rh - 1.676331)
-      + 0.00391838 * pow(rh, 1.5) * atan(0.023101 * rh)
-      - 4.686035;
-  return 0.7 * tw + 0.3 * tempC;
-}
+const Map<String, String> _kWbgtLabelJa = {
+  'safe':    'ほぼ安全',
+  'caution': '注意',
+  'warning': '警戒',
+  'severe':  '厳重警戒',
+  'danger':  '危険',
+};
 
-String _wbgtLevel(double wbgt) {
-  if (wbgt < 21) return 'ほぼ安全';
-  if (wbgt < 25) return '注意';
-  if (wbgt < 28) return '警戒';
-  if (wbgt < 31) return '厳重警戒';
-  return '危険';
-}
-
-// 段階は :127-133 の _wbgtLevel と同じ 21/25/28/31（環境省指針）。
-// ★T5工程2でトークン化。移行前は Safe に textSupport、Danger に statusError という
-//   意匠トークンを流用していた（値は同じなので見た目は変わっていない）。
 Color _wbgtColor(double wbgt) {
   if (wbgt < 21) return FieldTokens.wbgtSafe;
   if (wbgt < 25) return FieldTokens.wbgtCaution;
@@ -145,221 +167,71 @@ Color _wbgtColor(double wbgt) {
 }
 
 // ─────────────────────────────────────────────
-// 天気取得（OWM → wttr.in フォールバック）
+// 天気取得
+//
+// ★段7で BE 統一エンジン（GET /tools/weather）1本になった。
+//   退役したもの:
+//     旧 OWM 経路 / 旧フォールバック経路 … 端末から気象APIを直接叩いていた2本。
+//                                   フォールバックは BE 内で完結する。
+//     旧アイコン変換2種            … 天気コード→絵文字の変換表が2系統あった。
+//                                   BE が絵文字を返す（weatherEngine.js:368）。
+//     旧WBGT計算・閾値ラベル       … 端末側の独自式とラベル判定。
+//                                   真実源は BE（日本生気象学会 Ver.4 換算表）。
+//   ＝FIELD と OFFICE が同じ数字・同じ絵文字・同じ言葉になる。
+//
+// ★測位できていない（lat/lon が無い）ときは呼ばない。BE は lat/lon 必須で
+//   400 を返すため（tools_weather.js:51）、投げる前にここで止める。
+// ★失敗（非200・401・通信不成立）は data を返さず、呼び手が静かに劣化させる。
+//   天気の失敗で snackbar を出さない・ログイン画面へ飛ばさない（現行どおり）。
 // ─────────────────────────────────────────────
 Future<(_WeatherData?, List<_ForecastDay>)> _fetchWeatherFull({
   double? lat,
   double? lon,
 }) async {
-  if (kWeatherApiKey.isNotEmpty && lat != null && lon != null) {
-    return _fetchOwm(lat, lon);
-  }
-  return _fetchWttr();
-}
+  if (lat == null || lon == null) return (null, <_ForecastDay>[]);
 
-Future<(_WeatherData?, List<_ForecastDay>)> _fetchOwm(double lat, double lon) async {
-  try {
-    final curRes = await http.get(Uri.parse(
-      'https://api.openweathermap.org/data/2.5/weather'
-      '?lat=$lat&lon=$lon&appid=$kWeatherApiKey&units=metric&lang=ja',
-    )).timeout(const Duration(seconds: 8));
+  final res  = await WeatherService().fetchWeather(lat: lat, lon: lon);
+  final body = res.data;
+  if (!res.ok || body == null) return (null, <_ForecastDay>[]);
 
-    final fcRes = await http.get(Uri.parse(
-      'https://api.openweathermap.org/data/2.5/forecast'
-      '?lat=$lat&lon=$lon&appid=$kWeatherApiKey&units=metric&lang=ja&cnt=40',
-    )).timeout(const Duration(seconds: 8));
+  final cur   = body['current'] as Map<String, dynamic>?;
+  final wbgt  = body['wbgt']    as Map<String, dynamic>?;
+  final alert = body['alert']   as Map<String, dynamic>?;
 
-    if (curRes.statusCode != 200) return (null, <_ForecastDay>[]);
+  // temp が無い＝天気そのものが組めていない。空を返して現行の「取得中...」に倒す。
+  final temp = (cur?['temp'] as num?)?.toDouble();
+  if (temp == null) return (null, <_ForecastDay>[]);
 
-    final curJ = jsonDecode(curRes.body) as Map<String, dynamic>;
-    final weatherArr = curJ['weather'] as List;
-    final owmId = (weatherArr.first as Map<String, dynamic>)['id'] as int? ?? 800;
-    final desc = (weatherArr.first as Map<String, dynamic>)['description'] as String? ?? '';
-    final temp      = ((curJ['main'] as Map)['temp'] as num).toDouble();
-    final humidity  = ((curJ['main'] as Map)['humidity'] as int?) ?? 60;
-    final windSpeed = ((curJ['wind'] as Map<String, dynamic>?)?['speed'] as num?)?.toDouble();
+  // ★`?? 0` を付けない。キーが無い＝BE が返していない（未取得）。
+  //   0% という嘘を作らず null のまま持ち、表示側で '—' にする（3状態規約）。
+  final current = _WeatherData(
+    icon:         cur?['icon']    as String? ?? '🌤️',
+    desc:         cur?['weather'] as String? ?? '',
+    tempC:        temp,
+    precipPct:    (cur?['rain_probability'] as num?)?.toInt(),
+    humidity:     (cur?['humidity']   as num?)?.toInt() ?? 60,
+    windSpeed:    (cur?['wind_speed'] as num?)?.toDouble(),
+    wbgtValue:    (wbgt?['value']     as num?)?.toDouble(),
+    wbgtLevel:    wbgt?['level']      as String?,
+    alertLevel:   alert?['level']     as String?,
+    alertMessage: alert?['message']   as String?,
+    feelsLike:    (cur?['feels_like'] as num?)?.toDouble(),
+    location:     body['location']    as String?,
+  );
 
-    // 予報は current と週間で共用するのでここで1回だけ復号する。
-    final fcJ = fcRes.statusCode == 200
-        ? jsonDecode(fcRes.body) as Map<String, dynamic>
-        : null;
-    final fcList = (fcJ?['list'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+  final weekly = (body['weekly'] as List?) ?? const [];
+  final forecast = weekly
+      .whereType<Map>()
+      .map((d) => _ForecastDay(
+            weekday:   d['day']  as String? ?? '',
+            icon:      d['icon'] as String? ?? '🌡️',
+            maxC:      ((d['max'] as num?) ?? 0).toDouble(),
+            minC:      ((d['min'] as num?) ?? 0).toDouble(),
+            precipPct: (d['rain_probability'] as num?)?.toInt(),
+          ))
+      .toList();
 
-    // 当日の降水確率。
-    // ★是正: 移行前はここで curJ['clouds']['all']（＝OWM の「雲量%」）を読み、
-    //   rainPop という名前で precipPct（降水確率%）に入れて :4177 の「降水確率」欄に
-    //   出していた。雲量と降水確率は別物なので、表示が嘘の記号になっていた。
-    // ★取り方は BE に揃える。js-office-api/routes/tools_weather.js:89-95 が
-    //   「降水確率は5日予報の最初の期間から取得」として
-    //   `Math.round((forecastRes.data.list?.[0]?.pop ?? 0) * 100)` を出しており、
-    //   ここも forecast の list[0].pop（0-1 の小数）を 0-100 の整数へ直す。
-    //   ＝週間側（下の maxPop）と同じ本物の pop 由来になり、同じ物差しに揃う。
-    // ★fail-soft: forecast が非200 / list が空 / pop 欠落 のいずれも 0 として扱う
-    //   （`?? 0` は tools_weather.js:95 と同じ流儀）。precipPct は int（null不可・:84）
-    //   なので型は変えない。0% と欠測を区別できない点は BE の既存の割り切りと同じ
-    //   （tools_weather.js:121-122 が同じ趣旨を明記している）。
-    final rainProbability = fcList.isEmpty
-        ? 0
-        : (((fcList.first['pop'] as num?) ?? 0) * 100).round().clamp(0, 100);
-
-    final current = _WeatherData(
-      icon:      _owmIdToIcon(owmId),
-      desc:      desc,
-      tempC:     temp,
-      precipPct: rainProbability,
-      humidity:  humidity,
-      windSpeed: windSpeed,
-    );
-
-    final forecast = <_ForecastDay>[];
-    if (fcList.isNotEmpty) {
-      final items = fcList;
-      final Map<String, List<Map<String, dynamic>>> byDay = {};
-      for (final item in items) {
-        final dt = DateTime.fromMillisecondsSinceEpoch(
-                (item['dt'] as int) * 1000, isUtc: true)
-            .toLocal();
-        final key = '${dt.year}-${dt.month}-${dt.day}';
-        byDay.putIfAbsent(key, () => []).add(item);
-      }
-      const weekJa = ['月', '火', '水', '木', '金', '土', '日'];
-      int count = 0;
-      for (final entry in byDay.entries) {
-        if (count >= 5) break;
-        final parts = entry.key.split('-');
-        final dt = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-        final dayItems = entry.value;
-        final maxC = dayItems
-            .map((e) => ((e['main'] as Map)['temp_max'] as num).toDouble())
-            .reduce((a, b) => a > b ? a : b);
-        final minC = dayItems
-            .map((e) => ((e['main'] as Map)['temp_min'] as num).toDouble())
-            .reduce((a, b) => a < b ? a : b);
-        final maxPop = dayItems
-            .map((e) => ((e['pop'] as num?)?.toDouble() ?? 0.0))
-            .reduce((a, b) => a > b ? a : b);
-        final repId =
-            ((dayItems[dayItems.length ~/ 2]['weather'] as List).first as Map)['id'] as int? ?? 800;
-        forecast.add(_ForecastDay(
-          weekday: weekJa[dt.weekday - 1],
-          icon: _owmIdToIcon(repId),
-          maxC: maxC,
-          minC: minC,
-          precipPct: (maxPop * 100).round(),
-        ));
-        count++;
-      }
-    }
-    return (current, forecast);
-  } catch (_) {
-    return _fetchWttr();
-  }
-}
-
-Future<(_WeatherData?, List<_ForecastDay>)> _fetchWttr() async {
-  try {
-    final res = await http
-        .get(Uri.parse('https://wttr.in/?format=j1'))
-        .timeout(const Duration(seconds: 8));
-    if (res.statusCode != 200) return (null, <_ForecastDay>[]);
-    final j = jsonDecode(res.body) as Map<String, dynamic>;
-    final cur = (j['current_condition'] as List).first as Map<String, dynamic>;
-    final tempC = double.tryParse(cur['temp_C'] as String? ?? '0') ?? 0;
-    final rawDesc =
-        ((cur['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ??
-            '';
-    final humidity = int.tryParse(cur['humidity'] as String? ?? '60') ?? 60;
-    final windKmh  = double.tryParse(cur['windspeedKmph'] as String? ?? '');
-    final windMs   = windKmh != null
-        ? double.parse((windKmh / 3.6).toStringAsFixed(1)) : null;
-    final (icon, desc) = _mapDescStr(rawDesc);
-
-    final weatherDays = (j['weather'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-
-    // 当日の降水確率。
-    // ★是正: 移行前は current_condition の precipMM（＝降水「量」mm）を読み、
-    //   0-100 に clamp して precipPct（降水「確率」%）に入れていた。単位も意味も
-    //   別物で、OWM 側の clouds.all と同じ「嘘の記号」だった。
-    // ★wttr.in の j1 形式で降水確率に当たるのは hourly[].chanceofrain（%）で、
-    //   下の週間側 :316-318 が既に同じキーを使っている。ここも同じ扱いに揃える。
-    // ★ただし BE/OWM 側の「予報の最初の期間」とは合わせられない。wttr.in の
-    //   hourly[0] は当日 00:00 の枠で、参照時刻より前になりうるため。週間行が
-    //   その日について出しているのと同じ「当日の最大値」を採る。
-    // ★fail-soft: weather[0] が無い / hourly が空 / 解釈不能はすべて 0。
-    //   precipPct は int（null不可・:84）なので型は変えない。
-    final todayHourly = weatherDays.isEmpty
-        ? const <Map<String, dynamic>>[]
-        : ((weatherDays.first['hourly'] as List?)?.cast<Map<String, dynamic>>() ??
-            const <Map<String, dynamic>>[]);
-    final rainProbability = todayHourly
-        .map((h) => int.tryParse(h['chanceofrain'] as String? ?? '0') ?? 0)
-        .fold(0, (a, b) => a > b ? a : b)
-        .clamp(0, 100);
-
-    final current = _WeatherData(
-      icon:      icon,
-      desc:      desc,
-      tempC:     tempC,
-      precipPct: rainProbability,
-      humidity:  humidity,
-      windSpeed: windMs,
-    );
-
-    const weekJa = ['月', '火', '水', '木', '金', '土', '日'];
-    final forecast = <_ForecastDay>[];
-    for (final day in weatherDays.take(5)) {
-      final dateStr = day['date'] as String? ?? '';
-      DateTime? dt;
-      try { dt = DateTime.parse(dateStr); } catch (_) {}
-      final maxC = double.tryParse(day['maxtempC'] as String? ?? '0') ?? 0;
-      final minC = double.tryParse(day['mintempC'] as String? ?? '0') ?? 0;
-      final hourly = (day['hourly'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      final maxPrecip = hourly
-          .map((h) => int.tryParse(h['chanceofrain'] as String? ?? '0') ?? 0)
-          .fold(0, (a, b) => a > b ? a : b);
-      final rawD =
-          ((day['weatherDesc'] as List?)?.first as Map<String, dynamic>?)?['value'] as String? ?? '';
-      final (fIcon, _) = _mapDescStr(rawD);
-      forecast.add(_ForecastDay(
-        weekday: dt != null ? weekJa[dt.weekday - 1] : '-',
-        icon: fIcon,
-        maxC: maxC,
-        minC: minC,
-        precipPct: maxPrecip,
-      ));
-    }
-    return (current, forecast);
-  } catch (_) {
-    return (null, <_ForecastDay>[]);
-  }
-}
-
-String _owmIdToIcon(int id) {
-  if (id >= 200 && id < 300) return '⛈️';
-  if (id >= 300 && id < 400) return '🌦️';
-  if (id >= 500 && id < 510) return '🌧️';
-  if (id == 511) return '🌨️';
-  if (id >= 510 && id < 600) return '🌧️';
-  if (id >= 600 && id < 700) return '❄️';
-  if (id >= 700 && id < 800) return '🌫️';
-  if (id == 800) return '☀️';
-  if (id == 801) return '🌤️';
-  if (id == 802) return '⛅';
-  if (id >= 803) return '☁️';
-  return '🌤️';
-}
-
-(String, String) _mapDescStr(String raw) {
-  final r = raw.toLowerCase();
-  if (r.contains('sunny') || r.contains('clear')) return ('☀️', '晴れ');
-  if (r.contains('partly cloudy') || r.contains('partly')) return ('⛅', '薄曇り');
-  if (r.contains('overcast') || r.contains('cloudy')) return ('☁️', '曇り');
-  if (r.contains('thunder') || r.contains('storm')) return ('⛈️', '雷雨');
-  if (r.contains('heavy rain') || r.contains('torrential')) return ('🌧️', '大雨');
-  if (r.contains('rain') || r.contains('drizzle')) return ('🌦️', '雨');
-  if (r.contains('snow') || r.contains('blizzard')) return ('❄️', '雪');
-  if (r.contains('fog') || r.contains('mist')) return ('🌫️', '霧');
-  return ('🌤️', raw.isNotEmpty ? raw : '取得中');
+  return (current, forecast);
 }
 
 // ─────────────────────────────────────────────
@@ -1227,12 +1099,29 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final cachedAddr = prefs.getString('gps_address') ?? '';
     final revCount   = prefs.getInt('cache_revision_count') ?? 0;
     final hcIso      = prefs.getString('health_check_date_iso');
-    final wIcon      = prefs.getString('cache_weather_icon');
-    final wTempC     = prefs.getDouble('cache_weather_temp');
-    final wDesc      = prefs.getString('cache_weather_desc') ?? '';
-    final wPrecip    = prefs.getInt('cache_weather_precip') ?? 0;
-    final wHumidity  = prefs.getInt('cache_weather_humidity') ?? 60;
-    final wWindSpeed = prefs.getDouble('cache_weather_wind');
+    // 天気キャッシュ。★段7で新形（cache_weather_v2_*）へ改称した。
+    //   旧 cache_weather_* は「precip が null 不可（0 で埋めていた）」「icon は
+    //   端末側の変換表で作った絵文字」で、新形とは意味が違う。同じキーを読み続けると
+    //   取れていない降水確率が 0% として復活し、WBGT も無い旧値が混ざる。
+    //   新旧を混ぜないためにキーごと変え、旧キーはここで捨てる
+    //   （OFFICE の dashboard_weather_v2 と同じ手口）。
+    for (final k in const [
+      'cache_weather_icon', 'cache_weather_temp', 'cache_weather_desc',
+      'cache_weather_precip', 'cache_weather_humidity', 'cache_weather_wind',
+    ]) {
+      await prefs.remove(k);
+    }
+    final wIcon      = prefs.getString('cache_weather_v2_icon');
+    final wTempC     = prefs.getDouble('cache_weather_v2_temp');
+    final wDesc      = prefs.getString('cache_weather_v2_desc') ?? '';
+    // ★`?? 0` を付けない。キャッシュに無い＝一度も取れていない（0% を作らない）。
+    final wPrecip    = prefs.getInt('cache_weather_v2_precip');
+    final wHumidity  = prefs.getInt('cache_weather_v2_humidity') ?? 60;
+    final wWindSpeed = prefs.getDouble('cache_weather_v2_wind');
+    final wWbgtVal   = prefs.getDouble('cache_weather_v2_wbgt_value');
+    final wWbgtLvl   = prefs.getString('cache_weather_v2_wbgt_level');
+    final wAlertLvl  = prefs.getString('cache_weather_v2_alert_level');
+    final wAlertMsg  = prefs.getString('cache_weather_v2_alert_message');
 
     if (mounted) {
       setState(() {
@@ -1245,7 +1134,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           _weather = _WeatherData(
             icon: wIcon, desc: wDesc, tempC: wTempC,
             precipPct: wPrecip, humidity: wHumidity,
-            windSpeed: wWindSpeed);
+            windSpeed: wWindSpeed,
+            wbgtValue: wWbgtVal, wbgtLevel: wWbgtLvl,
+            alertLevel: wAlertLvl, alertMessage: wAlertMsg);
         }
         _initialLoading = false;
       });
@@ -1306,18 +1197,51 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final (data, forecast) = await _fetchWeatherFull(lat: _lat, lon: _lon);
     if (!mounted) return;
     setState(() {
-      _weather  = data;
-      _forecast = forecast;
+      // ★取得できたときだけ差し替える。非200・401・通信不成立で null を代入すると、
+      //   _loadCacheAndStart が復元したキャッシュ表示まで消えて「天気データ取得中...」
+      //   に戻ってしまう。失敗は静かに劣化＝前回値を残す（snackbar も出さない）。
+      if (data != null) _weather = data;
+      if (forecast.isNotEmpty) _forecast = forecast;
       _weatherLoading = false;
     });
     if (data != null) {
       SharedPreferences.getInstance().then((p) {
-        p.setString('cache_weather_icon',     data.icon);
-        p.setDouble('cache_weather_temp',     data.tempC);
-        p.setString('cache_weather_desc',     data.desc);
-        p.setInt('cache_weather_precip',      data.precipPct);
-        p.setInt('cache_weather_humidity',    data.humidity);
-        if (data.windSpeed != null) p.setDouble('cache_weather_wind', data.windSpeed!);
+        p.setString('cache_weather_v2_icon',     data.icon);
+        p.setDouble('cache_weather_v2_temp',     data.tempC);
+        p.setString('cache_weather_v2_desc',     data.desc);
+        p.setInt('cache_weather_v2_humidity',    data.humidity);
+        // ★null のキーは書かずに消す。書かないだけだと前回の値が残り、
+        //   「今回は取れていない」が「前回の値」として復活する。
+        if (data.precipPct != null) {
+          p.setInt('cache_weather_v2_precip', data.precipPct!);
+        } else {
+          p.remove('cache_weather_v2_precip');
+        }
+        if (data.windSpeed != null) {
+          p.setDouble('cache_weather_v2_wind', data.windSpeed!);
+        } else {
+          p.remove('cache_weather_v2_wind');
+        }
+        if (data.wbgtValue != null) {
+          p.setDouble('cache_weather_v2_wbgt_value', data.wbgtValue!);
+        } else {
+          p.remove('cache_weather_v2_wbgt_value');
+        }
+        if (data.wbgtLevel != null) {
+          p.setString('cache_weather_v2_wbgt_level', data.wbgtLevel!);
+        } else {
+          p.remove('cache_weather_v2_wbgt_level');
+        }
+        if (data.alertLevel != null) {
+          p.setString('cache_weather_v2_alert_level', data.alertLevel!);
+        } else {
+          p.remove('cache_weather_v2_alert_level');
+        }
+        if (data.alertMessage != null) {
+          p.setString('cache_weather_v2_alert_message', data.alertMessage!);
+        } else {
+          p.remove('cache_weather_v2_alert_message');
+        }
       });
     }
   }
@@ -4127,6 +4051,10 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
             expanded:     _showForecast,
             onToggle:     () => setState(() => _showForecast = !_showForecast),
           ),
+          // 気象アラート1行。天気情報の直下・週間予報の上＝OFFICE
+          // （dashboard_screen.dart の 1.5段目）と同じ読み順・同じ判定。
+          if (widget.weather != null)
+            _PunchWeatherAlertRow(weather: widget.weather!),
           AnimatedSize(
             duration: const Duration(milliseconds: 220),
             curve:    Curves.easeInOut,
@@ -4186,11 +4114,14 @@ class _PunchWeatherRow extends StatelessWidget {
                           label: '気温',
                           value: '${weather!.tempC.round()}',
                           unit:  '°C'),
+                      // ★3状態規約: 値あり='N' / 0='0' / null(未取得)='—'。
+                      //   `?? 0` を足さない（0% という嘘を作らないため）。
+                      //   単位の '%' も未取得のときは出さない（'—%' にしない）。
                       _PunchWeatherItem(
                           label: '降水',
-                          value: '${weather!.precipPct}',
-                          unit:  '%',
-                          valueColor: weather!.precipPct >= 50
+                          value: weather!.precipPct?.toString() ?? '—',
+                          unit:  weather!.precipPct != null ? '%' : '',
+                          valueColor: (weather!.precipPct ?? 0) >= 50
                               ? FieldTokens.externalBlue
                               : null),
                       _PunchWeatherItem(
@@ -4266,6 +4197,51 @@ class _PunchWeatherItem extends StatelessWidget {
   }
 }
 
+// 気象アラート1行（BE の alert{level,message}・weatherEngine.js:250-276）。
+//
+// ★OFFICE（dashboard_screen.dart の showAlert 判定）と同一仕様:
+//   ・level=='warning' / 'danger' のときだけ出す。
+//   ・'info' は出さない。info は「夏季です」「花粉シーズン」「ご安全に」等の
+//     常時帯で、毎日出ると帯そのものが読み飛ばされる＝要る時に効かなくなる。
+//   ・alert キー欠落（旧キャッシュ・旧サーバ）・message 空も出さない。
+//   ・面塗りせず文字色のみの1行。
+// ★message は BE の完成文をそのまま描く（絵文字込み・端末で組み立て直さない）。
+class _PunchWeatherAlertRow extends StatelessWidget {
+  const _PunchWeatherAlertRow({required this.weather});
+  final _WeatherData weather;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = weather.alertLevel;
+    final msg   = weather.alertMessage;
+    if ((level != 'warning' && level != 'danger') || msg == null || msg.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    // 色は FieldTokens の用途名トークンをそのまま使う（BE の level 名と1対1）。
+    // 新色は作らない。WBGT の5色（FieldTokens.wbgt*）は熱中症危険度の物差しなので
+    // 流用しない（同じパネル内の WBGT バッジと同色になると意味が混ざる）。
+    final color = level == 'danger'
+        ? FieldTokens.statusError
+        : FieldTokens.statusWarning;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(msg,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                )),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PunchForecastStrip extends StatelessWidget {
   const _PunchForecastStrip({required this.forecast});
   final List<_ForecastDay> forecast;
@@ -4300,13 +4276,15 @@ class _PunchForecastStrip extends StatelessWidget {
                 Text('${day.minC.round()}°',
                     style: const TextStyle(
                         color: FieldTokens.externalBlue, fontSize: 11)),
-                if (day.precipPct > 0)
-                  Text('${day.precipPct}%',
-                      style: TextStyle(
-                          color: day.precipPct >= 50
-                              ? FieldTokens.externalBlue
-                              : FieldTokens.textSupport,
-                          fontSize: 9)),
+                // ★3状態規約: 値あり='N%' / 0='0%' / null(未取得)='—'。
+                //   移設前は `> 0` で 0% を丸ごと隠していたが、それだと
+                //   「降らない日」と「取れていない日」が同じ空欄になっていた。
+                Text(day.precipPct != null ? '${day.precipPct}%' : '—',
+                    style: TextStyle(
+                        color: (day.precipPct ?? 0) >= 50
+                            ? FieldTokens.externalBlue
+                            : FieldTokens.textSupport,
+                        fontSize: 9)),
               ],
             ),
           );
@@ -4326,8 +4304,12 @@ class _PunchWbgtRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final wbgt  = _calcWBGT(weather.tempC, weather.humidity);
-    final level = _wbgtLevel(wbgt);
+    // ★値もラベルも BE（wbgt.value / wbgt.level）。端末では計算しない。
+    //   BE は wbgt を常時返す（tools_weather.js:45-47）ため、通年表示という
+    //   現行の見せ方は変わらない。未取得（null）のときだけ行ごと出さない。
+    final wbgt  = weather.wbgtValue;
+    final level = _kWbgtLabelJa[weather.wbgtLevel ?? ''];
+    if (wbgt == null || level == null) return const SizedBox.shrink();
     final color = _wbgtColor(wbgt);
 
     // 塗り面を撤去し「枠付きバッジ」だけにする。説明文(seasonWarning)は同じ1行に置く。
