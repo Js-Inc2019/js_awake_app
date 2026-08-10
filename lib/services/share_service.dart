@@ -174,19 +174,7 @@ class ShareService {
     return r;
   }
 
-  // ============================================================
-  // 改ざん通知一覧取得
-  // ============================================================
-
-  Future<ApiResult<List<dynamic>>> getTamperNotifications() async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<List<dynamic>>(
-      'ShareService.getTamperNotifications',
-      () => http.get(
-        Uri.parse('$kApiBaseUrl/shares/notifications'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      (body) => (apiJsonMap(body)?['notifications'] as List<dynamic>?) ?? const [],
-    );
-  }
+  // ★改ざん通知一覧の取得（GET /shares/notifications）は退役した。呼び手ゼロ。
+  //   FIELD の通知一覧は notification_service（GET /notifications）が唯一の窓口で、
+  //   改ざん通知もその中に含まれて届く。ここに2本目の窓口を残す理由が無い。
 }

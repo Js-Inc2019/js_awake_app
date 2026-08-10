@@ -61,18 +61,6 @@ import '../services/weather_service.dart';
 import '../services/profile_service.dart';
 import '../services/worker_service.dart';
 
-// ─────────────────────────────────────────────
-// 季節注意喚起（6〜9月）
-// ─────────────────────────────────────────────
-String? _getSeasonWarning(DateTime now) {
-  final m = now.month;
-  if (m == 6) return '梅雨・暑熱始まり — こまめな水分補給を';
-  if (m == 7) return '猛暑注意 — 熱中症指数が高い日は無理せず休憩を';
-  if (m == 8) return '熱中症最警戒 — 30分に1回は水分・塩分補給を';
-  if (m == 9) return '残暑注意 — まだ暑さが続きます。油断せず対策を';
-  return null;
-}
-
 
 // ─────────────────────────────────────────────
 // 天気データモデル
@@ -95,6 +83,11 @@ class _WeatherData {
   /// WBGT の危険度。BE の wbgt.level（'safe'|'caution'|'warning'|'severe'|'danger'）。
   final String? wbgtLevel;
 
+  /// WBGT の説明文。BE の wbgt.message。
+  /// ★2段式（ボス裁定）で表示は退役した。受けだけ残すのは、BE が返している値を
+  ///   モデルで捨てないため（表示を戻すときに取得側から直す必要が無い）。
+  final String? wbgtMessage;
+
   /// 気象アラート。BE の alert.level / alert.message（weatherEngine.js:250-276）。
   /// message は絵文字込みの完成文＝端末で組み立て直さない。
   final String? alertLevel;
@@ -115,6 +108,7 @@ class _WeatherData {
     this.windSpeed,
     this.wbgtValue,
     this.wbgtLevel,
+    this.wbgtMessage,
     this.alertLevel,
     this.alertMessage,
     this.feelsLike,
@@ -213,6 +207,7 @@ Future<(_WeatherData?, List<_ForecastDay>)> _fetchWeatherFull({
     windSpeed:    (cur?['wind_speed'] as num?)?.toDouble(),
     wbgtValue:    (wbgt?['value']     as num?)?.toDouble(),
     wbgtLevel:    wbgt?['level']      as String?,
+    wbgtMessage:  wbgt?['message']    as String?,
     alertLevel:   alert?['level']     as String?,
     alertMessage: alert?['message']   as String?,
     feelsLike:    (cur?['feels_like'] as num?)?.toDouble(),
@@ -411,7 +406,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _weatherLoading = false;
 
   // ─── 季節 ───
-  String? _seasonWarning;
   DateTime? _healthCheckDate;
 
   // ─── 起点 ───
@@ -525,7 +519,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     ReportTabNavigator.register(_openReportTabCb);
     PunchRemindDialogNavigator.register(_punchRemindCb);
-    _initSeasonAndDaily();
     _loadCacheAndStart();
     _loadUnreadCount();
     _restoreTabIndex();
@@ -1246,10 +1239,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
-  void _initSeasonAndDaily() {
-    _seasonWarning = _getSeasonWarning(DateTime.now());
-  }
-
   String? _buildHealthBannerMsg() {
     final hc = _healthCheckDate;
     if (hc == null) return null;
@@ -1864,7 +1853,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           weather:       _weather,
           forecast:      _forecast,
           loading:       _weatherLoading,
-          seasonWarning: _seasonWarning,
         ),
         // ── 要対応の件数（取得処理は既存のものをそのまま使う。新APIは作っていない）──
         //   差し戻し   = _revisionCount        (:382 / 取得 :1010 _loadRevisionCount)
@@ -4020,12 +4008,10 @@ class _PunchWeatherPanel extends StatefulWidget {
     required this.weather,
     required this.forecast,
     required this.loading,
-    required this.seasonWarning,
   });
   final _WeatherData? weather;
   final List<_ForecastDay> forecast;
   final bool loading;
-  final String? seasonWarning;
 
   @override
   State<_PunchWeatherPanel> createState() => _PunchWeatherPanelState();
@@ -4045,16 +4031,14 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ── 1段目: 天気メトリクス行 ＋ WBGTバッジ ────────────────────
+          //   数値で読む段。週間予報は天気行をタップしたときだけ開く（この行の展開）。
           _PunchWeatherRow(
             weather:      widget.weather,
             loading:      widget.loading,
             expanded:     _showForecast,
             onToggle:     () => setState(() => _showForecast = !_showForecast),
           ),
-          // 気象アラート1行。天気情報の直下・週間予報の上＝OFFICE
-          // （dashboard_screen.dart の 1.5段目）と同じ読み順・同じ判定。
-          if (widget.weather != null)
-            _PunchWeatherAlertRow(weather: widget.weather!),
           AnimatedSize(
             duration: const Duration(milliseconds: 220),
             curve:    Curves.easeInOut,
@@ -4064,10 +4048,12 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
           ),
           const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
           if (widget.weather != null) ...[
-            _PunchWbgtRow(
-              weather:       widget.weather!,
-              seasonWarning: widget.seasonWarning,
-            ),
+            _PunchWbgtRow(weather: widget.weather!),
+            // ── 2段目: 注意文（alert.message 1行・warning/danger のみ）──────
+            //   言葉で読む段。数値（1段目）と注意（2段目）を分けることで、
+            //   「何度か」と「どうすべきか」が同じ行で潰し合わなくなる。
+            //   判定・色は OFFICE（dashboard_screen.dart）と同一。
+            _PunchWeatherAlertRow(weather: widget.weather!),
             const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
           ],
         ],
@@ -4295,12 +4281,8 @@ class _PunchForecastStrip extends StatelessWidget {
 }
 
 class _PunchWbgtRow extends StatelessWidget {
-  const _PunchWbgtRow({
-    required this.weather,
-    required this.seasonWarning,
-  });
+  const _PunchWbgtRow({required this.weather});
   final _WeatherData weather;
-  final String? seasonWarning;
 
   @override
   Widget build(BuildContext context) {
@@ -4312,8 +4294,11 @@ class _PunchWbgtRow extends StatelessWidget {
     if (wbgt == null || level == null) return const SizedBox.shrink();
     final color = _wbgtColor(wbgt);
 
-    // 塗り面を撤去し「枠付きバッジ」だけにする。説明文(seasonWarning)は同じ1行に置く。
-    // 数字が主役: WBGT の値18px / ラベル10px。
+    // 塗り面を撤去し「枠付きバッジ」だけにする。数字が主役: 値18px / ラベル11px。
+    // ★2段式（ボス裁定）でこの行は「値＋5段階ラベル」だけになった。
+    //   同じ行に置いていた説明文は退役し、注意文は2段目（alert.message）へ一本化。
+    //   1行に数値と文章を同居させると、文章が省略記号で切れて読めなくなっていた
+    //   （maxLines:1 + ellipsis）。段を分ければ両方が最後まで読める。
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -4346,16 +4331,6 @@ class _PunchWbgtRow extends StatelessWidget {
               ],
             ),
           ),
-          if (seasonWarning != null) ...[
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(seasonWarning!,
-                  style: const TextStyle(
-                      color: FieldTokens.statusWarning, fontSize: 10),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ],
         ],
       ),
     );

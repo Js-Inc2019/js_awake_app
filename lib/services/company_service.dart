@@ -3,7 +3,7 @@
 //
 // ★段4: 戻り値を ApiResult<T> へ統一（規約は api_result.dart 冒頭）。
 //   統一前は同じクラスの中に3流儀が同居していた:
-//     ・{'success': bool, 'message': ...} の Map 返し（getCompanies / createCompany / getCompanyById）
+//     ・{'success': bool, 'message': ...} の Map 返し（getCompanies / getCompanyById 他）
 //     ・失敗を空リストへ潰す（searchCompanies / getColleagues）
 //   後者は「0件」と「取れなかった」が同じ [] になり、呼び手が区別できなかった。
 //   URL・body・timeout は1文字も変えていない。
@@ -42,35 +42,9 @@ class CompanyService {
     );
   }
 
-  // ============================================================
-  // 会社新規登録（admin_execのみ）
-  //   ★成功は 201。ApiResult は 200系を成功とするため自然に吸収される。
-  // ============================================================
-
-  Future<ApiResult<Map<String, dynamic>>> createCompany({
-    required String companyName,
-    required String companyCode,
-    String? address,
-    String? phone,
-    String? email,
-  }) async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'CompanyService.createCompany',
-      () => http.post(
-        Uri.parse('$kApiBaseUrl/companies'),
-        headers: headers,
-        body: jsonEncode({
-          'company_name': companyName,
-          'company_code': companyCode,
-          'address': address,
-          'phone': phone,
-          'email': email,
-        }),
-      ).timeout(const Duration(seconds: 15)),
-      (body) => apiJsonMap(body)?['company'] as Map<String, dynamic>?,
-    );
-  }
+  // ★会社新規登録（POST /companies・admin_exec のみ）は退役した。
+  //   FIELD は職人アプリで、会社を作る画面が無い（作れるのは OFFICE 側）。
+  //   呼び手ゼロのまま残すと「FIELD からも会社を作れる」と読めてしまう。
 
   // ============================================================
   // 会社名正規化検索（協力申請の申請先選択用）

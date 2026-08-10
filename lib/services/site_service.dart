@@ -3,7 +3,7 @@
 //
 // ★段4: 戻り値を ApiResult<T> へ統一（規約は api_result.dart 冒頭）。
 //   統一前はこのファイルの中だけで4流儀が並存していた:
-//     ・{'success': bool, 'message': ...}      （getSites / createSite / updateSite / deleteSite）
+//     ・{'success': bool, 'message': ...}      （getSites 他の登録・更新系）
 //     ・String?（失敗は null）                  （createSiteReturningId）
 //     ・{'ok': bool, 'sites'/'message'}         （matchSites）
 //     ・{'status': 'ok'|'not_found'|'error'|'offline'} （geocode）
@@ -53,35 +53,10 @@ class SiteService {
     );
   }
 
-  // ============================================================
-  // 現場新規登録（職長・事務・管理者が可能）
-  //   ★成功は 201。ApiResult は 200系を成功とするため自然に吸収される。
-  // ============================================================
-
-  Future<ApiResult<Map<String, dynamic>>> createSite({
-    required String siteName,
-    String? siteCode,
-    String? address,
-    String? startDate,
-    String? endDate,
-  }) async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'SiteService.createSite',
-      () => http.post(
-        Uri.parse('$kApiBaseUrl/sites'),
-        headers: headers,
-        body: jsonEncode({
-          'site_name':  siteName,
-          'site_code':  siteCode,
-          'address':    address,
-          'start_date': startDate,
-          'end_date':   endDate,
-        }),
-      ).timeout(const Duration(seconds: 15)),
-      (body) => apiJsonMap(body)?['site'] as Map<String, dynamic>?,
-    );
-  }
+  // ★汎用の現場新規登録（POST /sites・応答の site をそのまま返す形）は退役した。
+  //   FIELD が実際に使う登録経路は下の createSiteReturningId ただ一つで、
+  //   こちらは呼び手ゼロだった。同じ POST /sites に入口が2つあると、
+  //   どちらを直せばよいか読み手に伝わらない。
 
   // ============================================================
   // 新規登録して site_id を返す（承認ゲートの仮登録導線用）。
@@ -161,51 +136,7 @@ class SiteService {
     );
   }
 
-  // ============================================================
-  // 現場情報更新
-  // ============================================================
-
-  Future<ApiResult<Map<String, dynamic>>> updateSite({
-    required String siteId,
-    String? siteName,
-    String? siteCode,
-    String? address,
-    String? startDate,
-    String? endDate,
-    bool? isActive,
-  }) async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'SiteService.updateSite',
-      () => http.put(
-        Uri.parse('$kApiBaseUrl/sites/$siteId'),
-        headers: headers,
-        body: jsonEncode({
-          'site_name':  siteName,
-          'site_code':  siteCode,
-          'address':    address,
-          'start_date': startDate,
-          'end_date':   endDate,
-          'is_active':  isActive,
-        }),
-      ).timeout(const Duration(seconds: 15)),
-      (body) => apiJsonMap(body)?['site'] as Map<String, dynamic>?,
-    );
-  }
-
-  // ============================================================
-  // 現場を無効化（削除）
-  // ============================================================
-
-  Future<ApiResult<Map<String, dynamic>>> deleteSite(String siteId) async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'SiteService.deleteSite',
-      () => http.delete(
-        Uri.parse('$kApiBaseUrl/sites/$siteId'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      apiJsonMap,
-    );
-  }
+  // ★現場情報更新（PUT /sites/:id）・現場の無効化（DELETE /sites/:id）は退役した。
+  //   どちらも呼び手ゼロ。FIELD には現場を編集・削除する画面が無く、
+  //   現場台帳の管理は OFFICE の担当（職人アプリは登録と参照だけ）。
 }
