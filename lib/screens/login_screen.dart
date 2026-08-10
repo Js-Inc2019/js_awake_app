@@ -44,13 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _landingInviteCtrl = TextEditingController();
   bool _showSelfReg = false;
 
-  // PIN設定ステップ（Sign Up後 — 旧フロー互換）
-  final int _step = 0;
-  Map<String, dynamic>? _pendingData;
-  final _pinCtrl     = TextEditingController();
-  final _pinConfCtrl = TextEditingController();
-  bool _obscurePin  = true;
-  bool _obscureConf = true;
+  // ★旧フロー互換の「Sign Up後 PIN設定ステップ」は退役。BE 側の初回PIN設定API
+  //   ごと廃止されたため、この画面に PIN を作る経路は無い。self-register は token を
+  //   prefs に保存して PendingApprovalScreen へ進む。招待コード経路の PIN 設定は
+  //   register_screen.dart（/workers/activate）が担当＝そちらは現役。
 
   // PINログインフォールバック
   bool _showPinLogin = false;
@@ -108,8 +105,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _partnerCompanyCtrl.dispose();
     _ownCompanyCtrl.dispose();
     _landingInviteCtrl.dispose();
-    _pinCtrl.dispose();
-    _pinConfCtrl.dispose();
     _loginPinCtrl.dispose();
     super.dispose();
   }
@@ -464,66 +459,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
     if (mounted) setState(() => _isLoading = false);
-  }
-
-  Future<void> _setupPin() async {
-    final pin  = _pinCtrl.text;
-    final conf = _pinConfCtrl.text;
-    if (pin.length < 4 || pin.length > 6) {
-      setState(() => _errorMessage = 'PINは4〜6桁で入力してください');
-      return;
-    }
-    if (pin != conf) {
-      setState(() => _errorMessage = 'PINが一致しません');
-      return;
-    }
-    setState(() { _isLoading = true; _errorMessage = null; });
-    {
-      // ★prefs の auth_token ではなく、登録直後に受け取った _pendingData['token']。
-      //   保存前の段階で呼ばれるため、この経路だけトークンを引数で渡す。
-      final token = _pendingData!['token'] as String;
-      final response = await AuthService().setupPin(pin, token: token);
-      if (response.statusCode == 200) {
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: FieldTokens.surfaceCard,
-            title: const Row(children: [
-              Icon(Icons.warning_amber, color: FieldTokens.accent),
-              SizedBox(width: 8),
-              Flexible(child: Text('PINコードを必ず記録してください',
-                style: TextStyle(color: FieldTokens.textBody, fontSize: 15))),
-            ]),
-            content: const Text(
-              'PINコードを忘れた場合、\nログインできなくなります。\n\nメモ帳などに必ず控えてから\n次へ進んでください。',
-              style: TextStyle(color: FieldTokens.textBody, height: 1.7)),
-            actions: [
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  await _saveAndNavigate(_pendingData!);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: FieldTokens.accent,
-                  foregroundColor: FieldTokens.onAccent),
-                child: const Text('記録しました。次へ進む',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-        );
-      } else if (response.statusCode == 0) {
-        // 通信不成立。errorMessage は規約1の「サーバーに接続できません: $e」を
-        // そのまま出す（画面側で prefix を重ねない＝理由を1回だけ言う）。
-        setState(() { _isLoading = false; _errorMessage = response.errorMessage; });
-      } else {
-        // errorMessage は BE の error フィールド優先＝移設前 data['error'] と同じ出所。
-        setState(() { _isLoading = false; _errorMessage = response.errorMessage ?? 'PIN設定に失敗しました'; });
-      }
-    }
   }
 
   Future<void> _doLoginWithPin() async {
@@ -950,7 +885,6 @@ class _LoginScreenState extends State<LoginScreen> {
         body: Center(child: CircularProgressIndicator(color: FieldTokens.accent)),
       );
     }
-    if (_step == 1) return _buildPinSetupScreen();
     if (_showPinLogin) return _buildPinLoginScreen();
     if (_biometricFailed) {
       return Scaffold(
@@ -1435,144 +1369,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ─── PIN 設定画面（旧フロー互換）────────────────────────────
-  Widget _buildPinSetupScreen() {
-    return Scaffold(
-      backgroundColor: FieldTokens.bgBase,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('株式会社J\'s',
-                  style: TextStyle(
-                      color: FieldTokens.brand,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('勤務管理システム',
-                  style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-              const SizedBox(height: 40),
-              const Text('PINを設定',
-                  style: TextStyle(
-                      color: FieldTokens.accentDeep,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('ログイン時に使用するPIN（4〜6桁）を設定してください',
-                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-              const SizedBox(height: 28),
-              TextField(
-                controller: _pinCtrl,
-                obscureText: _obscurePin,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                style: const TextStyle(color: FieldTokens.textBody),
-                decoration: InputDecoration(
-                  labelText: 'PIN（4〜6桁）',
-                  labelStyle: const TextStyle(color: FieldTokens.textSupport),
-                  prefixIcon:
-                      const Icon(Icons.lock, color: FieldTokens.textSupport),
-                  counterText: '',
-                  enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: FieldTokens.outline),
-                      borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: FieldTokens.accent),
-                      borderRadius: BorderRadius.circular(8)),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscurePin
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: FieldTokens.textSupport),
-                    onPressed: () =>
-                        setState(() => _obscurePin = !_obscurePin),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _pinConfCtrl,
-                obscureText: _obscureConf,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                style: const TextStyle(color: FieldTokens.textBody),
-                decoration: InputDecoration(
-                  labelText: 'PIN確認',
-                  labelStyle: const TextStyle(color: FieldTokens.textSupport),
-                  prefixIcon: const Icon(Icons.lock_outline,
-                      color: FieldTokens.textSupport),
-                  counterText: '',
-                  enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: FieldTokens.outline),
-                      borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: FieldTokens.accent),
-                      borderRadius: BorderRadius.circular(8)),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscureConf
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: FieldTokens.textSupport),
-                    onPressed: () =>
-                        setState(() => _obscureConf = !_obscureConf),
-                  ),
-                ),
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(_errorMessage!,
-                    style: const TextStyle(color: FieldTokens.statusError)),
-              ],
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _setupPin,
-                  // 生成り抜き（画面内の主ボタン）
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    foregroundColor: FieldTokens.textBody,
-                    disabledBackgroundColor: Colors.transparent,
-                    disabledForegroundColor:
-                        FieldTokens.textFaint,
-                    elevation: 0,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ).copyWith(
-                    side: WidgetStateProperty.resolveWith((states) =>
-                        BorderSide(
-                          color: states.contains(WidgetState.disabled)
-                              ? FieldTokens.textFaint
-                              : FieldTokens.textBody,
-                          width: 1.5,
-                        )),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          // 面が透明になったのでスピナーも枠色（生成り）へ
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: FieldTokens.textFaint))
-                      : const Text('PINを設定してはじめる',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
           ),
         ),
       ),

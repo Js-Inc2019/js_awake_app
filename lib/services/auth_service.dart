@@ -57,11 +57,12 @@ class AuthService {
     };
   }
 
-  /// 呼び出しごとに token が異なる経路（setup-pin / consent）用。
+  /// 呼び出しごとに token が異なる経路（verify-token / consent）用。
   /// ★これらは「prefs の token」ではなく「その場で受け取った token」を使う
-  ///   （移設元: login_screen.dart:493 の _pendingData['token'] /
-  ///     login_screen.dart:946・recovery_screen.dart:164 の data['token']）。
+  ///   （consent は login_screen.dart・recovery_screen.dart の data['token']、
+  ///     verify-token は getToken() で読み出した現在のトークン）。
   ///   getAuthHeaders() で代用すると別のトークンを送ることになる。
+  /// ★旧・初回PIN設定APIもこの経路だったが、BE ごと退役したため利用者から外れた。
   static Map<String, String> _bearerHeaders(String token) => {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -229,27 +230,6 @@ class AuthService {
           'device_name': deviceName,
           'device_type': deviceType,
         }),
-      ).timeout(const Duration(seconds: 10)),
-      apiJsonMap,
-    );
-  }
-
-  /// 初回 PIN 設定。
-  /// 移設元: login_screen.dart:494-501（POST /auth/setup-pin・10秒）
-  ///
-  /// ★token は prefs のものではなく、登録直後に受け取った _pendingData['token']
-  ///   （移設元 :493）。prefs にはまだ保存されていない段階で呼ばれるため、
-  ///   getAuthHeaders() では代用できない＝引数必須にしている。
-  Future<ApiResult<Map<String, dynamic>>> setupPin(
-    String newPin, {
-    required String token,
-  }) {
-    return _run<Map<String, dynamic>>(
-      'setupPin',
-      () => http.post(
-        Uri.parse('$kApiBaseUrl/auth/setup-pin'),
-        headers: _bearerHeaders(token),
-        body: jsonEncode({'new_pin': newPin}),
       ).timeout(const Duration(seconds: 10)),
       apiJsonMap,
     );
