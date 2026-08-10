@@ -1,6 +1,23 @@
 // ============================================================
 // lib/services/auth_service.dart - 認証サービス
-// トークン管理・ログイン処理
+//
+// 役割は2つだけ:
+//   ① prefs に入っている認証情報の読み出し（getToken / getUserId / ...）
+//   ② 認証系エンドポイントへの HTTP 呼び出し（戻り値は ApiResult 統一）
+//
+// ★このクラスは「通信の運び屋」であり、保存も遷移も判断もしない。
+//   prefs への保存・画面遷移・fail-open の可否は呼び手（画面）の責任のまま残す。
+//   ここで保存まで抱えると、画面ごとに異なる保存内容（worker_id を返す経路と
+//   返さない経路など）を吸収しきれず、静かに値が欠ける。
+//
+// ★各メソッドの URL・body・timeout・成否判定の正は「移設元の画面コード」。
+//   このファイルは移設元と同じリクエストを組むだけで、秒数もキー名も丸めない。
+//   移設元は各メソッドのコメントに file:line で残してある（段5の呼び替え時の突合用）。
+//
+// ★段4/段5 の予定:
+//   ・段4: 他 Service を同じ ApiResult へ揃える
+//   ・段5: 画面の直 http 呼び出しを本クラスの呼び出しへ置き換える
+//   現時点では画面は未変更＝本クラスの新メソッドはまだ呼び手ゼロ。
 // ============================================================
 
 import 'dart:convert';
@@ -8,6 +25,8 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import '../utils/device_id.dart';
+import 'api_result.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -19,7 +38,38 @@ class AuthService {
   AuthService._internal();
 
   // ============================================================
-  // トークン取得
+  // ヘッダー
+  // ============================================================
+
+  /// 未認証API用の共通ヘッダー。
+  /// ★移設元の画面はいずれも {'Content-Type': 'application/json'} だけを送っていた
+  ///   （verify-device / verify-pin / select-membership / logout / recover-by-code）。
+  ///   同じものを1か所に置いて、画面ごとの書き写しを無くす。
+  static const Map<String, String> jsonHeaders = {
+    'Content-Type': 'application/json',
+  };
+
+  /// 認証済みAPI用ヘッダー（prefs の auth_token を載せる）。
+  Future<Map<String, String>> getAuthHeaders() async {
+    final token = await getToken();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${token ?? ''}',
+    };
+  }
+
+  /// 呼び出しごとに token が異なる経路（setup-pin / consent）用。
+  /// ★これらは「prefs の token」ではなく「その場で受け取った token」を使う
+  ///   （移設元: login_screen.dart:493 の _pendingData['token'] /
+  ///     login_screen.dart:946・recovery_screen.dart:164 の data['token']）。
+  ///   getAuthHeaders() で代用すると別のトークンを送ることになる。
+  static Map<String, String> _bearerHeaders(String token) => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+  // ============================================================
+  // prefs 読み出し
   // ============================================================
 
   Future<String?> getToken() async {
@@ -27,27 +77,15 @@ class AuthService {
     return prefs.getString('auth_token');
   }
 
-  // ============================================================
-  // ユーザーID取得
-  // ============================================================
-
   Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('user_id');
   }
 
-  // ============================================================
-  // 会社ID取得（v2追加）
-  // ============================================================
-
   Future<String?> getCompanyId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('company_id');
   }
-
-  // ============================================================
-  // ロール取得（v2追加）
-  // ============================================================
 
   Future<String?> getRole() async {
     final prefs = await SharedPreferences.getInstance();
@@ -55,45 +93,25 @@ class AuthService {
     return prefs.getString('user_role');
   }
 
-  // ============================================================
-  // ユーザー名取得（v2追加）
-  // ============================================================
-
   Future<String?> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('user_name');
   }
-
-  // ============================================================
-  // ログイン済みか確認
-  // ============================================================
 
   Future<bool> isLoggedIn() async {
     final token = await getToken();
     return token != null && token.isNotEmpty;
   }
 
-  // ============================================================
-  // 職人かどうか確認
-  // ============================================================
-
   Future<bool> isWorker() async {
     final role = await getRole();
     return role == 'worker';
   }
 
-  // ============================================================
-  // 職長かどうか確認
-  // ============================================================
-
   Future<bool> isBoss() async {
     final role = await getRole();
     return role == 'boss';
   }
-
-  // ============================================================
-  // 事務かどうか確認
-  // ============================================================
 
   Future<bool> isOfficeAdmin() async {
     final role = await getRole();
@@ -101,108 +119,307 @@ class AuthService {
   }
 
   // ============================================================
-  // PINでログイン
+  // 共通の送信・応答処理（ApiResult 規約の実装は1か所だけ）
+  //   規約の全文は api_result.dart 冒頭を参照。
   // ============================================================
 
-  Future<Map<String, dynamic>> loginWithPin(String pin) async {
+  /// 応答本文の先頭200文字（規約2のエラー文言用）。
+  static String _clip(String body) =>
+      body.length <= 200 ? body : '${body.substring(0, 200)}…';
+
+  /// 非200のエラー文言。BE の error を優先し、無ければ本文の先頭200文字。
+  static String _errorMessageFrom(String body) {
+    if (body.isEmpty) return '(応答本文なし)';
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/auth/verify-pin'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'pin': pin,
-          'device_name': 'JS_App_Device',
-          'device_type': 'smartphone',
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final token       = data['token']        as String?;
-        final userId      = data['user_id']      as String?;
-        final role        = data['role']         as String?;
-        final companyId   = data['company_id']   as String?;
-        final companyName = data['company_name'] as String?;
-        final userName    = data['name']         as String?;
-        final workerId    = data['worker_id']    as String?;
-
-        if (token != null && userId != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('auth_token',   token);
-          await prefs.setString('user_id',      userId);
-          await prefs.setString('user_role',    role        ?? 'worker'); // 二重キー統一: 'user_role' に一本化
-          await prefs.remove('role'); // 旧 'role' キーの残骸掃除
-          await prefs.setString('company_id',   companyId   ?? '');
-          await prefs.setString('company_name', companyName ?? '');
-          await prefs.setString('user_name',    userName    ?? '');
-          if (workerId != null && workerId.isNotEmpty) {
-            await prefs.setString('worker_id', workerId);
-          }
-          return {
-            'success':      true,
-            'message':      'ログインに成功しました',
-            'token':        token,
-            'user_id':      userId,
-            'role':         role,
-            'company_id':   companyId,
-            'company_name': companyName,
-            'user_name':    userName,
-            'worker_id':    workerId,
-          };
-        }
-      } else if (response.statusCode == 401) {
-        return {'success': false, 'message': 'PINが間違っています'};
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final err = decoded['error'];
+        if (err is String && err.isNotEmpty) return err;
       }
-
-      return {'success': false, 'message': 'ログインに失敗しました'};
-    } catch (e) {
-      debugPrint('ログインエラー: $e');
-      return {
-        'success': false,
-        'message': 'サーバーに接続できません。ネットワークを確認してください。',
-      };
+    } catch (_) {
+      // JSON でない（HTML のエラーページ等）→ 本文をそのまま見せる
     }
+    return _clip(body);
   }
 
-  // ============================================================
-  // ※ ログアウトは profile_screen.dart の _logout() に一本化（S5b で本クラスの
-  //   logout() を削除）。本メソッドは呼び手ゼロの死蔵で、削除キーが6つしかなく
-  //   pending_reports / worker_reports_history / 個人情報系など27キーを残す
-  //   漏洩実装だったため、誤って配線される前に撤去した。
-  // ============================================================
-
-  // ============================================================
-  // トークン検証
-  // ============================================================
-
-  Future<bool> verifyToken() async {
+  /// すべての認証系呼び出しの土台。
+  ///   ・例外/timeout   → ok:false / statusCode:0
+  ///   ・非200          → ok:false / statusCode:実値 / errorMessage:BEのerror優先
+  ///   ・200系          → parse の結果を data に載せて ok:true
+  ///   ・200系でparse失敗 → ok:false / statusCode:実値（0 に倒さない＝サーバは応答済み）
+  ///
+  /// ★debugPrint に出すのは メソッド名・statusCode・非200本文の先頭200文字 まで。
+  ///   headers / token / Authorization / リクエストbody は出さない。
+  ///   200系の本文も出さない（token を含む応答があるため）。
+  Future<ApiResult<T>> _run<T>(
+    String label,
+    Future<http.Response> Function() send,
+    T? Function(String body) parse,
+  ) async {
     try {
-      final token = await getToken();
-      if (token == null) return false;
-
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/auth/verify-token'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      return response.statusCode == 200;
+      final res = await send();
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        try {
+          return (
+            ok: true,
+            statusCode: res.statusCode,
+            data: parse(res.body),
+            errorMessage: null,
+          );
+        } catch (e) {
+          // 本文は出さない（token を含み得るため）。長さだけ残す。
+          debugPrint(
+              '[AuthService.$label] 応答の解析に失敗 (status=${res.statusCode}, 本文長=${res.body.length}): $e');
+          return (
+            ok: false,
+            statusCode: res.statusCode,
+            data: null,
+            errorMessage: '応答の解析に失敗しました',
+          );
+        }
+      }
+      debugPrint(
+          '[AuthService.$label] 非200 (status=${res.statusCode}): ${_clip(res.body)}');
+      return (
+        ok: false,
+        statusCode: res.statusCode,
+        data: null,
+        errorMessage: _errorMessageFrom(res.body),
+      );
     } catch (e) {
-      return false;
+      debugPrint('[AuthService.$label] 通信失敗: $e');
+      return (
+        ok: false,
+        statusCode: 0,
+        data: null,
+        errorMessage: 'サーバーに接続できません: $e',
+      );
     }
   }
 
+  /// JSON オブジェクトを返すエンドポイント用の parse。
+  /// 本文が空なら null（204 等でも例外にしない）。
+  static Map<String, dynamic>? _asJsonMap(String body) {
+    if (body.isEmpty) return null;
+    return jsonDecode(body) as Map<String, dynamic>;
+  }
+
   // ============================================================
-  // 認証済みAPIリクエスト用ヘッダー取得
+  // 認証系エンドポイント
   // ============================================================
 
-  Future<Map<String, String>> getAuthHeaders() async {
-    final token = await getToken();
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${token ?? ''}',
-    };
+  /// サーバのウォームアップ（Heroku のコールドスタート対策）。
+  /// 移設元: login_screen.dart:168（GET kHealthUrl・15秒）
+  ///
+  /// ★移設元 _warmUpServer（login_screen.dart:165-175）は本リクエストを
+  ///   「最大3回・失敗時は2秒待って再試行」というループで包んでいる。
+  ///   ループは呼び手側の再試行方針なので本メソッドには入れない
+  ///   （ApiResult は1リクエスト＝1結果の型）。段5で画面から呼び替える際は
+  ///   このループを画面側に残すこと。ここだけ差し替えると再試行が消える。
+  /// ★data は応答本文そのまま（/health は JSON とは限らないため decode しない）。
+  ///   移設元も本文は見ておらず、200 かどうかだけを見ている。
+  Future<ApiResult<String>> warmUp() {
+    return _run<String>(
+      'warmUp',
+      () => http.get(Uri.parse(kHealthUrl))
+          .timeout(const Duration(seconds: 15)),
+      (body) => body,
+    );
+  }
+
+  /// 保存済みトークンの検証。
+  /// 移設元: login_screen.dart:221-228（POST /auth/verify-token・10秒）
+  ///
+  /// ★単一の顔の掟: body の device_id は必須（未送信は 400 DEVICE_ID_REQUIRED）。
+  /// ★token は prefs の auth_token、device_id は utils/device_id.dart の getDeviceId()。
+  ///   移設元の _getDeviceId()（login_screen.dart:141-143）は
+  ///   `return getDeviceId();` そのものなので同一。
+  /// ★data はサーバ応答全体。user / status / consent_agreed_at / consent_version を
+  ///   含むため、呼び手はそこから必要な値を取る（移設元 :234-261 と同じ形）。
+  /// ★「token が空なら呼ばない」ガードは呼び手側に残る（移設元 login_screen.dart:217）。
+  ///   ここでは判断せず、持っているトークンでそのまま問い合わせる。
+  Future<ApiResult<Map<String, dynamic>>> verifyToken() async {
+    final token    = await getToken() ?? '';
+    final deviceId = await getDeviceId();
+    return _run<Map<String, dynamic>>(
+      'verifyToken',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/verify-token'),
+        headers: _bearerHeaders(token),
+        body: jsonEncode({'device_id': deviceId}),
+      ).timeout(const Duration(seconds: 10)),
+      _asJsonMap,
+    );
+  }
+
+  /// 端末アンカーによるサイレント復帰の照会。
+  /// 移設元: login_screen.dart:339-342（既定8秒）/ login_screen.dart:453-456（10秒）
+  ///
+  /// ★同じリクエストを2か所が別の秒数で叩いていた。既定を8秒とし、
+  ///   10秒側は呼び出し時に timeout を明示する（丸めて片方の挙動を消さない）。
+  /// ★device_id はクエリ文字列。移設元は素の文字列連結だが、Uri の
+  ///   queryParameters を使ってもエンコード結果は同じ（device_id は
+  ///   ANDROID_ID / UUID / '<id>-field' ＝ 予約文字を含まない）。
+  Future<ApiResult<Map<String, dynamic>>> verifyDevice(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) {
+    return _run<Map<String, dynamic>>(
+      'verifyDevice',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/auth/verify-device?device_id=$deviceId'),
+        headers: jsonHeaders,
+      ).timeout(timeout),
+      _asJsonMap,
+    );
+  }
+
+  /// PIN ログイン。
+  /// 移設元: login_screen.dart:552-561（POST /auth/verify-pin・10秒）
+  ///
+  /// ★deviceName は移設元で `Platform.isAndroid ? 'Android' : 'iPhone'` を
+  ///   画面が組み立てている。ここで再実装すると判定が二重になるため引数で受ける。
+  /// ★data は応答全体（requires_selection / role / token / worker_id 等を含む）。
+  Future<ApiResult<Map<String, dynamic>>> verifyPin({
+    required String pin,
+    required String deviceId,
+    required String deviceName,
+    required String deviceType,
+  }) {
+    return _run<Map<String, dynamic>>(
+      'verifyPin',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/verify-pin'),
+        headers: jsonHeaders,
+        body: jsonEncode({
+          'pin':         pin,
+          'device_id':   deviceId,
+          'device_name': deviceName,
+          'device_type': deviceType,
+        }),
+      ).timeout(const Duration(seconds: 10)),
+      _asJsonMap,
+    );
+  }
+
+  /// 初回 PIN 設定。
+  /// 移設元: login_screen.dart:494-501（POST /auth/setup-pin・10秒）
+  ///
+  /// ★token は prefs のものではなく、登録直後に受け取った _pendingData['token']
+  ///   （移設元 :493）。prefs にはまだ保存されていない段階で呼ばれるため、
+  ///   getAuthHeaders() では代用できない＝引数必須にしている。
+  Future<ApiResult<Map<String, dynamic>>> setupPin(
+    String newPin, {
+    required String token,
+  }) {
+    return _run<Map<String, dynamic>>(
+      'setupPin',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/setup-pin'),
+        headers: _bearerHeaders(token),
+        body: jsonEncode({'new_pin': newPin}),
+      ).timeout(const Duration(seconds: 10)),
+      _asJsonMap,
+    );
+  }
+
+  /// 複数所属からの所属選択（pre_auth_token → 本ログイン）。
+  /// 移設元: login_screen.dart:802-809 / membership_select_screen.dart:77-86
+  ///         （どちらも POST /auth/select-membership・10秒・body 2キー・完全一致）
+  ///
+  /// ★2画面の実装を突合したうえで共通形にした。URL・headers・body・timeout・
+  ///   成否判定（200のみ成功）まで差分は無い。
+  /// ★401 = pre_auth 失効（TOKEN_EXPIRED）。時間切れダイアログを出すか、
+  ///   画面内エラーに留めるかは画面ごとに違うので、ここでは判断せず
+  ///   statusCode をそのまま返して呼び手に委ねる。
+  Future<ApiResult<Map<String, dynamic>>> selectMembership({
+    required String preAuthToken,
+    required String membershipId,
+  }) {
+    return _run<Map<String, dynamic>>(
+      'selectMembership',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/select-membership'),
+        headers: jsonHeaders,
+        body: jsonEncode({
+          'pre_auth_token': preAuthToken,
+          'membership_id':  membershipId,
+        }),
+      ).timeout(const Duration(seconds: 10)),
+      _asJsonMap,
+    );
+  }
+
+  /// 同意証跡のサーバ刻印（既存ユーザー救済）。
+  /// 移設元: login_screen.dart:950-957 / recovery_screen.dart:168-175
+  ///         （どちらも POST /auth/consent・8秒・完全一致）
+  ///
+  /// ★consentToken は「その場で受け取った data['token']」。prefs 保存前に呼ばれる
+  ///   経路があるため引数で受ける（移設元 login_screen.dart:946 / recovery_screen.dart:164）。
+  /// ★consentVersion も引数。画面側の _kCurrentConsentVersion がバージョンの正であり、
+  ///   ここに定数を作ると同じ値が2か所に増えて必ず片方が古くなる。
+  /// ★移設元は失敗を握り潰す fail-open（`catch (_) {}`）だが、それは
+  ///   「刻印に失敗しても次回ログインで再試行できる」という呼び手側の判断。
+  ///   本メソッドは結果をそのまま返し、無視するかどうかは呼び手に委ねる。
+  Future<ApiResult<Map<String, dynamic>>> consent({
+    required String consentToken,
+    required String consentVersion,
+  }) {
+    return _run<Map<String, dynamic>>(
+      'consent',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/consent'),
+        headers: _bearerHeaders(consentToken),
+        body: jsonEncode({'consent_version': consentVersion}),
+      ).timeout(const Duration(seconds: 8)),
+      _asJsonMap,
+    );
+  }
+
+  /// 明示ログアウト（サーバ側の端末アンカー白紙化）。
+  /// 移設元: profile_screen.dart:377-381（POST /auth/logout・5秒）
+  ///
+  /// ★BE は device_id 受領時に白紙化する。冪等・常時200。
+  /// ★移設元は「通信失敗でもローカルログアウトは絶対にブロックしない」方針で
+  ///   結果を一切見ていない（袋小路禁止）。その判断は呼び手に残すため、
+  ///   ここでは結果をそのまま返すだけにする。
+  /// ★device_id が空のときに呼ばないガードも呼び手側（移設元 :375）。
+  Future<ApiResult<Map<String, dynamic>>> logout(String deviceId) {
+    return _run<Map<String, dynamic>>(
+      'logout',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/logout'),
+        headers: jsonHeaders,
+        body: jsonEncode({'device_id': deviceId}),
+      ).timeout(const Duration(seconds: 5)),
+      _asJsonMap,
+    );
+  }
+
+  /// 会社コード＋作業員ID＋PIN による端末復旧。
+  /// 移設元: recovery_screen.dart:65-74（POST /auth/recover-by-code・30秒）
+  ///
+  /// ★30秒は移設元のまま。他の認証系より長いのは、この経路が
+  ///   コールドスタート直後に叩かれることがあるため（丸めない）。
+  Future<ApiResult<Map<String, dynamic>>> recoverByCode({
+    required String companyCode,
+    required String workerId,
+    required String pin,
+    required String deviceId,
+  }) {
+    return _run<Map<String, dynamic>>(
+      'recoverByCode',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/auth/recover-by-code'),
+        headers: jsonHeaders,
+        body: jsonEncode({
+          'company_code': companyCode,
+          'worker_id':    workerId,
+          'pin':          pin,
+          'device_id':    deviceId,
+        }),
+      ).timeout(const Duration(seconds: 30)),
+      _asJsonMap,
+    );
   }
 }
