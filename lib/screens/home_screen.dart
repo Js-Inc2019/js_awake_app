@@ -152,6 +152,15 @@ const Map<String, String> _kWbgtLabelJa = {
   'danger':  '危険',
 };
 
+/// WBGT を表示できるか（値とラベルの両方が揃っているか）。
+/// ★非表示規約の単一の判定。バッジ本体（_WbgtBadge）と、行ごと出すかの
+///   ゲート（_PunchWeatherPanelState.build）が同じ式を見るようにする。
+///   2か所で別々に書くと、片方だけ条件が古くなって「枠だけ出る」等が起きる。
+/// ★未取得のときに '--' を置かないのは 3状態規約と同じ理由＝
+///   「取れていない」を「そういう値」に化けさせない。
+bool _hasWbgt(_WeatherData? w) =>
+    w != null && w.wbgtValue != null && _kWbgtLabelJa[w.wbgtLevel ?? ''] != null;
+
 Color _wbgtColor(double wbgt) {
   if (wbgt < 21) return FieldTokens.wbgtSafe;
   if (wbgt < 25) return FieldTokens.wbgtCaution;
@@ -2017,6 +2026,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           ),
       ],
       // 2段目: 上段=会社名（薄・小）、下段=アイコン+氏名（メイン）
+      //   ★左1列のみ。WBGTバッジと注意文はここには置かない（配置替え・ボス裁定）。
+      //     置き場は天気パネル先頭の独立1行（_PunchWeatherPanelState.build）ただ一つ。
+      //   ★高さ 46 は会社名(11.5px)＋間隔1＋氏名(13px)＋上下padding(5+6) の実所要高。
+      //     右列を持たないので可変にする必要がない＝統合前と同じ固定値へ戻す。
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(46),
         child: Container(
@@ -4031,8 +4044,35 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── 1段目: 天気メトリクス行 ＋ WBGTバッジ ────────────────────
-          //   数値で読む段。週間予報は天気行をタップしたときだけ開く（この行の展開）。
+          // ── WBGT行（独立1行・ボス裁定の配置替え）────────────────────
+          //   会社名・氏名の行（AppBar bottom）と天気メトリクス行の間に入る。
+          //   この天気パネルは本文の先頭に置かれる（punch_screen.dart:608）ため、
+          //   パネルの先頭＝ヘッダー直下＝狙いの位置になる。
+          //   【左】WBGTバッジ（値＋5段階ラベル）
+          //   【右】注意文（alert.message）＝Expanded で残り幅を全部取り、右寄せ1行
+          //   ★非表示規約: wbgt が未取得なら「この行ごと」出さない。
+          //     alert が info・無しのときは注意文だけ消え、バッジは残る
+          //     （_WeatherAlertLine が SizedBox.shrink を返す）。
+          //   ★バッジ・注意文を描くのはここだけ。ヘッダーにも他のどこにも置かない。
+          if (_hasWbgt(widget.weather)) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _WbgtBadge(weather: widget.weather!),
+                  const SizedBox(width: 10),
+                  // ★Expanded（tight）で残り幅を確定させる。これが FittedBox の
+                  //   「どこまで縮めれば入るか」の基準になる。Flexible（loose）だと
+                  //   箱が内容幅まで縮んで右端が動き、右寄せが効かない。
+                  Expanded(child: _WeatherAlertLine(weather: widget.weather!)),
+                ],
+              ),
+            ),
+            const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
+            const SizedBox(height: 8),
+          ],
+          // 天気メトリクス行。週間予報はこの行をタップしたときだけ開く（この行の展開）。
           _PunchWeatherRow(
             weather:      widget.weather,
             loading:      widget.loading,
@@ -4047,15 +4087,6 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
                 : const SizedBox.shrink(),
           ),
           const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
-          if (widget.weather != null) ...[
-            _PunchWbgtRow(weather: widget.weather!),
-            // ── 2段目: 注意文（alert.message 1行・warning/danger のみ）──────
-            //   言葉で読む段。数値（1段目）と注意（2段目）を分けることで、
-            //   「何度か」と「どうすべきか」が同じ行で潰し合わなくなる。
-            //   判定・色は OFFICE（dashboard_screen.dart）と同一。
-            _PunchWeatherAlertRow(weather: widget.weather!),
-            const Divider(color: FieldTokens.outline, thickness: 1, height: 1),
-          ],
         ],
       ),
     );
@@ -4183,17 +4214,27 @@ class _PunchWeatherItem extends StatelessWidget {
   }
 }
 
-// 気象アラート1行（BE の alert{level,message}・weatherEngine.js:250-276）。
+// WBGT行 右: 気象アラート1行（BE の alert{level,message}・weatherEngine.js:250-276）。
 //
-// ★OFFICE（dashboard_screen.dart の showAlert 判定）と同一仕様:
+// ★判定・色は OFFICE（dashboard_screen.dart の showAlert 判定）と同一仕様:
 //   ・level=='warning' / 'danger' のときだけ出す。
 //   ・'info' は出さない。info は「夏季です」「花粉シーズン」「ご安全に」等の
 //     常時帯で、毎日出ると帯そのものが読み飛ばされる＝要る時に効かなくなる。
 //   ・alert キー欠落（旧キャッシュ・旧サーバ）・message 空も出さない。
-//   ・面塗りせず文字色のみの1行。
+//   ・面塗りせず文字色のみ。アイコンは持たない（message の先頭に BE が絵文字を含む）。
 // ★message は BE の完成文をそのまま描く（絵文字込み・端末で組み立て直さない）。
-class _PunchWeatherAlertRow extends StatelessWidget {
-  const _PunchWeatherAlertRow({required this.weather});
+//
+// ★1行表示の約束（ボス裁定・案C＝自動縮小）:
+//   FittedBox(fit: BoxFit.scaleDown) で「全文が残り幅に収まるまで縮める」。
+//   ・基準は fontSize 12。収まるときは縮めない（scaleDown は拡大しない）。
+//   ・maxLines:1 / softWrap:false は維持＝縮んでも必ず1行。
+//   ・文字は1文字も欠けない。ellipsis（…）も clip も発生しない構成にしてある:
+//     FittedBox は子へ幅の制限を渡さないため Text は自然幅で組まれ、
+//     はみ出しではなく「拡大率」で辻褄を合わせる。だから overflow は visible。
+//   ・alignment は centerRight。呼び手の Expanded が確定させた箱の右端に貼り付き、
+//     縮んでも右端が動かない（バッジは左端に固定・注意文は右端に固定）。
+class _WeatherAlertLine extends StatelessWidget {
+  const _WeatherAlertLine({required this.weather});
   final _WeatherData weather;
 
   @override
@@ -4205,24 +4246,26 @@ class _PunchWeatherAlertRow extends StatelessWidget {
     }
     // 色は FieldTokens の用途名トークンをそのまま使う（BE の level 名と1対1）。
     // 新色は作らない。WBGT の5色（FieldTokens.wbgt*）は熱中症危険度の物差しなので
-    // 流用しない（同じパネル内の WBGT バッジと同色になると意味が混ざる）。
+    // 流用しない（すぐ上の WBGT バッジと同色になると意味が混ざる）。
     final color = level == 'danger'
         ? FieldTokens.statusError
         : FieldTokens.statusWarning;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(msg,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                )),
-          ),
-        ],
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerRight,
+      child: Text(
+        msg,
+        maxLines: 1,
+        softWrap: false,
+        // ★FittedBox が子へ幅の制限を渡さない＝Text 側でのはみ出しは起きない。
+        //   clip / ellipsis にすると「切れる経路がある」と読めてしまうので visible。
+        overflow: TextOverflow.visible,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
+        ),
       ),
     );
   }
@@ -4280,57 +4323,51 @@ class _PunchForecastStrip extends StatelessWidget {
   }
 }
 
-class _PunchWbgtRow extends StatelessWidget {
-  const _PunchWbgtRow({required this.weather});
+// WBGT行 左: WBGTバッジ（値＋5段階ラベル）。
+//
+// ★枠付きバッジの中身は従来のまま流用。塗り面なし・枠だけ、数字が主役
+//   （値18px / ラベル11px）、色は _wbgtColor（閾値 21/25/28/31 は環境省指針）。
+//   外枠（Padding や Row）は持たない＝置き場所ごとの余白は呼び手が決める。
+// ★値もラベルも BE（wbgt.value / wbgt.level）。端末では計算しない。
+//   BE は wbgt を常時返す（tools_weather.js:45-47）ため通年表示は現行のまま。
+// ★非表示規約: 未取得（value か level が無い）ならバッジごと出さない。
+//   実際には呼び手が _hasWbgt で先に弾くが、この widget 単体でも安全側に倒す。
+class _WbgtBadge extends StatelessWidget {
+  const _WbgtBadge({required this.weather});
   final _WeatherData weather;
 
   @override
   Widget build(BuildContext context) {
-    // ★値もラベルも BE（wbgt.value / wbgt.level）。端末では計算しない。
-    //   BE は wbgt を常時返す（tools_weather.js:45-47）ため、通年表示という
-    //   現行の見せ方は変わらない。未取得（null）のときだけ行ごと出さない。
     final wbgt  = weather.wbgtValue;
     final level = _kWbgtLabelJa[weather.wbgtLevel ?? ''];
     if (wbgt == null || level == null) return const SizedBox.shrink();
     final color = _wbgtColor(wbgt);
 
-    // 塗り面を撤去し「枠付きバッジ」だけにする。数字が主役: 値18px / ラベル11px。
-    // ★2段式（ボス裁定）でこの行は「値＋5段階ラベル」だけになった。
-    //   同じ行に置いていた説明文は退役し、注意文は2段目（alert.message）へ一本化。
-    //   1行に数値と文章を同居させると、文章が省略記号で切れて読めなくなっていた
-    //   （maxLines:1 + ellipsis）。段を分ければ両方が最後まで読める。
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color),
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: color),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                const Text('WBGT ',
-                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
-                Text('${wbgt.round()}',
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        height: 1.0)),
-                const SizedBox(width: 6),
-                Text(level,
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
+          const Text('WBGT ',
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 10)),
+          Text('${wbgt.round()}',
+              style: TextStyle(
+                  color: color,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0)),
+          const SizedBox(width: 6),
+          Text(level,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
