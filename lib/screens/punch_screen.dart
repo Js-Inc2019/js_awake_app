@@ -131,8 +131,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   Timer? _timer;
   bool _busy = false;
   int? _standardBreakMin;
-  int  _legalBreak6h = 45;
-  int  _legalBreak8h = 60;
+  // ★法定休憩（6h/8h）の保持は廃止。読み手だった休憩申告シートが退役したため
+  //   端末側で持つ意味が無くなった（値の出どころ WorkModeService.fetchToday /
+  //   TodayStatus.legalBreak6h/8h は一切変更していない＝BEも他画面も無傷）。
 
   // 本日休み状態（_RestDayButton から持ち上げ）。ボタン表示と日報報告ゲートが
   // 単一の状態を共有する（照会失敗は fail-open＝rested=false）。
@@ -290,8 +291,6 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         _punchedIn        = today.punchedIn;
         _punchedOut       = today.punchedOut;
         _standardBreakMin = today.standardBreakMin;
-        _legalBreak6h     = today.legalBreak6h;
-        _legalBreak8h     = today.legalBreak8h;
       }
       _loading = false;
     });
@@ -362,8 +361,6 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             _punchedIn        = today.punchedIn;
             _punchedOut       = today.punchedOut;
             _standardBreakMin = today.standardBreakMin;
-            _legalBreak6h     = today.legalBreak6h;
-            _legalBreak8h     = today.legalBreak8h;
           }
         });
         _notifyPunchState();
@@ -513,42 +510,11 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     return '休憩は労働時間に応じて自動';
   }
 
-  void _openBreakRequestSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: _card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _BreakRequestSheet(
-        record:       _record,
-        legalBreak6h: _legalBreak6h,
-        legalBreak8h: _legalBreak8h,
-        // N6: 申告を当てる勤怠行のシフト。いま画面が見ているシフト（fetchToday:200 と同じ値）。
-        shiftType:    widget.shiftType,
-        onSubmitted:  _onBreakRequestSubmitted,
-      ),
-    );
-  }
-
-  Future<void> _onBreakRequestSubmitted() async {
-    showJsSnackbar(context, '申告しました（承認待ち）');
-    final todayRes = await WorkModeService().fetchToday(shiftType: widget.shiftType);
-    if (!mounted) return;
-    setState(() {
-      final today = todayRes.data;
-      if (todayRes.ok && today != null) {
-        _record           = today.record;
-        _punchedIn        = today.punchedIn;
-        _punchedOut       = today.punchedOut;
-        _standardBreakMin = today.standardBreakMin;
-        _legalBreak6h     = today.legalBreak6h;
-        _legalBreak8h     = today.legalBreak8h;
-      }
-    });
-    _notifyPunchState();
-  }
+  // ★休憩の申告シート（_openBreakRequestSheet / _onBreakRequestSubmitted /
+  //   _BreakRequestSheet）は退役（ボス裁定＝二重導線の解消）。休憩の申告は
+  //   退勤後の報告フロー（home_screen.dart の「追加の申告」＝休憩の短縮）に
+  //   一本化した。送信API WorkModeService().breakRequest はそちらが使い続ける。
+  //   この画面の休憩は _breakLabel() による表示のみ（申告状態の可視化は継続）。
 
   // K5(Q9): 「本日休み」を押した瞬間のガード。
   //   みなしモードで当日ぶんの報告が済んでいる（done / closed）ときだけ確認を挟む。
@@ -663,7 +629,6 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       punchedOut:    _punchedOut,
                       record:        _record,
                       breakLabel:    _breakLabel(),
-                      onChangeBreak: _openBreakRequestSheet,
                       // みなしモードの表示に使う値。WorkModeService の取得ロジックは
                       // 一切変えず、既に _settings(:58) が持っている値を下ろすだけ。
                       deemedStart:   _settings.deemedStart,
@@ -989,7 +954,6 @@ class _StatusSection extends StatelessWidget {
     required this.punchedOut,
     required this.record,
     required this.breakLabel,
-    required this.onChangeBreak,
     required this.deemedStart,
     required this.deemedEnd,
     required this.breakMinutes,
@@ -1000,7 +964,6 @@ class _StatusSection extends StatelessWidget {
   final bool punchedOut;
   final Map<String, dynamic>? record;
   final String breakLabel;
-  final VoidCallback onChangeBreak;
   // みなし表示用。WorkModeSettings(work_mode_service.dart:16-18) の値をそのまま受け取る。
   final String deemedStart;   // BE の生値 'HH:MM:SS'（表示は _fmtTime(:29) で整形）
   final String deemedEnd;     // 同上
@@ -1042,7 +1005,7 @@ class _StatusSection extends StatelessWidget {
         time:     '${_hhmm(punchInIso)} − ${_hhmm(punchOutIso)}',
         timeSize: 34,
         support: _SupportLine(children: [
-          _BreakInfoRow(label: breakLabel, onChange: onChangeBreak),
+          _BreakInfoRow(label: breakLabel),
         ]),
       );
     }
@@ -1054,7 +1017,7 @@ class _StatusSection extends StatelessWidget {
       timeSize: 34,
       support: _SupportLine(children: [
         _InfoRow(label: '経過', value: _elapsed(punchInIso)),
-        _BreakInfoRow(label: breakLabel, onChange: onChangeBreak),
+        _BreakInfoRow(label: breakLabel),
       ]),
     );
   }
@@ -1203,30 +1166,20 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _BreakInfoRow extends StatelessWidget {
-  const _BreakInfoRow({required this.label, required this.onChange});
+  const _BreakInfoRow({required this.label});
   final String   label;
-  final VoidCallback onChange;
 
   @override
   Widget build(BuildContext context) {
     // 補助行(_SupportLine=Wrap)の子になるため Expanded をやめ mainAxisSize は min 固定。
-    // ★label（値）の取得元は変えていない: 親から渡る _breakLabel()(:246-253) のまま。
+    // ★label（値）の取得元は変えていない: 親から渡る _breakLabel() のまま。
+    // ★「変更」タップ導線は退役（ボス裁定）。休憩の申告は退勤後の報告フロー
+    //   （home_screen.dart の「追加の申告」＝休憩の短縮）に一本化した。
+    //   ここは表示専用＝タップできる要素を持たない。
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Text(label,
           style: const TextStyle(
             color: _text, fontSize: 13, fontWeight: FontWeight.w600)),
-      const SizedBox(width: 8),
-      GestureDetector(
-        onTap: onChange,
-        child: const Text(
-          '変更',
-          style: TextStyle(
-            color: _accent, fontSize: 12,
-            decoration: TextDecoration.underline,
-            decorationColor: _accent,
-          ),
-        ),
-      ),
     ]);
   }
 }
@@ -1458,212 +1411,3 @@ class _RestDayButton extends StatelessWidget {
     );
   }
 }
-
-// ── _BreakRequestSheet ────────────────────────────────────────────────────────
-class _BreakRequestSheet extends StatefulWidget {
-  const _BreakRequestSheet({
-    required this.record,
-    required this.legalBreak6h,
-    required this.legalBreak8h,
-    required this.shiftType,
-    required this.onSubmitted,
-  });
-  final Map<String, dynamic>? record;
-  final int legalBreak6h;
-  final int legalBreak8h;
-  final String shiftType;   // N6: 'day'|'night'。BE で申告を当てる行の特定に使う
-  final Future<void> Function() onSubmitted;
-
-  @override
-  State<_BreakRequestSheet> createState() => _BreakRequestSheetState();
-}
-
-class _BreakRequestSheetState extends State<_BreakRequestSheet> {
-  static const _presets = [0, 30, 45, 60, 90];
-  int _selectedMin = 60;
-  final _reasonCtrl = TextEditingController();
-  bool _submitting  = false;
-
-  @override
-  void dispose() {
-    _reasonCtrl.dispose();
-    super.dispose();
-  }
-
-  // シート内エラー。理由未入力でボタンを無効化して黙る＝理由の分からない
-  // 袋小路になるため、押させてその場で理由を出す方式にした。
-  String? _error;
-
-  int? _legalFloor() {
-    final punchIn  = widget.record?['punch_in']  as String?;
-    final punchOut = widget.record?['punch_out'] as String?;
-    if (punchIn == null || punchOut == null) return null;
-    final inDt  = DateTime.tryParse(punchIn);
-    final outDt = DateTime.tryParse(punchOut);
-    if (inDt == null || outDt == null) return null;
-    var gross = outDt.difference(inDt).inMinutes;
-    if (gross < 0) gross += 1440;
-    if (gross > 480) return widget.legalBreak8h;
-    if (gross > 360) return widget.legalBreak6h;
-    return 0;
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    final reason = _reasonCtrl.text.trim();
-    if (reason.isEmpty) {
-      setState(() => _error = '休憩の理由を入力してください');
-      return;   // 送信しない
-    }
-    setState(() { _error = null; _submitting = true; });
-    try {
-      final result = await WorkModeService().breakRequest(
-        breakMinutes: _selectedMin,
-        reason: reason,
-        // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。
-        //   BE は未指定=day 互換（routes/attendance.js POST /break-request）。
-        shiftType: widget.shiftType,
-      );
-      if (!mounted) return;
-      if (result.ok) {
-        Navigator.of(context).pop();
-        await widget.onSubmitted();
-      } else {
-        showJsSnackbar(
-          context,
-          result.errorMessage ?? 'エラーが発生しました',
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final floor      = _legalFloor();
-    final belowLegal = floor != null && floor > 0 && _selectedMin < floor;
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20, right: 20, top: 24,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '休憩時間の変更を申告',
-            style: TextStyle(color: _text, fontSize: 17, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
-          const Text('実休憩', style: TextStyle(color: _label, fontSize: 13)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _presets.map((min) {
-              final selected = _selectedMin == min;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedMin = min),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: selected ? _accent.withValues(alpha: 0.15) : _card,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: selected ? _accent : _border),
-                  ),
-                  child: Text(
-                    '$min 分',
-                    style: TextStyle(
-                      color: selected ? _accent : _label,
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          if (belowLegal) ...[
-            const SizedBox(height: 10),
-            Row(children: [
-              const Icon(Icons.shield_outlined, color: FieldTokens.statusError, size: 14),
-              const SizedBox(width: 4),
-              Text(
-                '⚠️ これは法定休憩($floor分)を下回ります',
-                style: const TextStyle(color: FieldTokens.statusError, fontSize: 12),
-              ),
-            ]),
-          ],
-          const SizedBox(height: 16),
-          const Text('理由（必須）', style: TextStyle(color: _label, fontSize: 13)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _reasonCtrl,
-            maxLines: 3,
-            onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
-            },
-            style: const TextStyle(color: _text, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: '例）現場の都合で休憩を取れなかった',
-              hintStyle: TextStyle(color: _label.withValues(alpha: 0.6), fontSize: 13),
-              filled: true,
-              fillColor: _bg,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: _border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: _border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: _accent),
-              ),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Row(children: [
-              const Icon(Icons.error_outline, color: FieldTokens.statusError, size: 14),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(_error!,
-                    style: const TextStyle(color: FieldTokens.statusError, fontSize: 12)),
-              ),
-            ]),
-          ],
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _accent,
-                disabledBackgroundColor: _border,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              child: _submitting
-                  ? const SizedBox(
-                      width: 22, height: 22,
-                      child: CircularProgressIndicator(color: _bg, strokeWidth: 2.5),
-                    )
-                  : const Text(
-                      '申告する',
-                      style: TextStyle(
-                        color: _bg, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-

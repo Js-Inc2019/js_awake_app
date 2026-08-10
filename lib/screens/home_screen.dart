@@ -4056,12 +4056,13 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
           //   ★バッジ・注意文を描くのはここだけ。ヘッダーにも他のどこにも置かない。
           if (_hasWbgt(widget.weather)) ...[
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 8),
               child: Row(
+                // ★バッジと注意文の上下中心を揃える（バッジ縮小後も高さ差が出る）。
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   _WbgtBadge(weather: widget.weather!),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   // ★Expanded（tight）で残り幅を確定させる。これが FittedBox の
                   //   「どこまで縮めれば入るか」の基準になる。Flexible（loose）だと
                   //   箱が内容幅まで縮んで右端が動き、右寄せが効かない。
@@ -4326,7 +4327,8 @@ class _PunchForecastStrip extends StatelessWidget {
 // WBGT行 左: WBGTバッジ（値＋5段階ラベル）。
 //
 // ★枠付きバッジの中身は従来のまま流用。塗り面なし・枠だけ、数字が主役
-//   （値18px / ラベル11px）、色は _wbgtColor（閾値 21/25/28/31 は環境省指針）。
+//   （値14px / ラベル10px＝右の注意文12px とのバランスで一回り縮小・ボス裁定）、
+//   色は _wbgtColor（閾値 21/25/28/31 は環境省指針）。
 //   外枠（Padding や Row）は持たない＝置き場所ごとの余白は呼び手が決める。
 // ★値もラベルも BE（wbgt.value / wbgt.level）。端末では計算しない。
 //   BE は wbgt を常時返す（tools_weather.js:45-47）ため通年表示は現行のまま。
@@ -4344,9 +4346,9 @@ class _WbgtBadge extends StatelessWidget {
     final color = _wbgtColor(wbgt);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(5),
         border: Border.all(color: color),
       ),
       child: Row(
@@ -4359,14 +4361,14 @@ class _WbgtBadge extends StatelessWidget {
           Text('${wbgt.round()}',
               style: TextStyle(
                   color: color,
-                  fontSize: 18,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                   height: 1.0)),
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
           Text(level,
               style: TextStyle(
                   color: color,
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold)),
         ],
       ),
