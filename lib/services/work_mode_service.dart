@@ -427,4 +427,32 @@ class WorkModeService {
       apiJsonMap,
     );
   }
+
+  // ── 月次集計（GET /attendance/monthly-summary）───────────────────────────
+  //   ★段6で2画面の重複を1本へ畳んだ:
+  //       home_screen.dart:5876-5882（_StaffMonthlySheet・person_id = widget.personId）
+  //       monthly_stats_screen.dart:107-113（自分の集計・person_id = prefs 'user_id'）
+  //     URL・クエリ2キー・15秒・応答をそのまま Map で使う点まで完全一致。
+  //     違うのは person_id の出所だけ＝呼び手が引数で渡す形にして吸収する。
+  //   ★他メソッドと違い _requireToken ガードを付けていない。移設元の2画面は
+  //     どちらもガードを持たず、token が空でも送って BE の 401 を受け、
+  //     「認証の有効期限が切れました」を出す作りだったため
+  //     （monthly_stats_screen.dart:129）。ここでガードを足すと同じ状況が
+  //     statusCode:0＝「ネットワークエラー」に化ける＝現行の文言が変わる。
+  //   ★集計値の計算・判定は一切しない（数字の出所は BE ただ一つ）。
+  Future<ApiResult<Map<String, dynamic>>> fetchMonthlySummary({
+    required String personId,
+    required String month,
+  }) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.fetchMonthlySummary',
+      () => http.get(
+        Uri.parse(
+            '$_apiBase/attendance/monthly-summary?person_id=$personId&month=$month'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
+  }
 }

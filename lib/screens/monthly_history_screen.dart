@@ -1,10 +1,8 @@
 // lib/screens/monthly_history_screen.dart — 月間履歴画面
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../main.dart' show API_URL;
 import '../core/theme/field_tokens.dart';
+import '../services/reports_service.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 // 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
@@ -38,17 +36,11 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
       final m = '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
-      final res = await http.get(
-        Uri.parse('$API_URL/reports?date=$m&limit=200'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 15));
+      final res = await ReportsService().getReportsByMonth(m, limit: 200);
       if (!mounted) return;
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final raw = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+      if (res.ok) {
+        final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
         // approved/revision_requested boolean → status 文字列に変換
         setState(() {
           _reports = raw.map((r) {
@@ -70,6 +62,9 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
           setState(() { _loading = false; _error = '認証の有効期限が切れました。再ログインしてください。'; });
           Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
         }
+      } else if (res.statusCode == 0) {
+        // 通信不成立＝移設前の catch 相当。
+        setState(() { _loading = false; _error = 'ネットワークエラー'; });
       } else {
         setState(() {
           _loading = false;

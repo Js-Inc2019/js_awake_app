@@ -1,18 +1,13 @@
 // lib/screens/revision_inbox_screen.dart - 是正依頼受信画面
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show showJsSnackbar;
 import '../core/theme/field_tokens.dart';
-import '../config/constants.dart';
 import 'revision_edit_screen.dart';
 // 作業3: 移動手段の複数対応。既存の transportNamesOf を再利用する（新設しない）。
 import '../utils/revision_parser.dart' show transportNamesOf;
 import '../widgets/report_photos.dart';
 import '../services/auth_service.dart';
-
-const String _apiUrl = kApiBaseUrl;
+import '../services/reports_service.dart';
 
 class RevisionInboxScreen extends StatefulWidget {
   const RevisionInboxScreen({super.key});
@@ -76,39 +71,25 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
   // 外部（AppBar等）からの再読込用に公開
   void reload() => _load();
 
-  Future<Map<String, String>> get _headers async {
-    final prefs = await SharedPreferences.getInstance();
-    return {
-      'Authorization': 'Bearer ${prefs.getString('auth_token') ?? ''}',
-      'Content-Type': 'application/json',
-    };
-  }
-
   Future<void> _load() async {
     setState(() { _loading = true; _hasError = false; });
-    try {
-      final res = await http.get(
-        Uri.parse('$_apiUrl/reports?revision_requested=true'),
-        headers: await _headers,
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (mounted) {
-          setState(() {
-            _revisions = (data['reports'] as List? ?? [])
-                .map((e) => e as Map<String, dynamic>).toList();
-            _loading = false;
-          });
-        }
-      } else {
-        if (mounted) { setState(() { _loading = false; _hasError = true; }); }
-      }
-    } catch (e) {
-      debugPrint('差し戻し一覧取得失敗: $e');
-      if (mounted) {
-        showJsSnackbar(context, '差し戻し一覧の取得に失敗しました。再度お試しください。', isError: true);
-        setState(() { _loading = false; _hasError = true; });
-      }
+    // 既定 10 秒＝移設前と同じ。home_screen の件数バッジは同じメソッドを
+    // _withRetry（60秒起点）で包んで呼ぶ（ReportsService.getRevisionRequested）。
+    final r = await ReportsService().getRevisionRequested();
+    if (!mounted) return;
+    if (r.ok) {
+      setState(() {
+        _revisions = (r.data ?? const [])
+            .map((e) => e as Map<String, dynamic>).toList();
+        _loading = false;
+      });
+    } else if (r.statusCode == 0) {
+      // 通信不成立＝移設前の catch 相当（スナックバーを出す経路）。
+      showJsSnackbar(context, '差し戻し一覧の取得に失敗しました。再度お試しください。', isError: true);
+      setState(() { _loading = false; _hasError = true; });
+    } else {
+      // 非200＝移設前の else 相当（スナックバーは出さずエラー表示のみ）。
+      setState(() { _loading = false; _hasError = true; });
     }
   }
 

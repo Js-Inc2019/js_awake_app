@@ -25,7 +25,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     if (dart.library.html) 'stub/notifications_stub.dart';
 import 'package:geocoding/geocoding.dart'
     if (dart.library.html) 'stub/geocoding_stub.dart';
-    import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/field_tokens.dart';
@@ -33,14 +32,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
+import 'services/reports_service.dart';
 import 'utils/business_date.dart';
 
-// ============================================================
-// API設定
-// ============================================================
-
-import 'config/constants.dart';
-const String API_URL = kApiBaseUrl;
+// ★API のベースURLは config/constants.dart の kApiBaseUrl 一本。
+//   別名 `API_URL` は段6で退役した（同じ値に2つの名前があると、
+//   どちらを直せばよいかが読み手に伝わらない）。
 
 // boss PINフォールバック引き継ぎフラグ（インメモリ・ワンショット）
 bool bossPinOk = false;
@@ -293,8 +290,8 @@ class ReportStore {
   }
 
   Future<bool> _sendToAPI(List<WorkerReportItem> items) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token') ?? '';
+    // 認証ヘッダは ReportsService（AuthService.getAuthHeaders）が組む。
+    // ここで prefs から token を読む必要は無くなった。
     final failed = <WorkerReportItem>[];
     for (final item in items) {
       try {
@@ -346,13 +343,13 @@ class ReportStore {
           }
         }
         if (photos.isNotEmpty) body['photos'] = photos;
-        final response = await http.post(
-          Uri.parse('$API_URL/reports'),
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-          body: jsonEncode(body),
-        ).timeout(const Duration(seconds: 10));
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          final resBody = jsonDecode(response.body);
+        final response = await ReportsService().createReport(body);
+        final resBody = response.data;
+        // 成功は 200 または 201（移設前と同じ）。それ以外・通信不成立・本文が
+        // 読めなかった場合はすべて「未送信」＝ローカル保留キューへ戻す。
+        if (response.ok &&
+            resBody != null &&
+            (response.statusCode == 200 || response.statusCode == 201)) {
           item.apiReportId = resBody['report_id'] as String?;
         } else {
           failed.add(item);

@@ -1,12 +1,9 @@
 // lib/screens/company_link_screen.dart - 協力申請管理画面（FIELD 職人用）
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show showJsSnackbar;
 import '../core/theme/field_tokens.dart';
-import '../config/constants.dart';
+import '../services/company_service.dart';
 import '../widgets/search_suggest_field.dart';
 
 class CompanyLinkScreen extends StatefulWidget {
@@ -20,37 +17,20 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
   bool _loading    = true;
   bool _submitting = false;
 
-  Future<Map<String, String>> get _headers async {
-    final prefs = await SharedPreferences.getInstance();
-    return {
-      'Authorization': 'Bearer ${prefs.getString('auth_token') ?? ''}',
-      'Content-Type':  'application/json',
-    };
-  }
-
   @override
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    try {
-      final res = await http.get(
-        Uri.parse('$kApiBaseUrl/company-links/my'),
-        headers: await _headers,
-      ).timeout(const Duration(seconds: 15));
-      if (res.statusCode == 200 && mounted) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        setState(() {
-          _links = (data['links'] as List? ?? [])
-              .map((e) => e as Map<String, dynamic>)
-              .toList();
-          _loading = false;
-        });
-      } else {
-        if (mounted) setState(() => _loading = false);
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loading = false);
+    final r = await CompanyService().getMyCompanyLinks();
+    if (!mounted) return;
+    if (r.ok) {
+      setState(() {
+        _links = r.data ?? const [];
+        _loading = false;
+      });
+    } else {
+      setState(() => _loading = false);
     }
   }
 
@@ -70,26 +50,18 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
 
   Future<void> _submitRequest(String companyId, String companyName) async {
     setState(() => _submitting = true);
-    try {
-      final res = await http.post(
-        Uri.parse('$kApiBaseUrl/company-links/request'),
-        headers: await _headers,
-        body: jsonEncode({'company_id': companyId}),
-      ).timeout(const Duration(seconds: 15));
-      if (!mounted) return;
-      if (res.statusCode == 201) {
-        showJsSnackbar(context, '$companyName に申請を送信しました');
-        _load();
-      } else {
-        final err = (jsonDecode(res.body) as Map<String, dynamic>)['error']
-            as String? ?? 'エラーが発生しました';
-        showJsSnackbar(context, err, isError: true);
-      }
-    } catch (e) {
-      if (mounted) showJsSnackbar(context, '通信エラーが発生しました', isError: true);
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+    final r = await CompanyService().requestCompanyLink(companyId);
+    if (!mounted) { return; }
+    // 成功は 201 限定（移設前と同じ）。statusCode:0 は通信不成立＝従来の catch 相当。
+    if (r.statusCode == 201) {
+      showJsSnackbar(context, '$companyName に申請を送信しました');
+      _load();
+    } else if (r.statusCode == 0) {
+      showJsSnackbar(context, '通信エラーが発生しました', isError: true);
+    } else {
+      showJsSnackbar(context, r.errorMessage ?? 'エラーが発生しました', isError: true);
     }
+    if (mounted) setState(() => _submitting = false);
   }
 
   String _fmtDate(String? raw) {
@@ -270,30 +242,14 @@ class _CompanySearchSheetState extends State<_CompanySearchSheet> {
   Future<void> _search(String q) async {
     if (!mounted) return;
     setState(() => _searching = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final uri = Uri.parse('$kApiBaseUrl/companies/search')
-          .replace(queryParameters: {'q': q});
-      final res = await http
-          .get(uri, headers: {'Authorization': 'Bearer $token'})
-          .timeout(const Duration(seconds: 10));
-      if (!mounted) return;
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        setState(() {
-          _results   = (data['companies'] as List? ?? [])
-              .map((e) => e as Map<String, dynamic>)
-              .toList();
-          _searching = false;
-          _searched  = true;
-        });
-      } else {
-        setState(() { _searching = false; _searched = true; });
-      }
-    } catch (_) {
-      if (mounted) setState(() { _searching = false; _searched = true; });
-    }
+    final r = await CompanyService().searchCompanies(q);
+    if (!mounted) return;
+    setState(() {
+      // 失敗時は _results を触らない（移設前も else / catch で据え置きだった）。
+      if (r.ok) _results = r.data ?? <Map<String, dynamic>>[];
+      _searching = false;
+      _searched  = true;
+    });
   }
 
   @override

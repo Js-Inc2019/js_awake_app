@@ -15,11 +15,9 @@
 //
 // ※ pre_auth_token は本画面でもメモリ保持のみ（prefs に保存しない・5分揮発）。
 // ============================================================
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import '../config/constants.dart';
 import '../core/theme/field_tokens.dart';
+import '../services/auth_service.dart';
 
 class MembershipSelectScreen extends StatefulWidget {
   /// verify-pin / verify-device が返した pre_auth_token（メモリ保持のみ）。
@@ -73,53 +71,40 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
       _submittingId = membershipId;
       _errorMessage = null;
     });
-    try {
-      final res = await http
-          .post(
-            Uri.parse('$kApiBaseUrl/auth/select-membership'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'pre_auth_token': widget.preAuthToken,
-              'membership_id': membershipId,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
+    final res = await AuthService().selectMembership(
+      preAuthToken: widget.preAuthToken,
+      membershipId: membershipId,
+    );
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        // full-login 応答をそのまま呼び出し元へ返す（保存は login_screen が担う）。
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        Navigator.of(context).pop(data);
-        return;
-      }
-
-      if (res.statusCode == 401) {
-        // pre_auth 失効（TOKEN_EXPIRED / auth.js:255）→ 時間切れ案内 → ログインへ戻す。
-        setState(() => _submittingId = null);
-        await _showTimeoutDialog();
-        if (mounted) Navigator.of(context).pop(); // 袋小路なし: ログイン画面へ
-        return;
-      }
-
-      // その他（400/403/500 等）→ 画面内エラー表示（戻るでログイン画面へ）。
-      String msg = '所属の選択に失敗しました。もう一度お試しください';
-      try {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final serverMsg = body['error'] as String?;
-        if (serverMsg != null && serverMsg.isNotEmpty) msg = serverMsg;
-      } catch (_) {}
-      setState(() {
-        _submittingId = null;
-        _errorMessage = msg;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _submittingId = null;
-        _errorMessage = 'ネットワークエラー: $e';
-      });
+    final data = res.data;
+    if (res.ok && data != null) {
+      // full-login 応答をそのまま呼び出し元へ返す（保存は login_screen が担う）。
+      Navigator.of(context).pop(data);
+      return;
     }
+
+    if (res.statusCode == 401) {
+      // pre_auth 失効（TOKEN_EXPIRED / auth.js:255）→ 時間切れ案内 → ログインへ戻す。
+      setState(() => _submittingId = null);
+      await _showTimeoutDialog();
+      if (mounted) Navigator.of(context).pop(); // 袋小路なし: ログイン画面へ
+      return;
+    }
+
+    // その他（400/403/500 等）→ 画面内エラー表示（戻るでログイン画面へ）。
+    // errorMessage は BE の error フィールド優先（無ければ本文先頭）＝移設前と同じ出所。
+    // statusCode:0（通信不成立）も同じ枝に入る＝規約1の
+    // 「サーバーに接続できません: $e」をそのまま出す（prefix を重ねない）。
+    // ★同じ selectMembership を叩く login_screen.dart:795-804 と同一の形。
+    final serverMsg = res.errorMessage;
+    setState(() {
+      _submittingId = null;
+      _errorMessage = (serverMsg != null && serverMsg.isNotEmpty)
+          ? serverMsg
+          : '所属の選択に失敗しました。もう一度お試しください';
+    });
   }
 
   Future<void> _showTimeoutDialog() async {

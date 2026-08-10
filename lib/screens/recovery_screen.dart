@@ -4,10 +4,8 @@
 import 'package:flutter/material.dart';
  import '../core/theme/field_tokens.dart';
 import 'package:flutter/services.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../config/constants.dart';
+import '../services/auth_service.dart';
 import '../utils/device_id.dart';
 import 'consent_screen.dart';
 
@@ -60,22 +58,18 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     }
 
     setState(() { _isLoading = true; _errorMessage = null; });
-    try {
+    {
       final deviceId = await getDeviceId();
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/auth/recover-by-code'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'company_code': companyCode,
-          'worker_id':    workerId,
-          'pin':          pin,
-          'device_id':    deviceId,
-        }),
-      ).timeout(const Duration(seconds: 30));
+      final response = await AuthService().recoverByCode(
+        companyCode: companyCode,
+        workerId:    workerId,
+        pin:         pin,
+        deviceId:    deviceId,
+      );
 
       if (!mounted) return;
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
+      final data = response.data;
+      if (response.ok && data != null) {
         // 【旧時代ユーザー救済・角ケース】recover-by-code 成功でも、サーバの consent_agreed_at が
         // null/空（DB未記録）だと同意が永久未記録になり得る。保存/遷移の前に ConsentScreen を出して
         // 同意を取得する。onAgreed で consent_agreed=true 等を prefs 保存 → 直後の _saveAndNavigate 内の
@@ -107,17 +101,12 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         await _saveAndNavigate(data, deviceId);
         return;
       }
+      // statusCode:0（通信不成立）は _mapError の既定文言と同じ「通信エラーが発生しました」に
+      // 落ちる＝移設前の catch と同じ結果。BE の code は errorCode がそのまま運ぶ。
       setState(() {
         _isLoading = false;
-        _errorMessage = _mapError(response.statusCode, data['code'] as String?);
+        _errorMessage = _mapError(response.statusCode, response.errorCode);
       });
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = '通信エラーが発生しました';
-        });
-      }
     }
   }
 
@@ -164,23 +153,18 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     final consentToken = data['token'] as String? ?? '';
     if ((serverConsentAt == null || serverConsentAt.isEmpty)
         && localAgreed && consentToken.isNotEmpty) {
-      try {
-        final cRes = await http.post(
-          Uri.parse('$kApiBaseUrl/auth/consent'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $consentToken',
-          },
-          body: jsonEncode({'consent_version': _kCurrentConsentVersion}),
-        ).timeout(const Duration(seconds: 8));
-        if (cRes.statusCode == 200) {
-          final cd = jsonDecode(cRes.body) as Map<String, dynamic>;
-          final cAt  = cd['consent_agreed_at'] as String?;
-          final cVer = cd['consent_version']   as String?;
-          if (cAt  != null && cAt.isNotEmpty)  await prefs.setString('consent_agreed_at', cAt);
-          if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
-        }
-      } catch (_) { /* fail-open: 失敗は無視（次回ログインで再試行） */ }
+      // fail-open: 結果を見るのは 200 のときだけ。失敗は無視（次回ログインで再試行）。
+      final cRes = await AuthService().consent(
+        consentToken:   consentToken,
+        consentVersion: _kCurrentConsentVersion,
+      );
+      final cd = cRes.data;
+      if (cRes.statusCode == 200 && cRes.ok && cd != null) {
+        final cAt  = cd['consent_agreed_at'] as String?;
+        final cVer = cd['consent_version']   as String?;
+        if (cAt  != null && cAt.isNotEmpty)  await prefs.setString('consent_agreed_at', cAt);
+        if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
+      }
     }
     // recover-by-code は単一membership時に worker_id を返す（BE auth.js:908）→ prefs へ保存
     final wid = data['worker_id'] as String?;

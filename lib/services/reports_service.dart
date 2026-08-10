@@ -192,6 +192,119 @@ class ReportsService {
   }
 
   // ============================================================
+  // 差戻し中の日報一覧（GET /reports?revision_requested=true）
+  //   ★段6で2画面の重複を1本へ畳んだ:
+  //       revision_inbox_screen.dart:90-93（10秒・一覧描画用）
+  //       home_screen.dart:1363-1369（_withRetry で包んで件数バッジ用）
+  //     URL・応答の読み方（reports[]）は完全一致。違うのは秒数と、
+  //     home 側が3回リトライで包んでいることの2点だけ。
+  //   ★秒数は引数で受ける（丸めると片方の挙動が消える）。
+  //     リトライは「1リクエスト＝1結果」の ApiResult に載らない呼び手の方針なので
+  //     ここには入れない。home_screen の _withRetry は画面側に残してある。
+  // ============================================================
+
+  Future<ApiResult<List<dynamic>>> getRevisionRequested({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<dynamic>>(
+      'ReportsService.getRevisionRequested',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/reports?revision_requested=true'),
+        headers: headers,
+      ).timeout(timeout),
+      (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
+    );
+  }
+
+  // ============================================================
+  // 会社別の月次日報（GET /reports/by-company?month=YYYY-MM）
+  //   移設元: home_screen.dart:6139-6144（15秒）
+  //   応答 {"companies":[...]} の companies を返す。
+  // ============================================================
+
+  Future<ApiResult<List<Map<String, dynamic>>>> getReportsByCompany(
+      String month) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<Map<String, dynamic>>>(
+      'ReportsService.getReportsByCompany',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/reports/by-company?month=$month'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) => ((apiJsonMap(body)?['companies'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
+  }
+
+  // ============================================================
+  // 日報の新規提出（POST /reports）
+  //   移設元: main.dart:349-353（10秒）
+  //   ★body は ReportStore が組み立てたものをそのまま送る。写真の base64 化・
+  //     業務日の算出・条件付きキー（site_id / gps_lat / gps_lon / photos）の
+  //     有無判定はすべて呼び手の領分なので、ここでは組み替えない。
+  //   ★移設元は成功を 200 または 201 に限り、それ以外は「未送信」として
+  //     ローカル保留キューへ戻す。その判定は呼び手が statusCode で行う。
+  // ============================================================
+
+  Future<ApiResult<Map<String, dynamic>>> createReport(
+      Map<String, dynamic> body) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.createReport',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/reports'),
+        headers: headers,
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
+  }
+
+  // ============================================================
+  // 差戻し対応の保存・再提出（PUT /reports/:id → POST /reports/:id/resubmit）
+  //   移設元: revision_edit_screen.dart:342-345 / :354-358（どちらも30秒）
+  //   ★30秒は移設元のまま。写真の base64 を載せるため他より長い（丸めない）。
+  //   ★2段（保存 → 再提出）であることは呼び手の手順。片方だけ成功した時の
+  //     文言（「保存はできましたが再提出に失敗しました」）も呼び手が決める。
+  // ============================================================
+
+  Future<ApiResult<Map<String, dynamic>>> updateReport(
+      String reportId, Map<String, dynamic> body) async {
+    if (reportId.isEmpty) {
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
+    }
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.updateReport',
+      () => http.put(
+        Uri.parse('$kApiBaseUrl/reports/$reportId'),
+        headers: headers,
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30)),
+      apiJsonMap,
+    );
+  }
+
+  Future<ApiResult<Map<String, dynamic>>> resubmitReport(
+      String reportId, {required String workerRevisionNote}) async {
+    if (reportId.isEmpty) {
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
+    }
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.resubmitReport',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/reports/$reportId/resubmit'),
+        headers: headers,
+        body: jsonEncode({'worker_revision_note': workerRevisionNote}),
+      ).timeout(const Duration(seconds: 30)),
+      apiJsonMap,
+    );
+  }
+
+  // ============================================================
   // 本日休み（rest_days）— GET/POST/PATCH/DELETE の4本。
   // 非200は握り潰さず statusCode + errorCode(BE の code) を載せて返す。
   // ============================================================

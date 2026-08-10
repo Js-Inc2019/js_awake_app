@@ -7,19 +7,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'consent_screen.dart';
 import 'pending_approval_screen.dart';
 import 'register_screen.dart';
 import 'recovery_screen.dart';
 import 'membership_select_screen.dart';
-import '../config/constants.dart';
+import '../services/auth_service.dart';
+import '../services/worker_service.dart';
 import '../utils/device_id.dart';
 import '../main.dart' show bossPinOk;
 import '../core/theme/field_tokens.dart';
-
-const String _apiBase = kApiBaseUrl;
 
 // 現行の利用規約バージョン（BE の CURRENT_CONSENT_VERSION と同値）。
 // ※ login_screen は recovery_screen を import するため、公開名の衝突回避で
@@ -162,13 +159,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ★3回・失敗時2秒待ちの再試行ループはこの画面に残す。
+  //   再試行は「1リクエスト＝1結果」の ApiResult には載らない呼び手の方針であり、
+  //   AuthService.warmUp() 側へ入れると他の呼び手にも勝手に3回叩かせることになる。
+  //   ここを service.warmUp() の1回呼びに置き換えると再試行そのものが消える。
   Future<void> _warmUpServer() async {
     for (int i = 0; i < 3; i++) {
-      try {
-        final res = await http.get(Uri.parse(kHealthUrl))
-            .timeout(const Duration(seconds: 15));
-        if (res.statusCode == 200) return;
-      } catch (_) {}
+      final res = await AuthService().warmUp();
+      if (res.statusCode == 200) return;
       if (i < 2) await Future.delayed(const Duration(seconds: 2));
     }
     debugPrint('サーバーウォームアップ失敗（処理続行）');
@@ -215,21 +213,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final cachedToken = prefs.getString('auth_token') ?? '';
     if (cachedToken.isNotEmpty) {
-      final deviceId = await _getDeviceId();
-      try {
+      {
         // 単一の顔の掟: verify-token は body の device_id 必須（未送信は 400 DEVICE_ID_REQUIRED）
-        final response = await http.post(
-          Uri.parse('$_apiBase/auth/verify-token'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $cachedToken',
-          },
-          body: jsonEncode({'device_id': deviceId}),
-        ).timeout(const Duration(seconds: 10));
+        // token / device_id は AuthService が prefs と device_id.dart から取る
+        // （移設前もこの2つと同じ出所だった）。
+        final response = await AuthService().verifyToken();
 
         if (response.statusCode == 200) {
           try {
-            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            final data = response.data;
+            if (data == null) throw StateError('verify-token 応答が空');
             // サーバ真実（DBの role/worker_id/user_id）を毎回 prefs へ上書き保存してから /gate へ
             final user = data['user'];
             if (user is Map) {
@@ -274,11 +267,9 @@ class _LoginScreenState extends State<LoginScreen> {
           // 掟違反系（ANCHOR_MISMATCH / DEVICE_NOT_FOUND / MEMBERSHIP_INVALID /
           // LEGACY_TOKEN / TOKEN_EXPIRED / INVALID_TOKEN_SCOPE / COOPERATION_PENDING）
           // → トークン破棄し、必ずログイン手段のある画面へ導く（袋小路禁止）
-          String? errCode;
-          try {
-            final data = jsonDecode(response.body) as Map<String, dynamic>;
-            errCode = (data['code'] ?? data['error']) as String?;
-          } catch (_) {}
+          // ★移設前は code を優先し、無ければ error 文字列を code として扱っていた。
+          //   errorCode が BE の code、errorMessage が BE の error を運ぶ（同じ出所）。
+          final errCode = response.errorCode ?? response.errorMessage;
           await prefs.remove('auth_token');
           // 協業承認待ちのみ承認待ち画面へ（既存導線を流用）
           if (errCode == 'COOPERATION_PENDING') {
@@ -293,12 +284,11 @@ class _LoginScreenState extends State<LoginScreen> {
           await _biometricThenLogin();
           return;
         }
-        // 400 DEVICE_ID_REQUIRED / 503 AUTH_DB_ERROR / その他 →
-        // 一時障害の可能性。auth_token は消さずPIN画面へフォールバック
-        if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
-        return;
-      } catch (e) {
-        // タイムアウト・通信例外 → auth_token は消さずPIN画面へフォールバック
+        // 400 DEVICE_ID_REQUIRED / 503 AUTH_DB_ERROR / その他、および
+        // タイムアウト・通信例外（statusCode:0）→ 一時障害の可能性。
+        // auth_token は消さずPIN画面へフォールバック。
+        // ★移設前も catch 側と「その他」側でまったく同じ処理をしていたため、
+        //   ApiResult 化で分岐が1本に畳まれるだけで挙動は不変。
         if (mounted) setState(() { _showPinLogin = true; _isLoading = false; });
         return;
       }
@@ -333,19 +323,17 @@ class _LoginScreenState extends State<LoginScreen> {
         // 失敗・非200・新規ユーザーは何もUIに出さず従来の登録/ランディング画面へ（摩擦ゼロ）。
         // セキュリティ順序: 照会200では一切保存せず、保存/遷移は生体成功後の _saveAndNavigate に一任。
         Map<String, dynamic>? recoverData;
-        try {
+        {
           final deviceId = await _getDeviceId(); // 復元トライ（device_id.dart は変更せず流用）
           if (deviceId.isNotEmpty) {
-            final res = await http.get(
-              Uri.parse('$_apiBase/auth/verify-device?device_id=$deviceId'),
-              headers: {'Content-Type': 'application/json'},
-            ).timeout(const Duration(seconds: 8));
-            if (res.statusCode == 200) {
-              recoverData = jsonDecode(res.body) as Map<String, dynamic>;
+            // 既定8秒＝移設前と同じ（_autoLogin 側は10秒を明示して同じメソッドを使う）。
+            final res = await AuthService().verifyDevice(deviceId);
+            // 非200・タイムアウト・通信例外はすべて recoverData=null のまま
+            // ＝従来の登録画面へ（移設前の if/catch と同じ結果）。
+            if (res.statusCode == 200 && res.ok) {
+              recoverData = res.data;
             }
           }
-        } catch (_) {
-          recoverData = null; // タイムアウト・通信例外 → 従来の登録画面へ
         }
         if (!mounted) return;
         if (recoverData != null) {
@@ -450,15 +438,16 @@ class _LoginScreenState extends State<LoginScreen> {
     bool serverResponded = false;
     try {
       final deviceId = await _getDeviceId();
-      final response = await http.get(
-        Uri.parse('$_apiBase/auth/verify-device?device_id=$deviceId'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
-      serverResponded = true;
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      // 10秒を明示（サイレント復帰側の既定8秒とは別。丸めない）。
+      final response = await AuthService()
+          .verifyDevice(deviceId, timeout: const Duration(seconds: 10));
+      // statusCode:0 だけが「サーバまで届かなかった」。非200はサーバが答えている
+      // ＝移設前に `serverResponded = true` を置いていた位置と同じ意味。
+      serverResponded = response.statusCode != 0;
+      final data = response.data;
+      if (response.statusCode == 200 && response.ok && data != null) {
         // 複数所属 → 選択フロー（従来経路は変更なし）
-        if (data is Map && data['requires_selection'] == true) {
+        if (data['requires_selection'] == true) {
           await _handleMembershipSelection(Map<String, dynamic>.from(data));
           return;
         }
@@ -489,16 +478,11 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     setState(() { _isLoading = true; _errorMessage = null; });
-    try {
+    {
+      // ★prefs の auth_token ではなく、登録直後に受け取った _pendingData['token']。
+      //   保存前の段階で呼ばれるため、この経路だけトークンを引数で渡す。
       final token = _pendingData!['token'] as String;
-      final response = await http.post(
-        Uri.parse('$_apiBase/auth/setup-pin'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'new_pin': pin}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await AuthService().setupPin(pin, token: token);
       if (response.statusCode == 200) {
         if (!mounted) return;
         setState(() => _isLoading = false);
@@ -531,12 +515,14 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
         );
+      } else if (response.statusCode == 0) {
+        // 通信不成立。errorMessage は規約1の「サーバーに接続できません: $e」を
+        // そのまま出す（画面側で prefix を重ねない＝理由を1回だけ言う）。
+        setState(() { _isLoading = false; _errorMessage = response.errorMessage; });
       } else {
-        final data = jsonDecode(response.body);
-        setState(() { _isLoading = false; _errorMessage = data['error'] ?? 'PIN設定に失敗しました'; });
+        // errorMessage は BE の error フィールド優先＝移設前 data['error'] と同じ出所。
+        setState(() { _isLoading = false; _errorMessage = response.errorMessage ?? 'PIN設定に失敗しました'; });
       }
-    } catch (e) {
-      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
     }
   }
 
@@ -547,22 +533,18 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     setState(() { _isLoading = true; _errorMessage = null; });
-    try {
+    {
       final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('$_apiBase/auth/verify-pin'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'pin': pin,
-          'device_id': deviceId,
-          'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
-          'device_type': 'smartphone',
-        }),
-      ).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200) {
+      final response = await AuthService().verifyPin(
+        pin:        pin,
+        deviceId:   deviceId,
+        deviceName: Platform.isAndroid ? 'Android' : 'iPhone',
+        deviceType: 'smartphone',
+      );
+      final data = response.data;
+      if (response.statusCode == 200 && response.ok && data != null) {
         // 複数所属 → 選択フロー（従来経路は変更なし）
-        if (data is Map && data['requires_selection'] == true) {
+        if (data['requires_selection'] == true) {
           await _handleMembershipSelection(Map<String, dynamic>.from(data));
           return;
         }
@@ -571,11 +553,13 @@ class _LoginScreenState extends State<LoginScreen> {
           bossPinOk = true;
         }
         await _saveAndNavigate(data);
+      } else if (response.statusCode == 0) {
+        // 通信不成立。errorMessage は規約1の「サーバーに接続できません: $e」を
+        // そのまま出す（画面側で prefix を重ねない＝理由を1回だけ言う）。
+        setState(() { _isLoading = false; _errorMessage = response.errorMessage; });
       } else {
-        setState(() { _isLoading = false; _errorMessage = data['error'] ?? 'PINが違います'; });
+        setState(() { _isLoading = false; _errorMessage = response.errorMessage ?? 'PINが違います'; });
       }
-    } catch (e) {
-      setState(() { _isLoading = false; _errorMessage = 'ネットワークエラー: $e'; });
     }
   }
 
@@ -634,23 +618,20 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final deviceId   = await _getDeviceId();
       final deviceName = Platform.isAndroid ? 'Android' : 'iPhone';
-      final res = await http.post(
-        Uri.parse('$_apiBase/workers/self-register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'name':                 name,
-          'own_company_name':     ownCompany,
-          'partner_company_name': partnerCompany.isNotEmpty ? partnerCompany : null,
-          'company_code':         companyCode.isNotEmpty ? companyCode : null,
-          'device_id':            deviceId,
-          'device_name':          deviceName,
-        }),
-      ).timeout(const Duration(seconds: 30));
+      final res = await WorkerService().selfRegister(
+        name:               name,
+        ownCompanyName:     ownCompany,
+        // 空文字は null で送る（BE にとって別の意味）＝移設前と同じ判定を画面に残す。
+        partnerCompanyName: partnerCompany.isNotEmpty ? partnerCompany : null,
+        companyCode:        companyCode.isNotEmpty ? companyCode : null,
+        deviceId:           deviceId,
+        deviceName:         deviceName,
+      );
 
       if (!mounted) return;
 
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (res.statusCode == 200 || res.statusCode == 201) {
+      final body = res.data ?? const <String, dynamic>{};
+      if (res.ok && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = body['token'] as String?;
         if (token != null && token.isNotEmpty) {
           final prefs = await SharedPreferences.getInstance();
@@ -672,7 +653,10 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
         );
       } else {
-        final errMsg = body['error'] as String? ?? '登録に失敗しました';
+        // statusCode:0（通信不成立）は規約1の「サーバーに接続できません: $e」を
+        // そのまま出す（画面側で prefix を重ねない＝理由を1回だけ言う）。
+        // 非200 は BE の error 文字列（errorMessage が同じ出所で運ぶ）。
+        final errMsg = res.errorMessage ?? '登録に失敗しました';
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(errMsg),
@@ -681,15 +665,6 @@ class _LoginScreenState extends State<LoginScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ));
         }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('通信エラー: $e'),
-          backgroundColor: FieldTokens.statusError,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -798,18 +773,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     if (mounted) setState(() { _isLoading = true; _errorMessage = null; });
-    try {
-      final res = await http.post(
-        Uri.parse('$_apiBase/auth/select-membership'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'pre_auth_token': token,
-          'membership_id': membershipId,
-        }),
-      ).timeout(const Duration(seconds: 10));
+    {
+      final res = await AuthService().selectMembership(
+        preAuthToken: token,
+        membershipId: membershipId,
+      );
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = res.data;
+      if (res.statusCode == 200 && res.ok && data != null) {
         await _finishMembershipLogin(data);
         return;
       }
@@ -823,26 +794,20 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       // その他（400/403/500 等）→ エラー表示＋ログイン画面へ（袋小路なし）。
-      String msg = '所属の選択に失敗しました。もう一度お試しください';
-      try {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final serverMsg = body['error'] as String?;
-        if (serverMsg != null && serverMsg.isNotEmpty) msg = serverMsg;
-      } catch (_) {}
+      // statusCode:0（通信不成立）も同じ枝に入る＝規約1の
+      // 「サーバーに接続できません: $e」をそのまま出す（prefix を重ねない）。
+      final serverMsg = res.errorMessage;
+      final String msg;
+      if (serverMsg != null && serverMsg.isNotEmpty) {
+        msg = serverMsg;
+      } else {
+        msg = '所属の選択に失敗しました。もう一度お試しください';
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
           _showPinLogin = false;
           _errorMessage = msg;
-        });
-      }
-    } catch (e) {
-      _preAuthToken = null;
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _showPinLogin = false;
-          _errorMessage = 'ネットワークエラー: $e';
         });
       }
     }
@@ -946,23 +911,18 @@ class _LoginScreenState extends State<LoginScreen> {
     final consentToken = data['token'] as String? ?? '';
     if ((serverConsentAt == null || serverConsentAt.isEmpty)
         && localAgreed && consentToken.isNotEmpty) {
-      try {
-        final cRes = await http.post(
-          Uri.parse('$_apiBase/auth/consent'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $consentToken',
-          },
-          body: jsonEncode({'consent_version': _kCurrentConsentVersion}),
-        ).timeout(const Duration(seconds: 8));
-        if (cRes.statusCode == 200) {
-          final cd = jsonDecode(cRes.body) as Map<String, dynamic>;
-          final cAt  = cd['consent_agreed_at'] as String?;
-          final cVer = cd['consent_version']   as String?;
-          if (cAt  != null && cAt.isNotEmpty)  await prefs.setString('consent_agreed_at', cAt);
-          if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
-        }
-      } catch (_) { /* fail-open: 失敗は無視（次回ログインで再試行） */ }
+      // fail-open: 結果を見るのは 200 のときだけ。失敗は無視（次回ログインで再試行）。
+      final cRes = await AuthService().consent(
+        consentToken:   consentToken,
+        consentVersion: _kCurrentConsentVersion,
+      );
+      final cd = cRes.data;
+      if (cRes.statusCode == 200 && cRes.ok && cd != null) {
+        final cAt  = cd['consent_agreed_at'] as String?;
+        final cVer = cd['consent_version']   as String?;
+        if (cAt  != null && cAt.isNotEmpty)  await prefs.setString('consent_agreed_at', cAt);
+        if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
+      }
     }
     // 呼び出し元により worker_id 有無が異なる: verify-pin(BE auth.js:184)/select-membership(:297)は返す、
     // verify-device(:592)は BE 未返却。含む経路のみ保存されるよう null/空はスキップする。

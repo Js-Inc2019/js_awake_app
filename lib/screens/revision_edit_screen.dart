@@ -1,11 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show TransportType, showJsSnackbar;
 import '../core/theme/field_tokens.dart';
-import '../config/constants.dart';
+import '../services/reports_service.dart';
 import '../utils/revision_parser.dart';
 import '../widgets/photo_strip_field.dart';
 
@@ -117,41 +115,34 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
       if (mounted) setState(() => _photosLoaded = true);
       return;
     }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http.get(
-        Uri.parse('$kApiBaseUrl/reports/$reportId'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 15));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final list = (data['photos'] as List?) ?? const [];
-        final site = <String>[];
-        final parking = <String>[];
-        for (final p in list) {
-          if (p is! Map) continue;
-          final type = p['photo_type']?.toString();
-          final url = (p['photo_url']?.toString() ?? '').trim();
-          if (url.isEmpty) continue;
-          if (type == 'site') {
-            site.add(url);
-          } else if (type == 'parking') {
-            parking.add(url);
-          }
+    final res = await ReportsService().getReportDetail(reportId);
+    final detail = res.data;
+    if (res.ok && detail != null) {
+      final list = detail.photos;
+      final site = <String>[];
+      final parking = <String>[];
+      for (final p in list) {
+        if (p is! Map) continue;
+        final type = p['photo_type']?.toString();
+        final url = (p['photo_url']?.toString() ?? '').trim();
+        if (url.isEmpty) continue;
+        if (type == 'site') {
+          site.add(url);
+        } else if (type == 'parking') {
+          parking.add(url);
         }
-        if (mounted) {
-          setState(() {
-            _existingSiteUrls = site;
-            _existingParkingUrls = parking;
-            _photosLoaded = true;
-          });
-        }
-        return;
       }
-    } catch (e) {
-      debugPrint('既存写真の取得に失敗: $e');
+      if (mounted) {
+        setState(() {
+          _existingSiteUrls = site;
+          _existingParkingUrls = parking;
+          _photosLoaded = true;
+        });
+      }
+      return;
     }
+    // 非200・通信失敗はここへ落ちる（build 側のフォールバック表示に委ねる）。
+    // 失敗の可視化は runApiCall の debugPrint が担う（token・本文は出さない）。
     if (mounted) setState(() => _photosLoaded = true);
   }
 
@@ -289,14 +280,7 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
     setState(() => _submitting = true);
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final headers = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      };
-
+    {
       final body = <String, dynamic>{
         'edit_reason': '差戻し対応',
         'work_content': _composeWorkContent(),
@@ -339,26 +323,31 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
       }
       if (photos.isNotEmpty) body['photos'] = photos;
 
-      final putRes = await http
-          .put(Uri.parse('$kApiBaseUrl/reports/$reportId'),
-              headers: headers, body: jsonEncode(body))
-          .timeout(const Duration(seconds: 30));
-
+      final putRes = await ReportsService().updateReport(reportId, body);
+      if (!mounted) return;
+      // 通信不成立（statusCode:0）は移設前に catch していた経路＝同じ文言へ。
+      if (putRes.statusCode == 0) {
+        setState(() => _submitting = false);
+        showJsSnackbar(context, '通信エラーが発生しました', isError: true);
+        return;
+      }
+      // 保存の成功判定は 200 限定（移設前と同じ）。
       if (putRes.statusCode != 200) {
-        if (!mounted) return;
         setState(() => _submitting = false);
         showJsSnackbar(context, '保存に失敗しました（${putRes.statusCode}）', isError: true);
         return;
       }
 
-      final resubmitRes = await http
-          .post(Uri.parse('$kApiBaseUrl/reports/$reportId/resubmit'),
-              headers: headers,
-              body: jsonEncode({'worker_revision_note': _noteCtrl.text.trim()}))
-          .timeout(const Duration(seconds: 30));
+      final resubmitRes = await ReportsService().resubmitReport(
+        reportId,
+        workerRevisionNote: _noteCtrl.text.trim(),
+      );
 
       if (!mounted) return;
-      if (resubmitRes.statusCode >= 200 && resubmitRes.statusCode < 300) {
+      if (resubmitRes.statusCode == 0) {
+        setState(() => _submitting = false);
+        showJsSnackbar(context, '通信エラーが発生しました', isError: true);
+      } else if (resubmitRes.statusCode >= 200 && resubmitRes.statusCode < 300) {
         showJsSnackbar(context, '✅ 修正して再提出しました');
         Navigator.pop(context, true);
       } else {
@@ -367,10 +356,6 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
             '保存はできましたが再提出に失敗しました。もう一度「再提出」を押してください（${resubmitRes.statusCode}）',
             isError: true);
       }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _submitting = false);
-      showJsSnackbar(context, '通信エラーが発生しました', isError: true);
     }
   }
 

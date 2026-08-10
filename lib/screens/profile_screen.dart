@@ -10,12 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../main.dart' show API_URL, showJsSnackbar;
+import '../main.dart' show showJsSnackbar;
 import '../core/theme/field_tokens.dart';
+import '../services/auth_service.dart';
 import '../services/profile_service.dart';
 import '../config/constants.dart';
 import 'consent_view_screen.dart';
@@ -197,23 +197,15 @@ class ProfileBodyState extends State<ProfileBody> {
   Future<void> _loadProfile() async {
     setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
-    final token  = prefs.getString('auth_token') ?? '';
 
     final local = await _localProfile(prefs);
     if (mounted) setState(() { _profile = local; _loading = false; });
 
-    try {
-      final res = await http.get(
-        Uri.parse('$API_URL/profile'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type':  'application/json',
-        },
-      ).timeout(const Duration(seconds: 8));
+    {
+      final res = await ProfileService().getProfile();
+      final data = res.data;
 
-      if (res.statusCode == 200 && mounted) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-
+      if (res.ok && data != null && mounted) {
         final homeAddr   = data['home_address']   as String? ?? '';
         final phone      = data['phone']           as String? ?? '';
         final bloodType  = data['blood_type']      as String? ?? '';
@@ -272,8 +264,8 @@ class ProfileBodyState extends State<ProfileBody> {
           );
         });
       }
-    } catch (e) {
-      debugPrint('プロフィール取得エラー: $e');
+      // 非200・通信失敗はローカル値のまま（移設前の catch と同じ・握り潰しではなく
+      // 「サーバ値で上書きしない」という方針）。失敗の可視化は runApiCall が担う。
     }
     // 表示側の AppBar「編集」アイコンの有無を追随させる（描画内容には影響しない）
     widget.onStateChanged?.call();
@@ -373,13 +365,9 @@ class ProfileBodyState extends State<ProfileBody> {
     // 通信失敗でもローカルログアウトは絶対にブロックしない（袋小路禁止）。
     final deviceId = prefs.getString('device_id') ?? '';
     if (deviceId.isNotEmpty) {
-      try {
-        await http.post(
-          Uri.parse('$API_URL/auth/logout'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'device_id': deviceId}),
-        ).timeout(const Duration(seconds: 5));
-      } catch (_) { /* 通信失敗でもローカルログアウトは継続 */ }
+      // 結果は見ない（通信失敗でもローカルログアウトは継続）。ApiResult は例外を
+      // 投げないため、移設前の catch は「戻り値を無視する」に等価。
+      await AuthService().logout(deviceId);
     }
     await prefs.setBool('logged_out', true);
     await prefs.remove('auth_token');
@@ -1116,21 +1104,17 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
     final zip = _zipCtrl.text.replaceAll('-', '').trim();
     if (zip.length != 7) return;
     setState(() { _zipLoading = true; _zipError = null; });
-    try {
-      final res = await http.get(
-        Uri.parse('https://zipcloud.ibsnet.co.jp/api/search?zipcode=$zip'),
-      ).timeout(const Duration(seconds: 8));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final results = data['results'] as List<dynamic>?;
-      if (results != null && results.isNotEmpty) {
-        final r = results.first as Map<String, dynamic>;
-        final addr =
-            '${r['address1'] ?? ''}${r['address2'] ?? ''}${r['address3'] ?? ''}';
-        setState(() { _addressCtrl.text = addr; _zipLoading = false; });
-      } else {
-        setState(() { _zipError = '住所が見つかりませんでした'; _zipLoading = false; });
-      }
-    } catch (_) {
+    final res = await ProfileService().lookupZipcode(zip);
+    if (!mounted) return;
+    final results = res.data;
+    // 「該当なし（results 空）」も「取れなかった（非200・通信失敗）」も
+    // 移設前と同じ1つの文言に倒す（zipcloud は該当なしでも 200 を返す）。
+    if (res.ok && results != null && results.isNotEmpty) {
+      final r = results.first;
+      final addr =
+          '${r['address1'] ?? ''}${r['address2'] ?? ''}${r['address3'] ?? ''}';
+      setState(() { _addressCtrl.text = addr; _zipLoading = false; });
+    } else {
       setState(() { _zipError = '住所が見つかりませんでした'; _zipLoading = false; });
     }
   }
@@ -1202,7 +1186,6 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
 
     setState(() => _saving = true);
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token') ?? '';
 
     final expStr = _expCtrl.text.trim();
     final expYears = expStr.isNotEmpty ? int.tryParse(expStr) : null;
@@ -1233,16 +1216,12 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
     }
 
     try {
-      final res = await http.put(
-        Uri.parse('$API_URL/profile'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type':  'application/json',
-        },
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 15));
+      final res = await ProfileService().updateProfile(body);
 
       // ローカルキャッシュ更新
+      // ★移設前は try 側と catch 側に同じ保存が二重に書かれていた（通信の成否に
+      //   関わらずローカルには必ず残す、という同じ方針）。ApiResult は例外を
+      //   投げないため、ここ1か所で足りる（保存する内容・順序は不変）。
       await prefs.setString('user_name',    name);
       await prefs.setString('home_address', _addressCtrl.text.trim());
       await prefs.setString('profile_phone', _phoneCtrl.text.trim());
@@ -1259,33 +1238,16 @@ class _ProfileEditScreenState extends State<_ProfileEditScreen> {
       await prefs.setString('emergency_contact_phone', _emergencyPhoneCtrl.text.trim());
 
       if (!mounted) return;
-      if (res.statusCode == 200 || res.statusCode == 204) {
+      if (res.statusCode == 0) {
+        // 通信不成立＝移設前の catch 相当（オフライン文言）。
+        showJsSnackbar(context, '⚠️ オフライン: ローカルのみ保存しました',
+            isWarning: true);
+      } else if (res.statusCode == 200 || res.statusCode == 204) {
         showJsSnackbar(context, '✅ プロフィールを保存しました');
       } else {
         showJsSnackbar(context, '⚠️ サーバー保存失敗。ローカルのみ保存しました',
             isWarning: true);
       }
-      widget.onSaved();
-      Navigator.pop(context);
-    } catch (e) {
-      debugPrint('プロフィール保存エラー: $e');
-      await prefs.setString('user_name',    name);
-      await prefs.setString('home_address', _addressCtrl.text.trim());
-      await prefs.setString('profile_phone', _phoneCtrl.text.trim());
-      await prefs.setString('profile_blood_type', _bloodTypeValue);
-      if (expYears != null) await prefs.setInt('experience_years', expYears);
-      if (_healthCheckDate != null) {
-        await prefs.setString('health_check_date_iso',
-            '${_healthCheckDate!.year.toString().padLeft(4,'0')}-'
-            '${_healthCheckDate!.month.toString().padLeft(2,'0')}-'
-            '${_healthCheckDate!.day.toString().padLeft(2,'0')}');
-      }
-      await ProfileService().setHomeAddress(_addressCtrl.text.trim());
-      await prefs.setString('emergency_contact_name',  _emergencyNameCtrl.text.trim());
-      await prefs.setString('emergency_contact_phone', _emergencyPhoneCtrl.text.trim());
-      if (!mounted) return;
-      showJsSnackbar(context, '⚠️ オフライン: ローカルのみ保存しました',
-          isWarning: true);
       widget.onSaved();
       Navigator.pop(context);
     } finally {

@@ -1,15 +1,11 @@
 // lib/screens/register_screen.dart - 招待コード登録フロー
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
  import '../core/theme/field_tokens.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../config/constants.dart';
+import '../services/worker_service.dart';
 import '../utils/device_id.dart';
-
-const String _apiUrl = kApiBaseUrl;
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.initialInviteCode});
@@ -70,48 +66,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     setState(() { _isLoading = true; _error = null; });
-    try {
-      final deviceId = await getDeviceId();
-      final res = await http.post(
-        Uri.parse('$_apiUrl/workers/activate'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'invite_code': _inviteCtrl.text.trim().toUpperCase(),
-          'pin':         pin,
-          'device_id':   deviceId,
-          'device_name': Platform.isAndroid ? 'Android' : 'iPhone',
-        }),
-      ).timeout(const Duration(seconds: 60));
-      if (!mounted) return;
-      final body = jsonDecode(res.body);
-      if (res.statusCode == 200) {
-        // ★role門番: 事務・管理系の招待コードはFIELDでは有効化させない（袋小路を作らない）
-        final role = body['role'] as String? ?? '';
-        if (role == 'admin_office' || role == 'admin_exec') {
-          setState(() {
-            _isLoading = false;
-            _error = 'この招待は事務・管理用です。OFFICEアプリで登録してください';
-          });
-          return;
-        }
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', body['token']      ?? '');
-        await prefs.setString('user_id',    body['user_id']    ?? '');
-        await prefs.setString('user_name',  body['name']       ?? '');
-        await prefs.setString('user_role',  body['role']       ?? 'worker');
-        await prefs.setString('company_id', body['company_id'] ?? '');
-        await prefs.setString('device_id',  deviceId);
-        await prefs.setBool('is_registered', true);
-        if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed('/gate');
-      } else {
-        setState(() => _error = body['error'] ?? '有効化に失敗しました');
+    final deviceId = await getDeviceId();
+    final r = await WorkerService().activate(
+      inviteCode:  _inviteCtrl.text.trim().toUpperCase(),
+      pin:         pin,
+      deviceId:    deviceId,
+      deviceName:  Platform.isAndroid ? 'Android' : 'iPhone',
+    );
+    if (!mounted) return;
+    if (r.statusCode == 200 && r.ok) {
+      final body = r.data ?? const <String, dynamic>{};
+      // ★role門番: 事務・管理系の招待コードはFIELDでは有効化させない（袋小路を作らない）
+      final role = body['role'] as String? ?? '';
+      if (role == 'admin_office' || role == 'admin_exec') {
+        setState(() {
+          _isLoading = false;
+          _error = 'この招待は事務・管理用です。OFFICEアプリで登録してください';
+        });
+        return;
       }
-    } catch (e) {
-      setState(() => _error = '通信エラー: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_token', body['token']      ?? '');
+      await prefs.setString('user_id',    body['user_id']    ?? '');
+      await prefs.setString('user_name',  body['name']       ?? '');
+      await prefs.setString('user_role',  body['role']       ?? 'worker');
+      await prefs.setString('company_id', body['company_id'] ?? '');
+      await prefs.setString('device_id',  deviceId);
+      await prefs.setBool('is_registered', true);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/gate');
+    } else if (r.statusCode == 0) {
+      // 通信不成立。errorMessage は規約1の「サーバーに接続できません: $e」を
+      // そのまま出す（画面側で prefix を重ねない＝理由を1回だけ言う）。
+      setState(() => _error = r.errorMessage);
+    } else {
+      setState(() => _error = r.errorMessage ?? '有効化に失敗しました');
     }
+    if (mounted) setState(() => _isLoading = false);
   }
 
   String get _appBarTitle => _step == 0 ? '招待コードで登録' : 'PIN設定';

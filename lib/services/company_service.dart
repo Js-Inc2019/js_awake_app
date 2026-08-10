@@ -125,4 +125,47 @@ class CompanyService {
       (body) => apiJsonMap(body)?['company'] as Map<String, dynamic>?,
     );
   }
+
+  // ============================================================
+  // 協力申請（company-links）— 段6で company_link_screen から移設
+  // ============================================================
+
+  /// 自分の協力申請一覧。
+  /// 移設元: company_link_screen.dart:37-40（GET /company-links/my・15秒）
+  ///
+  /// ★応答 {"links":[...]} の links を返す。取得失敗（ok:false）と
+  ///   0件（ok:true・空リスト）は ApiResult が区別する。空リストへ潰さない。
+  Future<ApiResult<List<Map<String, dynamic>>>> getMyCompanyLinks() async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<Map<String, dynamic>>>(
+      'CompanyService.getMyCompanyLinks',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/company-links/my'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) => ((apiJsonMap(body)?['links'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
+  }
+
+  /// 協力申請の送信。
+  /// 移設元: company_link_screen.dart:74-78（POST /company-links/request・15秒）
+  ///
+  /// ★移設元は成功を 201 に限っていた（:80）。200 等を成功へ広げると
+  ///   「申請を送信しました」の条件が変わるため、その判定は呼び手が
+  ///   statusCode で行う（ここでは丸めない）。
+  Future<ApiResult<Map<String, dynamic>>> requestCompanyLink(
+      String companyId) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'CompanyService.requestCompanyLink',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/company-links/request'),
+        headers: headers,
+        body: jsonEncode({'company_id': companyId}),
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
+  }
 }

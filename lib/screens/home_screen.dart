@@ -27,8 +27,7 @@ import '../main.dart'
         showJsSnackbar,
         showConfirmDialog,
         NotificationManager,
-        OvertimeDialog,
-        API_URL;
+        OvertimeDialog;
 import '../core/theme/field_tokens.dart';
 import 'revision_inbox_screen.dart';
 // 承認タブ（ReviewTab）の日付行タップで開く「その日の報告」画面。
@@ -52,6 +51,7 @@ import 'punch_screen.dart';
 // ファイル本体は punch_screen.dart:6 が使用中のため削除していない。
 import '../widgets/approval_dialogs.dart';
 import '../widgets/report_photos.dart';
+import '../services/api_result.dart';
 import '../services/auth_service.dart';
 import '../services/reports_service.dart';
 import '../services/site_service.dart';
@@ -59,6 +59,7 @@ import '../services/company_service.dart';
 import '../services/fcm_service.dart';
 import '../services/routes_service.dart';
 import '../services/profile_service.dart';
+import '../services/worker_service.dart';
 
 // ─────────────────────────────────────────────
 // 季節注意喚起（6〜9月）
@@ -363,16 +364,24 @@ String _owmIdToIcon(int id) {
 
 // ─────────────────────────────────────────────
 // リトライヘルパー
+//
+// ★段6で Service 移設した後もここに残す。再試行は「1リクエスト＝1結果」の
+//   ApiResult には載らない、この画面固有の方針だから（Service へ入れると
+//   同じエンドポイントを叩く revision_inbox_screen まで3回叩き始める）。
+// ★試行ごとに制限時間を伸ばす（60 / 80 / 100秒）挙動は移設前のまま。
+//   その秒数を fn へも渡すのは、Service 側の .timeout() が先に発火して
+//   ここで決めた上限が意味を失うのを防ぐため（Service は timeout を引数で受ける）。
 // ─────────────────────────────────────────────
 Future<T> _withRetry<T>(
-  Future<T> Function() fn, {
+  Future<T> Function(Duration timeout) fn, {
   int maxAttempts = 3,
   Duration firstTimeout = const Duration(seconds: 60),
 }) async {
   Object? lastErr;
   for (var i = 0; i < maxAttempts; i++) {
+    final attemptTimeout = firstTimeout + Duration(seconds: i * 20);
     try {
-      return await fn().timeout(firstTimeout + Duration(seconds: i * 20));
+      return await fn(attemptTimeout).timeout(attemptTimeout);
     } catch (e) {
       lastErr = e;
       if (i < maxAttempts - 1) await Future.delayed(Duration(seconds: 1 << i));
@@ -1359,17 +1368,21 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> _loadRevisionCount({SharedPreferences? prefs}) async {
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
-      final token = p.getString('auth_token') ?? '';
-      final res = await _withRetry(
-        () => http.get(
-          Uri.parse('$API_URL/reports?revision_requested=true'),
-          headers: {'Authorization': 'Bearer $token'},
-        ),
+      final res = await _withRetry<ApiResult<List<dynamic>>>(
+        (t) async {
+          final r = await ReportsService().getRevisionRequested(timeout: t);
+          // 移設前は http.get が投げたときだけ再試行していた（＝通信不成立）。
+          // ApiResult は例外を statusCode:0 に畳んで返すため、ここで投げ直して
+          // 同じ再試行条件へ戻す。非200（サーバは答えている）は再試行しない。
+          if (!r.ok && r.statusCode == 0) {
+            throw Exception(r.errorMessage ?? '通信に失敗しました');
+          }
+          return r;
+        },
         firstTimeout: const Duration(seconds: 60),
       );
-      if (res.statusCode == 200 && mounted) {
-        final j = jsonDecode(res.body) as Map<String, dynamic>;
-        final count = (j['reports'] as List?)?.length ?? 0;
+      if (res.ok && mounted) {
+        final count = res.data?.length ?? 0;
         p.setInt('cache_revision_count', count);
         setState(() => _revisionCount = count);
       }
@@ -5708,20 +5721,11 @@ class _StaffTabState extends State<_StaffTab> {
 
   Future<void> _loadStaff() async {
     setState(() => _loading = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http
-          .get(
-            Uri.parse('$API_URL/workers?membership_type=employee'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
+    {
+      final res = await WorkerService().getWorkers(membershipType: 'employee');
       if (!mounted) return;
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final companies =
-            List<Map<String, dynamic>>.from(data['companies'] ?? []);
+      if (res.ok) {
+        final companies = res.data ?? const <Map<String, dynamic>>[];
         final own = companies.firstWhere(
           (c) => c['is_own'] == true,
           orElse: () => <String, dynamic>{},
@@ -5731,10 +5735,9 @@ class _StaffTabState extends State<_StaffTab> {
           _loading = false;
         });
       } else {
+        // 非200・通信不成立とも移設前は同じ「読み込みを終える」だけ（_staff は据え置き）。
         setState(() => _loading = false);
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -5870,35 +5873,19 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
 
   Future<void> _loadMonthly() async {
     setState(() => _loading = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http
-          .get(
-            Uri.parse(
-                '$API_URL/attendance/monthly-summary?person_id=${widget.personId}&month=$_monthStr'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
+    {
+      // monthly_stats_screen と同じ1本（person_id の出所だけが違う）。
+      final res = await WorkModeService().fetchMonthlySummary(
+        personId: widget.personId,
+        month:    _monthStr,
+      );
       if (!mounted) return;
-      if (res.statusCode == 200) {
-        setState(() {
-          _summary = jsonDecode(res.body) as Map<String, dynamic>;
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _summary = null;
-          _loading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _summary = null;
-          _loading = false;
-        });
-      }
+      final summary = res.data;
+      setState(() {
+        // 非200・通信不成立はどちらも移設前と同じく _summary = null（未取得）。
+        _summary = (res.ok && summary != null) ? summary : null;
+        _loading = false;
+      });
     }
   }
 
@@ -6133,28 +6120,18 @@ class _CooperationTabState extends State<_CooperationTab> {
 
   Future<void> _loadByCompany() async {
     setState(() => _loading = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http
-          .get(
-            Uri.parse('$API_URL/reports/by-company?month=$_monthStr'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
+    {
+      final res = await ReportsService().getReportsByCompany(_monthStr);
       if (!mounted) { return; }
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.ok) {
         setState(() {
-          _companies =
-              List<Map<String, dynamic>>.from(data['companies'] ?? []);
+          _companies = res.data ?? const [];
           _loading = false;
         });
       } else {
+        // 非200・通信不成立とも移設前は同じ（_companies は据え置き）。
         setState(() => _loading = false);
       }
-    } catch (_) {
-      if (mounted) { setState(() => _loading = false); }
     }
   }
 
@@ -6427,19 +6404,12 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // 日報（既存のまま GET /reports?date=YYYY-MM&limit=300）
   Future<void> _loadReports() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final res = await http
-          .get(
-            Uri.parse('$API_URL/reports?date=$_monthStr&limit=300'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
+    {
+      // limit=300 は getReportsByMonth の既定値（monthly_history_screen は 200 を明示）。
+      final res = await ReportsService().getReportsByMonth(_monthStr);
       if (!mounted) return;
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final raw = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+      if (res.ok) {
+        final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
         final enriched = raw.map((r) {
           final approved = r['approved'] == true;
           final revision = r['revision_requested'] == true;
@@ -6457,12 +6427,10 @@ class _CalendarTabState extends State<CalendarTab> {
           _submittedDates = dates;
         });
       } else {
-        debugPrint('reports 非200: status=${res.statusCode}');
+        // 非200も通信不成立も移設前は同じ「取得失敗」。失敗の可視化（statusCode と
+        // 本文先頭200文字）は runApiCall の debugPrint が担う。
         setState(() => _reportsFailed = true);
       }
-    } catch (e) {
-      debugPrint('reports 取得失敗: $e');
-      if (mounted) setState(() => _reportsFailed = true);
     }
   }
 

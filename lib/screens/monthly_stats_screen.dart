@@ -15,14 +15,11 @@
 //   法令判断は会社の責任であり、職人に法令判断をさせないため（法務設計と整合）。
 //
 // ★数字部品は既存の JsStatChip(monthly_history_screen.dart:255) を再利用する。新部品は作らない。
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../main.dart' show API_URL;
 import '../core/theme/field_tokens.dart';
+import '../services/work_mode_service.dart';
 import 'monthly_history_screen.dart' show JsStatChip;
 
 // ─────────────────────────────────────────────
@@ -90,7 +87,6 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
       // ★自分の person_id。login_screen.dart:926 が BE の user_id をこのキーへ保存しており、
       //   その user_id は routes/auth.js:726/844/1239 のとおり person.person_id そのもの。
       //   home_screen.dart:5726 が職人カードから取り出す worker['user_id'] と同じ意味の値。
@@ -104,26 +100,34 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
         return;
       }
 
-      final res = await http
-          .get(
-            Uri.parse(
-                '$API_URL/attendance/monthly-summary?person_id=$personId&month=$_monthStr'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 15));
+      final res = await WorkModeService()
+          .fetchMonthlySummary(personId: personId, month: _monthStr);
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
+      // ★「必ず _summary か _error のどちらか一方で終わる」掟を守るため、
+      //   ok でも本文が空（data == null）なら成功にしない。移設前は
+      //   jsonDecode('') が投げて catch 側のネットワークエラーになっていた経路。
+      final summary = res.data;
+      if (res.ok && summary != null) {
         setState(() {
-          _summary = jsonDecode(res.body) as Map<String, dynamic>;
+          _summary = summary;
           _loading = false;
         });
         return;
       }
 
+      // 通信不成立（statusCode:0）＋ 200系だが本文が読めなかった場合＝移設前の catch 相当。
+      if (res.statusCode == 0 || res.ok) {
+        setState(() {
+          _loading = false;
+          _error   = 'ネットワークエラー。\n通信状況を確認して再試行してください。';
+        });
+        return;
+      }
+
       // ★非200を握り潰さない。状態コードを本文に出して原因を隠さない。
-      debugPrint('monthly-summary 非200: status=${res.statusCode}');
+      //   （応答本文・token は出さない。ApiResult 側でも同じ規約で可視化済み）
       setState(() {
         _loading = false;
         _error = res.statusCode == 401
