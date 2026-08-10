@@ -39,8 +39,8 @@ class ReportPhotosState extends State<ReportPhotos> {
     try {
       if (widget.reportId.isEmpty) throw Exception('report_id なし');
       final result = await ReportsService().getReportDetail(widget.reportId);
-      if (result['success'] != true) throw Exception(result['error']?.toString() ?? '取得失敗');
-      final photos = (result['photos'] as List?) ?? const [];
+      if (!result.ok) throw Exception(result.errorMessage ?? '取得失敗');
+      final photos = result.data?.photos ?? const [];
       for (final p in photos) {
         if (p is! Map) continue;
         final type = p['photo_type']?.toString();

@@ -101,7 +101,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     final id = req['id'] as String? ?? '';
     if (id.isEmpty) return;
     setState(() => _breakBusy = true);
-    final res = await WorkModeService.instance.amendBreakRequest(id, minutes);
+    final res = await WorkModeService().amendBreakRequest(id, minutes);
     if (!mounted) return;
     setState(() => _breakBusy = false);
     if (res.ok) {

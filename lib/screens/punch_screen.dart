@@ -165,10 +165,11 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {
       _restLoading = false;
-      if (res['success'] == true) {
-        _rested      = res['rested'] == true;
-        _restReason  = res['reason'] as String?;
-        _restPortion = (res['portion'] as String?) ?? 'full';
+      final rest = res.data;
+      if (res.ok && rest != null) {
+        _rested      = rest.rested;
+        _restReason  = rest.reason as String?;
+        _restPortion = rest.portion;
       } else {
         _rested      = false; // fail-open
         _restReason  = null;
@@ -219,7 +220,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
     final res = await _reports.deleteRestDay(); // 既存メソッドを再利用
     if (!mounted) return;
-    if (res['success'] == true) {
+    if (res.ok) {
       await _loadRestStatus();               // ボタン表示も最新化
       if (!mounted) return;
       if (gate != null && !await gate()) return;
@@ -227,8 +228,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     } else {
       showJsSnackbar(
         context,
-        '${res['error'] ?? '休みの取り消しに失敗しました'}'
-        '${res['statusCode'] != null ? '（${res['statusCode']}）' : ''}',
+        '${res.errorMessage ?? '休みの取り消しに失敗しました'}'
+        '${res.statusCode != 0 ? '（${res.statusCode}）' : ''}',
         isError: true,
       );
     }
@@ -273,15 +274,18 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
-    final (settings, today) = await (
-      WorkModeService.instance.fetchFromServer(),
+    final (settings, todayRes) = await (
+      WorkModeService().fetchFromServer(),
       // K6: 勤怠行は (person, 業務日, shift_type) で1行。見るシフトを明示する。
-      WorkModeService.instance.fetchToday(shiftType: widget.shiftType),
+      WorkModeService().fetchToday(shiftType: widget.shiftType),
     ).wait;
     if (!mounted) return;
     setState(() {
       _settings = settings;
-      if (today != null) {
+      // ★取得できなかった（ok:false）ときは前回値を据え置く。統一前も
+      //   fetchToday は非200・例外とも null を返し、同じ扱いだった。
+      final today = todayRes.data;
+      if (todayRes.ok && today != null) {
         _record           = today.record;
         _punchedIn        = today.punchedIn;
         _punchedOut       = today.punchedOut;
@@ -337,7 +341,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     bool goReport = false;
     try {
       final gps    = await fetchGpsAddress();
-      final result = await WorkModeService.instance.punch(
+      final result = await WorkModeService().punch(
         type,
         lat:  gps.lat,
         lng:  gps.lon,
@@ -349,10 +353,11 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         // 出勤打刻で取れた現在地を端末にも残す（日報フォームの初期表示が読む既存3キーへ）。
         // 新しいキーは作らない。退勤(out)では上書きしない＝現場の記録は出勤時の位置を残す。
         if (type == 'in') await _persistPunchGps(gps);
-        final today = await WorkModeService.instance.fetchToday(shiftType: widget.shiftType);
+        final todayRes = await WorkModeService().fetchToday(shiftType: widget.shiftType);
         if (!mounted) return;
         setState(() {
-          if (today != null) {
+          final today = todayRes.data;
+          if (todayRes.ok && today != null) {
             _record           = today.record;
             _punchedIn        = today.punchedIn;
             _punchedOut       = today.punchedOut;
@@ -529,10 +534,11 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   Future<void> _onBreakRequestSubmitted() async {
     showJsSnackbar(context, '申告しました（承認待ち）');
-    final today = await WorkModeService.instance.fetchToday(shiftType: widget.shiftType);
+    final todayRes = await WorkModeService().fetchToday(shiftType: widget.shiftType);
     if (!mounted) return;
     setState(() {
-      if (today != null) {
+      final today = todayRes.data;
+      if (todayRes.ok && today != null) {
         _record           = today.record;
         _punchedIn        = today.punchedIn;
         _punchedOut       = today.punchedOut;
@@ -1511,7 +1517,7 @@ class _BreakRequestSheetState extends State<_BreakRequestSheet> {
     }
     setState(() { _error = null; _submitting = true; });
     try {
-      final result = await WorkModeService.instance.breakRequest(
+      final result = await WorkModeService().breakRequest(
         breakMinutes: _selectedMin,
         reason: reason,
         // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。

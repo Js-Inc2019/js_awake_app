@@ -45,12 +45,16 @@ class _InboxScreenState extends State<InboxScreen>
 
     setState(() {
       _isLoading = false;
-      if (inboxResult['success'] == true) {
-        _inbox = inboxResult['shares'] as List<dynamic>;
-        _tamperedCount = inboxResult['tampered_count'] as int? ?? 0;
+      // ★失敗時は前回値を据え置く（統一前と同じ）。空リストで塗り替えると
+      //   「取れなかった」が「1件も無い」に化ける。
+      final inbox = inboxResult.data;
+      if (inboxResult.ok && inbox != null) {
+        _inbox = inbox.shares;
+        _tamperedCount = inbox.tamperedCount;
       }
-      if (outboxResult['success'] == true) {
-        _outbox = outboxResult['shares'] as List<dynamic>;
+      final outbox = outboxResult.data;
+      if (outboxResult.ok && outbox != null) {
+        _outbox = outbox;
       }
     });
   }
@@ -94,15 +98,20 @@ class _InboxScreenState extends State<InboxScreen>
     Navigator.pop(context); // ローディングを閉じる
     if (!mounted) return;
 
-    // 三値分岐（'ok' / 'tampered' / 'error'）。
-    // 確認失敗(error)は ✅正常 とは絶対に混同させず、不明表示＋再試行を出す。
-    final status = result['status'];
+    // 三値分岐（改ざんあり / 改ざんなし / 確認失敗）。
+    // 確認失敗は ✅正常 とは絶対に混同させず、不明表示＋再試行を出す。
+    //   ★統一前の 'status' 3値は ApiResult で表せる:
+    //       確認失敗          → ok:false（通信断・非200・200だが判定不能）
+    //       確認成功・改ざん   → ok:true かつ data.isTampered == true
+    //       確認成功・正常     → ok:true かつ data.isTampered == false
+    final check = result.data;
+    final failed = !result.ok || check == null;
     final String title;
     final Color titleColor;
-    if (status == 'tampered') {
+    if (!failed && check.isTampered) {
       title = '⚠️ 改ざん検知';
       titleColor = FieldTokens.statusError;
-    } else if (status == 'ok') {
+    } else if (!failed) {
       title = '✅ 正常';
       titleColor = FieldTokens.accent;
     } else {
@@ -116,11 +125,11 @@ class _InboxScreenState extends State<InboxScreen>
         backgroundColor: FieldTokens.surfaceCard,
         title: Text(title, style: TextStyle(color: titleColor)),
         content: Text(
-          result['message'] ?? 'チェック完了',
+          check?.message ?? result.errorMessage ?? 'チェック完了',
           style: const TextStyle(color: FieldTokens.textBody),
         ),
         actions: [
-          if (status == 'error')
+          if (failed)
             TextButton(
               onPressed: () {
                 Navigator.pop(context);

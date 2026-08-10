@@ -1,8 +1,40 @@
+// ============================================================
 // lib/services/routes_service.dart
+//
+// ★★ このファイルは ApiResult<T> 標準の「意図的な例外」である ★★
+//
+// 段4で他8本の Service は ApiResult<T>（{ok, statusCode, data, errorMessage,
+// errorCode}）へ統一した。compareRoutesV2 だけは RouteCompareResult を維持する。
+// 将来「統一漏れ」と誤認して置き換えないよう、理由を3点そのまま残す:
+//
+//   ① 「HTTP 200 だが失敗」を表現する必要がある。
+//      BE は経路計算に失敗しても 200 + routes:{} を返す
+//      （js-office-api routes/routes-calc.js:186）。ApiResult は 200系＝ok:true
+//      なので、置き換えると RouteFailure.empty が ok:true に反転し、
+//      呼び手（home_screen.dart の _routeFailed）が「空の結果」を成功として
+//      描いてしまう＝金額欄が空のまま「取得できた」ことになる。
+//
+//   ② ペイロードが2つ要る。
+//      routes（型付きパース済み・画面描画用）と rawRoutes（BE の素 JSON・
+//      キャッシュ保存用）の両方を呼び手が使う（home_screen.dart の
+//      _saveRouteCache）。ApiResult の data は1つしか持てない。
+//
+//   ③ timeout と network を区別する必要がある。
+//      ApiResult はどちらも statusCode:0 に畳む。ここでは RouteFailure.timeout /
+//      RouteFailure.network を分けて reasonLabel に出しており、
+//      「8秒で切れた」のか「圏外」なのかがログで判別できる。
+//
+// ＝ RouteCompareResult は ApiResult の劣化版ではなく、ApiResult より
+//    表現力が要る一点物。統一するなら ApiResult 側に①②③を足す議論が先。
+//
+// ※ 段4で実施したのは「手組み Authorization ヘッダの是正」のみ
+//   （AuthService().getAuthHeaders() へ集約。トークンの出所が1か所になる）。
+// ============================================================
 import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import 'auth_service.dart';
 import '../config/constants.dart';
 
 const String _kApiUrl = kApiBaseUrl;
@@ -166,19 +198,21 @@ class RoutesService {
   /// 現場で「ルート計算中...」が数分残る原因が長すぎる timeout ＋ リトライだったため。
   static const Duration kTimeout = Duration(seconds: 8);
 
+  final AuthService _auth = AuthService();
+
+  /// ★段4: authToken 引数を撤去した。呼び手が prefs から取り出して渡していたが、
+  ///   トークンの出所は AuthService 一本にする（画面がトークンを持ち回らない）。
+  ///   送るヘッダの中身は統一前と同一（Content-Type + Bearer <auth_token>）。
   Future<RouteCompareResult> compareRoutesV2({
     required String origin,
     required String destination,
-    required String authToken,
   }) async {
+    final headers = await _auth.getAuthHeaders();
     http.Response response;
     try {
       response = await http.post(
         Uri.parse('$_kApiUrl/routes/compare'),
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': 'Bearer $authToken',
-        },
+        headers: headers,
         body: jsonEncode({'origin': origin, 'destination': destination}),
       ).timeout(kTimeout);
     } on TimeoutException {

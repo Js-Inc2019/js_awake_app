@@ -53,9 +53,10 @@ class _ShareScreenState extends State<ShareScreen> {
     final result = await _companyService.getCompanies();
     setState(() {
       _isLoading = false;
-      if (result['success'] == true) {
+      final companies = result.data;
+      if (result.ok && companies != null) {
         // 自社以外の会社一覧
-        _companies = (result['companies'] as List<dynamic>)
+        _companies = companies
             .where((c) => c['is_master'] != true)
             .toList();
       }
@@ -88,7 +89,7 @@ class _ShareScreenState extends State<ShareScreen> {
 
     if (!mounted) return;
 
-    if (result['success'] == true) {
+    if (result.ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$_selectedCompanyNameに送信しました'),
@@ -99,7 +100,7 @@ class _ShareScreenState extends State<ShareScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['message'] ?? 'エラーが発生しました'),
+          content: Text(result.errorMessage ?? 'エラーが発生しました'),
           backgroundColor: FieldTokens.statusError,
         ),
       );

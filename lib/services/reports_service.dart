@@ -1,12 +1,55 @@
 // ============================================================
 // lib/services/reports_service.dart - 日報通信サービス
+//
+// ★段4: 戻り値を ApiResult<T> へ統一（規約は api_result.dart 冒頭）。
+//   統一前は {'success': bool, 'error': ..., 'statusCode': ..., 'code': ...} の
+//   Map 返しで、例外時だけ statusCode と code が欠落する（＝呼び手が
+//   「statusCode が無い＝通信失敗」と推測するしかない）作りだった。
+//   ApiResult は常に statusCode を持ち、通信不成立を 0 で表す。
+//   ★BE の error_code（ALREADY_RESTED / NOT_RESTED 等）は errorCode に載る。
+//     呼び手の分岐（rest_day_screen.dart / punch_remind_dialog.dart）は
+//     res['code'] → r.errorCode へ読み替えるだけで挙動は不変。
+//   URL・body・timeout は1文字も変えていない。
 // ============================================================
 
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import 'api_result.dart';
 import 'auth_service.dart';
 import '../config/constants.dart';
+
+/// 日報詳細（report 本体＋active 写真）。
+class ReportDetail {
+  const ReportDetail({required this.report, required this.photos});
+  final dynamic report;
+  final List<dynamic> photos;
+}
+
+/// 本日休みの状態（GET /rest-days/today）。
+class RestDayToday {
+  const RestDayToday({
+    required this.rested,
+    required this.reason,
+    required this.portion,
+  });
+  final bool rested;
+  final dynamic reason;
+
+  /// 半休。BE未対応の間は欠落し得るため 'full' 後方互換。
+  final String portion;
+}
+
+/// 休み登録・更新・取消の結果（rest_date 等）。
+class RestDayMutation {
+  const RestDayMutation({
+    required this.restDate,
+    required this.reason,
+    required this.cancelled,
+  });
+  final dynamic restDate;
+  final dynamic reason;
+  final bool cancelled;
+}
 
 class ReportsService {
   static final ReportsService _instance = ReportsService._internal();
@@ -23,71 +66,48 @@ class ReportsService {
   // 日報詳細取得（active写真を photos[] 付きで返す）
   // ============================================================
 
-  Future<Map<String, dynamic>> getReportDetail(String reportId) async {
+  Future<ApiResult<ReportDetail>> getReportDetail(String reportId) async {
     if (reportId.isEmpty) {
-      return {'success': false, 'error': 'report_id なし'};
+      return apiFailure<ReportDetail>(statusCode: 0, errorMessage: 'report_id なし');
     }
-
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<ReportDetail>(
+      'ReportsService.getReportDetail',
+      () => http.get(
         Uri.parse('$kApiBaseUrl/reports/$reportId'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'report':  data['report'],
-          'photos':  (data['photos'] as List?) ?? [],
-        };
-      }
-
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final data = apiJsonMap(body);
+        return ReportDetail(
+          report: data?['report'],
+          photos: (data?['photos'] as List?) ?? const [],
+        );
+      },
+    );
   }
 
   // ============================================================
   // 承認（職長・事務・管理者）。originType指定時のみ body で送る。
   // ============================================================
 
-  Future<Map<String, dynamic>> approveReport(String reportId,
+  Future<ApiResult<Map<String, dynamic>>> approveReport(String reportId,
       {String? originType}) async {
     if (reportId.isEmpty) {
-      return {'success': false, 'error': 'report_id なし'};
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
     }
-
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.patch(
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.approveReport',
+      () => http.patch(
         Uri.parse('$kApiBaseUrl/reports/$reportId/approve'),
         headers: headers,
         body: originType != null
             ? jsonEncode({'origin_type': originType})
             : null,
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return {'success': true};
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
   }
 
   // ============================================================
@@ -96,70 +116,48 @@ class ReportsService {
   // 'edited' イベント追記で改ざん検知に抵触させない実装（reports.js:1287-）。
   // ============================================================
 
-  Future<Map<String, dynamic>> linkReportToSite(
+  Future<ApiResult<Map<String, dynamic>>> linkReportToSite(
       String reportId, String? siteId) async {
     if (reportId.isEmpty) {
-      return {'success': false, 'error': 'report_id なし'};
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
     }
-
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.patch(
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.linkReportToSite',
+      () => http.patch(
         Uri.parse('$kApiBaseUrl/reports/$reportId/site'),
         headers: headers,
         body: jsonEncode({'site_id': siteId}),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return {'success': true};
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
   }
 
   // ============================================================
   // 差戻し（修正依頼）。revision_targets はUIが決めた配列をそのまま送る。
+  //   ★統一前からここだけ 200系判定だった（>=200 && <300）。ApiResult の
+  //     既定と一致するため判定は不変。
   // ============================================================
 
-  Future<Map<String, dynamic>> requestRevision(
+  Future<ApiResult<Map<String, dynamic>>> requestRevision(
       String reportId, List<String> revisionTargets,
       {String reason = ''}) async {
     if (reportId.isEmpty) {
-      return {'success': false, 'error': 'report_id なし'};
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
     }
-
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.put(
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.requestRevision',
+      () => http.put(
         Uri.parse('$kApiBaseUrl/reports/$reportId/request-revision'),
         headers: headers,
         body: jsonEncode({
           'reason':           reason,
           'revision_targets': revisionTargets,
         }),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return {'success': true};
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
   }
 
   // ============================================================
@@ -167,217 +165,123 @@ class ReportsService {
   // ============================================================
 
   // GET /reports?date=YYYY-MM&limit=300 — 月指定で取得する（承認タブの日付一覧用）。
-  // 既存 getReports(:180) は limit のみで直近50件しか取れず、承認待ちが51件目以降に
+  // 既存 getReports は limit のみで直近50件しか取れず、承認待ちが51件目以降に
   // あると見えなかった。月指定でその構造的な取りこぼしを解消する。
-  // ★既存 getReports は1文字も変更していない（別メソッドとして追加）。
-  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、success:false で返す。
-  Future<Map<String, dynamic>> getReportsByMonth(String month, {int limit = 300}) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
+  Future<ApiResult<List<dynamic>>> getReportsByMonth(String month, {int limit = 300}) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<dynamic>>(
+      'ReportsService.getReportsByMonth',
+      () => http.get(
         Uri.parse('$kApiBaseUrl/reports?date=$month&limit=$limit'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'reports': (data['reports'] as List?) ?? [],
-        };
-      }
-      debugPrint('reports?date=$month 非200: status=${response.statusCode}');
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      debugPrint('reports?date=$month 取得失敗: $e');
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
+    );
   }
 
-  Future<Map<String, dynamic>> getReports({int limit = 50}) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
+  Future<ApiResult<List<dynamic>>> getReports({int limit = 50}) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<dynamic>>(
+      'ReportsService.getReports',
+      () => http.get(
         Uri.parse('$kApiBaseUrl/reports?limit=$limit'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'reports': (data['reports'] as List?) ?? [],
-        };
-      }
-
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
+    );
   }
 
   // ============================================================
   // 本日休み（rest_days）— GET/POST/PATCH/DELETE の4本。
-  // 非200は握り潰さず success:false + statusCode + code(BE error_code) を返す。
+  // 非200は握り潰さず statusCode + errorCode(BE の code) を載せて返す。
   // ============================================================
 
   // GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
   // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js:276）。
   // 取消済(cancelled_at)は BE 側で除外済み＝返るのは「いま有効な休み」だけ。
-  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、success:false で呼び出し側へ返す。
-  Future<Map<String, dynamic>> getRestDaysMy(String month) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
+  Future<ApiResult<List<Map<String, dynamic>>>> getRestDaysMy(String month) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<Map<String, dynamic>>>(
+      'ReportsService.getRestDaysMy',
+      () => http.get(
         Uri.parse('$kApiBaseUrl/rest-days/my?month=$month'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'days': ((data['days'] as List?) ?? [])
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList(),
-        };
-      }
-      debugPrint('rest-days/my 非200: status=${response.statusCode} code=${data['code']}');
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'code':       data['code'],
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      debugPrint('rest-days/my 取得失敗: $e');
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      (body) => ((apiJsonMap(body)?['days'] as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
   }
 
   // GET /rest-days/today → { rested: bool, reason: string|null }
-  Future<Map<String, dynamic>> getRestDayToday() async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.get(
+  Future<ApiResult<RestDayToday>> getRestDayToday() async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<RestDayToday>(
+      'ReportsService.getRestDayToday',
+      () => http.get(
         Uri.parse('$kApiBaseUrl/rest-days/today'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'rested':  data['rested'] == true,
-          'reason':  data['reason'],
-          // portion（半休）。BE未対応の間は欠落し得るため 'full' 後方互換。
-          'portion': (data['portion'] as String?) ?? 'full',
-        };
-      }
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'code':       data['code'],
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final data = apiJsonMap(body);
+        return RestDayToday(
+          rested:  data?['rested'] == true,
+          reason:  data?['reason'],
+          portion: (data?['portion'] as String?) ?? 'full',
+        );
+      },
+    );
   }
 
   // POST /rest-days body {reason?, portion} → 201 成功 / 409 ALREADY_RESTED
   // portion（full/am_half/pm_half）は BE 並行実装中＝未対応の間は無視されるだけで害なし。
-  Future<Map<String, dynamic>> createRestDay({String? reason, String portion = 'full'}) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.post(
+  //   ★409 の code は errorCode に載る（呼び手が「すでに休みで登録されています」を出す根拠）。
+  Future<ApiResult<RestDayMutation>> createRestDay({String? reason, String portion = 'full'}) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<RestDayMutation>(
+      'ReportsService.createRestDay',
+      () => http.post(
         Uri.parse('$kApiBaseUrl/rest-days'),
         headers: headers,
         body: jsonEncode({'reason': reason, 'portion': portion}),
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 201) {
-        return {
-          'success':   true,
-          'rest_date': data['rest_date'],
-          'reason':    data['reason'],
-        };
-      }
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'code':       data['code'],
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      _parseRestDayMutation,
+    );
   }
 
   // PATCH /rest-days/today body {reason, portion} → 200 成功 / 404 NOT_RESTED
-  Future<Map<String, dynamic>> updateRestDay({String? reason, String portion = 'full'}) async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.patch(
+  Future<ApiResult<RestDayMutation>> updateRestDay({String? reason, String portion = 'full'}) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<RestDayMutation>(
+      'ReportsService.updateRestDay',
+      () => http.patch(
         Uri.parse('$kApiBaseUrl/rest-days/today'),
         headers: headers,
         body: jsonEncode({'reason': reason, 'portion': portion}),
-      ).timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
-        return {
-          'success':   true,
-          'rest_date': data['rest_date'],
-          'reason':    data['reason'],
-        };
-      }
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'code':       data['code'],
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+      ).timeout(const Duration(seconds: 15)),
+      _parseRestDayMutation,
+    );
   }
 
   // DELETE /rest-days/today → 200 成功 / 404 NOT_RESTED
-  Future<Map<String, dynamic>> deleteRestDay() async {
-    try {
-      final headers = await _auth.getAuthHeaders();
-      final response = await http.delete(
+  Future<ApiResult<RestDayMutation>> deleteRestDay() async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<RestDayMutation>(
+      'ReportsService.deleteRestDay',
+      () => http.delete(
         Uri.parse('$kApiBaseUrl/rest-days/today'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 15)),
+      _parseRestDayMutation,
+    );
+  }
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200) {
-        return {
-          'success':   true,
-          'rest_date': data['rest_date'],
-          'cancelled': data['cancelled'] == true,
-        };
-      }
-      return {
-        'success':    false,
-        'error':      data['error'] ?? 'エラー',
-        'code':       data['code'],
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString()};
-    }
+  static RestDayMutation? _parseRestDayMutation(String body) {
+    final data = apiJsonMap(body);
+    return RestDayMutation(
+      restDate:  data?['rest_date'],
+      reason:    data?['reason'],
+      cancelled: data?['cancelled'] == true,
+    );
   }
 }

@@ -57,9 +57,9 @@ class NotificationListBodyState extends State<NotificationListBody> {
     });
     final res = await _svc.fetchNotifications();
     if (!mounted) return;
-    if (res['success'] == true) {
+    if (res.ok) {
       setState(() {
-        _items = ((res['notifications'] as List?) ?? [])
+        _items = (res.data ?? const [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
         _loading = false;
@@ -78,7 +78,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
   Future<void> _markAllRead() async {
     final res = await _svc.markAllRead();
     if (!mounted) return;
-    if (res['success'] == true) {
+    if (res.ok) {
       await _load();
     } else {
       ScaffoldMessenger.of(context)

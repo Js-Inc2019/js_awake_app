@@ -21,7 +21,6 @@
 // ============================================================
 
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
@@ -119,90 +118,23 @@ class AuthService {
   }
 
   // ============================================================
-  // 共通の送信・応答処理（ApiResult 規約の実装は1か所だけ）
-  //   規約の全文は api_result.dart 冒頭を参照。
+  // 共通の送信・応答処理
+  //   ★段4で api_result.dart の runApiCall() へ集約した。以前は本クラスに
+  //     同じ規約の実装（_run / _clip / _errorMessageFrom / _asJsonMap）を
+  //     持っていたが、他8本の Service も同じものを必要とし、写した先から
+  //     必ず規約が痩せる（statusCode の積み忘れ・非200での二次例外など、
+  //     統一前の各 Service が実際にそうなっていた）。実装は1か所だけに置く。
+  //   ★同時に errorCode（BE の code）を運ぶようになった。auth 系は
+  //     NO_TOKEN / TOKEN_EXPIRED / COOPERATION_PENDING など code を多用するため、
+  //     呼び手（段5）はこれで分岐できる。
   // ============================================================
 
-  /// 応答本文の先頭200文字（規約2のエラー文言用）。
-  static String _clip(String body) =>
-      body.length <= 200 ? body : '${body.substring(0, 200)}…';
-
-  /// 非200のエラー文言。BE の error を優先し、無ければ本文の先頭200文字。
-  static String _errorMessageFrom(String body) {
-    if (body.isEmpty) return '(応答本文なし)';
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map) {
-        final err = decoded['error'];
-        if (err is String && err.isNotEmpty) return err;
-      }
-    } catch (_) {
-      // JSON でない（HTML のエラーページ等）→ 本文をそのまま見せる
-    }
-    return _clip(body);
-  }
-
-  /// すべての認証系呼び出しの土台。
-  ///   ・例外/timeout   → ok:false / statusCode:0
-  ///   ・非200          → ok:false / statusCode:実値 / errorMessage:BEのerror優先
-  ///   ・200系          → parse の結果を data に載せて ok:true
-  ///   ・200系でparse失敗 → ok:false / statusCode:実値（0 に倒さない＝サーバは応答済み）
-  ///
-  /// ★debugPrint に出すのは メソッド名・statusCode・非200本文の先頭200文字 まで。
-  ///   headers / token / Authorization / リクエストbody は出さない。
-  ///   200系の本文も出さない（token を含む応答があるため）。
   Future<ApiResult<T>> _run<T>(
     String label,
     Future<http.Response> Function() send,
     T? Function(String body) parse,
-  ) async {
-    try {
-      final res = await send();
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        try {
-          return (
-            ok: true,
-            statusCode: res.statusCode,
-            data: parse(res.body),
-            errorMessage: null,
-          );
-        } catch (e) {
-          // 本文は出さない（token を含み得るため）。長さだけ残す。
-          debugPrint(
-              '[AuthService.$label] 応答の解析に失敗 (status=${res.statusCode}, 本文長=${res.body.length}): $e');
-          return (
-            ok: false,
-            statusCode: res.statusCode,
-            data: null,
-            errorMessage: '応答の解析に失敗しました',
-          );
-        }
-      }
-      debugPrint(
-          '[AuthService.$label] 非200 (status=${res.statusCode}): ${_clip(res.body)}');
-      return (
-        ok: false,
-        statusCode: res.statusCode,
-        data: null,
-        errorMessage: _errorMessageFrom(res.body),
-      );
-    } catch (e) {
-      debugPrint('[AuthService.$label] 通信失敗: $e');
-      return (
-        ok: false,
-        statusCode: 0,
-        data: null,
-        errorMessage: 'サーバーに接続できません: $e',
-      );
-    }
-  }
-
-  /// JSON オブジェクトを返すエンドポイント用の parse。
-  /// 本文が空なら null（204 等でも例外にしない）。
-  static Map<String, dynamic>? _asJsonMap(String body) {
-    if (body.isEmpty) return null;
-    return jsonDecode(body) as Map<String, dynamic>;
-  }
+  ) =>
+      runApiCall<T>('AuthService.$label', send, parse);
 
   // ============================================================
   // 認証系エンドポイント
@@ -248,7 +180,7 @@ class AuthService {
         headers: _bearerHeaders(token),
         body: jsonEncode({'device_id': deviceId}),
       ).timeout(const Duration(seconds: 10)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -270,7 +202,7 @@ class AuthService {
         Uri.parse('$kApiBaseUrl/auth/verify-device?device_id=$deviceId'),
         headers: jsonHeaders,
       ).timeout(timeout),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -298,7 +230,7 @@ class AuthService {
           'device_type': deviceType,
         }),
       ).timeout(const Duration(seconds: 10)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -319,7 +251,7 @@ class AuthService {
         headers: _bearerHeaders(token),
         body: jsonEncode({'new_pin': newPin}),
       ).timeout(const Duration(seconds: 10)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -346,7 +278,7 @@ class AuthService {
           'membership_id':  membershipId,
         }),
       ).timeout(const Duration(seconds: 10)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -372,7 +304,7 @@ class AuthService {
         headers: _bearerHeaders(consentToken),
         body: jsonEncode({'consent_version': consentVersion}),
       ).timeout(const Duration(seconds: 8)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -392,7 +324,7 @@ class AuthService {
         headers: jsonHeaders,
         body: jsonEncode({'device_id': deviceId}),
       ).timeout(const Duration(seconds: 5)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 
@@ -419,7 +351,7 @@ class AuthService {
           'device_id':    deviceId,
         }),
       ).timeout(const Duration(seconds: 30)),
-      _asJsonMap,
+      apiJsonMap,
     );
   }
 }

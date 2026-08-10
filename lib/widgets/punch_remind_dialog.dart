@@ -53,10 +53,11 @@ Future<void> showPunchRemindFlow(
     return;
   }
 
-  // ── 最新の打刻状態を照会（work_mode_service.dart:243-275）──
-  final today = await WorkModeService.instance.fetchToday(shiftType: shift);
+  // ── 最新の打刻状態を照会（WorkModeService.fetchToday）──
+  final todayRes = await WorkModeService().fetchToday(shiftType: shift);
   if (!context.mounted) return;
 
+  final today = todayRes.ok ? todayRes.data : null;
   if (today != null) {
     final done = s == 'in' ? today.punchedIn : today.punchedOut;
     if (done) {
@@ -65,8 +66,8 @@ Future<void> showPunchRemindFlow(
     }
   }
 
-  // today == null は「取得できなかった」であって「打刻済み」ではない
-  // （work_mode_service.dart:267 の非200 と :271 の例外がどちらも null）。
+  // 取得できなかった（ok:false）は「打刻済み」ではない。統一前も非200・例外は
+  // どちらも null で返っており、ここでの扱いは同じ。
   // ここで抑止すると電波が悪いときに打刻漏れ申告そのものができない＝袋小路に
   // なるため、ダイアログは出す。確認できていないことは注記1行で見せる。
   // 二重申告になっても BE が 200 already_declared / 409 ALREADY_PUNCHED で弾く。
@@ -122,7 +123,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   Future<void> _declare() async {
     if (_submitting) return;
     setState(() { _error = null; _submitting = true; });
-    final r = await WorkModeService.instance.declareForgotPunch(
+    final r = await WorkModeService().declareForgotPunch(
       side:      widget.side,
       shiftType: widget.shiftType,
       workDate:  widget.workDate,
@@ -131,8 +132,10 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     if (r.ok) {
       // 201=受理 / 200=二度目。どちらも成功として閉じる（袋小路にしない）。
       Navigator.of(context).pop();
+      // 201=受理 / 200=二度目。統一前の alreadyDeclared と同じ判定式
+      // （work_mode_service が statusCode == 200 で立てていたフラグ）。
       widget.onNotify(
-        r.alreadyDeclared
+        r.statusCode == 200
             ? 'すでに申告済みです。'
             : '打刻漏れを申告しました。事務が確認します。',
         false,
@@ -170,21 +173,20 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     setState(() { _error = null; _submitting = true; });
     final res = await ReportsService().createRestDay();
     if (!mounted) return;
-    if (res['success'] == true) {
+    if (res.ok) {
       Navigator.of(context).pop();
       widget.onNotify('本日休みを登録しました。', false);
       return;
     }
-    final statusCode = res['statusCode'] as int?;
     // 409 ALREADY_RESTED は「もう休みで登録されている」＝目的は満たされている。
-    if (statusCode == 409 && res['code'] == 'ALREADY_RESTED') {
+    if (res.statusCode == 409 && res.errorCode == 'ALREADY_RESTED') {
       Navigator.of(context).pop();
       widget.onNotify('すでに休みで登録されています。', false);
       return;
     }
-    // createRestDay は例外時に statusCode を積まない（reports_service.dart:323）。
-    // ＝ statusCode 欠落は通信失敗として扱う。
-    _fail(statusCode == null ? '通信に失敗しました。' : '本日休みを登録できませんでした。');
+    // ★statusCode:0 ＝ サーバまで届かなかった。統一前は「statusCode キーが無い」で
+    //   同じ判定をしていた（例外時だけ積んでいなかった）。文言・分岐とも不変。
+    _fail(res.statusCode == 0 ? '通信に失敗しました。' : '本日休みを登録できませんでした。');
   }
 
   // ── 勤務継続中（APIは呼ばない）────────────────────────────────────

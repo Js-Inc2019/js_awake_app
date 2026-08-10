@@ -73,10 +73,10 @@ class _RestDayScreenState extends State<RestDayScreen> {
           ? await _svc.updateRestDay(reason: _selectedReason, portion: _selectedPortion)
           : await _svc.createRestDay(reason: _selectedReason, portion: _selectedPortion);
 
-      final ok = res['success'] == true;
+      final ok = res.ok;
       // 新規登録で 409 ALREADY_RESTED は「既に休み」なので成功扱い（ねぎらい画面へ）。
       final alreadyRested = !widget.editMode &&
-          (res['statusCode'] == 409 || res['code'] == 'ALREADY_RESTED');
+          (res.statusCode == 409 || res.errorCode == 'ALREADY_RESTED');
 
       if (ok || alreadyRested) {
         if (!mounted) return;
@@ -92,10 +92,12 @@ class _RestDayScreenState extends State<RestDayScreen> {
       }
 
       if (!mounted) return;
+      // ★statusCode:0 ＝ サーバまで届かなかった。統一前は例外時に statusCode を
+      //   積んでいなかったため「（N）」が付かなかった。同じ見た目を保つため 0 は出さない。
       showJsSnackbar(
         context,
-        '${res['error'] ?? '休みの登録に失敗しました'}'
-        '${res['statusCode'] != null ? '（${res['statusCode']}）' : ''}',
+        '${res.errorMessage ?? '休みの登録に失敗しました'}'
+        '${res.statusCode != 0 ? '（${res.statusCode}）' : ''}',
         isError: true,
       );
     } finally {
@@ -129,7 +131,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
     setState(() => _busy = true);
     try {
       final res = await _svc.deleteRestDay();
-      if (res['success'] == true) {
+      if (res.ok) {
         if (!mounted) return;
         Navigator.of(context).popUntil((r) => r.isFirst); // ホームへ（スタックを畳む）
         return;
@@ -137,8 +139,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
       if (!mounted) return;
       showJsSnackbar(
         context,
-        '${res['error'] ?? '取り消しに失敗しました'}'
-        '${res['statusCode'] != null ? '（${res['statusCode']}）' : ''}',
+        '${res.errorMessage ?? '取り消しに失敗しました'}'
+        '${res.statusCode != 0 ? '（${res.statusCode}）' : ''}',
         isError: true,
       );
     } finally {

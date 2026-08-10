@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
+import 'api_result.dart';
 import '../screens/revision_inbox_screen.dart';
 import '../screens/notification_list_screen.dart';
 import '../screens/home_screen.dart'
@@ -85,7 +86,7 @@ class FcmService {
         handleNotificationTap(message.data);
       });
 
-      FirebaseMessaging.instance.onTokenRefresh.listen(_postToken);
+      FirebaseMessaging.instance.onTokenRefresh.listen(postToken);
 
       var initialTimedOut = false;
       final initial = await FirebaseMessaging.instance
@@ -153,7 +154,7 @@ class FcmService {
       // ★秘匿: 末尾4文字と長さのみ。全文は出さない。
       final tail = token.length >= 4 ? token.substring(token.length - 4) : '****';
       debugPrint('FCM registerToken: token acquired (…$tail, len=${token.length})');
-      await _postToken(token);
+      await postToken(token);
     } catch (e) {
       debugPrint('FCM registerToken error: $e');
     }
@@ -238,28 +239,26 @@ class FcmService {
   //   revision_inbox_screen.dart:71 で使うため AuthService 側のメソッドは残す）。
   //   ただし「未ログインなら送らない」ガードは旧実装の性質なので isLoggedIn() で維持する
   //   （空 Bearer を BE に投げないため）。headers/timeout/fail-soft は不変。
-  Future<void> _postToken(String token) async {
-    try {
-      if (!await AuthService().isLoggedIn()) {
-        debugPrint('FCM token post: not logged in — token NOT sent to BE');
-        return;
-      }
-      final headers = await AuthService().getAuthHeaders();
-      final res = await http.post(
+  /// ★段4: 戻り値を ApiResult へ統一（規約は api_result.dart 冒頭）。
+  ///   非200・例外の可視化は runApiCall が担うため、ここに try/catch は無い。
+  ///   ただし fail-soft の性質は不変＝呼び手（registerToken / onTokenRefresh）は
+  ///   結果を見ず、送れなくてもアプリは続行する。
+  Future<ApiResult<Map<String, dynamic>>> postToken(String token) async {
+    if (!await AuthService().isLoggedIn()) {
+      debugPrint('FCM token post: not logged in — token NOT sent to BE');
+      return apiFailure<Map<String, dynamic>>(
+          statusCode: 0, errorMessage: 'ログインしていません');
+    }
+    final headers = await AuthService().getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'FcmService.postToken',
+      () => http.post(
         Uri.parse('$kApiBaseUrl/notifications/fcm-token'),
         headers: headers,
         body: jsonEncode({'fcm_token': token}),
-      ).timeout(const Duration(seconds: 10));
-      // 旧実装はレスポンスを捨てていた＝400/500 でも成功と区別が付かなかった。
-      // ★秘匿: body は BE のエラーメッセージのみ想定だが、念のため status だけ出す。
-      if (res.statusCode != 200) {
-        debugPrint('FCM token post: BE returned ${res.statusCode} — token NOT registered');
-      } else {
-        debugPrint('FCM token post: OK (200)');
-      }
-    } catch (e) {
-      debugPrint('FCM token post error: $e');
-    }
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 
   Future<void> _showLocal({

@@ -1088,7 +1088,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _carpoolCompanyDebounce = Timer(const Duration(milliseconds: 300), () async {
       final results = await CompanyService().searchCompanies(q);
       if (!mounted) return;
-      setState(() => _carpoolCompanyResults = results);
+      // ★失敗時は空リスト（統一前も非200・例外は [] を返していた）。
+      setState(() => _carpoolCompanyResults = results.data ?? const []);
     });
   }
 
@@ -1099,7 +1100,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _carpoolColleaguesLoaded = true;
     final names = await CompanyService().getColleagues();
     if (!mounted) return;
-    setState(() => _carpoolColleagues = names);
+    // ★失敗時は空リスト（統一前も非200・例外は [] を返していた）。
+    setState(() => _carpoolColleagues = names.data ?? const []);
   }
 
   // BE utils/normalize_company.js の normalizeCompanyName と同等を目指した簡易正規化。
@@ -1196,7 +1198,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final res = await NotificationService().fetchUnreadCount();
     if (!mounted) return;
     setState(() {
-      _unreadCount = res['success'] == true ? (res['count'] as int? ?? 0) : 0;
+      _unreadCount = res.ok ? (res.data ?? 0) : 0;
     });
   }
 
@@ -1340,8 +1342,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final companyId = await AuthService().getCompanyId();
       if (companyId == null || companyId.isEmpty) return;
       final result = await CompanyService().getCompanyById(companyId);
-      if (result['success'] == true) {
-        final company = result['company'] as Map<String, dynamic>?;
+      if (result.ok) {
+        final company = result.data;
         final address = company?['address'] as String? ?? '';
         if (address.isNotEmpty) {
           final prefs = await SharedPreferences.getInstance();
@@ -1380,8 +1382,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> _loadPendingApprovalCount() async {
     try {
       final result = await ReportsService().getReports(limit: 50);
-      if (result['success'] == true && mounted) {
-        final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
+      if (result.ok && mounted) {
+        final raw = List<Map<String, dynamic>>.from(result.data ?? const []);
         final count = raw
             .where((r) =>
                 r['is_sent'] == true &&
@@ -1427,8 +1429,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } else {
       originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
     }
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token') ?? '';
+    // ★段4: token の prefs 直読みを撤去。RoutesService が AuthService 経由で載せる
+    //   （画面がトークンを持ち回らない）。送るヘッダの中身は不変。
     if (myGen != _routeGen) return;             // 追い越された＝この計算は捨てる
 
     if (mounted) {
@@ -1448,7 +1450,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         destination: (_lat != null && _lon != null)
             ? '${_lat!.toStringAsFixed(6)},${_lon!.toStringAsFixed(6)}'
             : _gpsAddress,
-        authToken: token,
       );
       if (res.isOk) break;
     }
@@ -2807,7 +2808,7 @@ class _DeclarationChoiceRow extends StatelessWidget {
 //   ・分チップ [0,15,30,45]（＝実際に取れた休憩の合計）
 //   ・理由は必須。空のまま申告を押したらシート内にエラーを出し、送信はしない
 //     （ボタンを無効化して黙る＝理由の分からない袋小路にはしない）
-//   ・送信は既存 WorkModeService.instance.breakRequest（新APIは作らない）
+//   ・送信は既存 WorkModeService().breakRequest（新APIは作らない）
 class _ShortBreakSheet extends StatefulWidget {
   const _ShortBreakSheet({
     required this.workDate,
@@ -2843,7 +2844,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
       return;   // 送信しない
     }
     setState(() { _error = null; _submitting = true; });
-    final r = await WorkModeService.instance.breakRequest(
+    final r = await WorkModeService().breakRequest(
       breakMinutes: _selectedMin,
       reason:       reason,
       workDate:     widget.workDate,
@@ -3613,10 +3614,10 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      if (result['success'] == true) {
-        _sites = result['sites'] as List<dynamic>;
+      if (result.ok) {
+        _sites = result.data ?? const [];
       } else {
-        _error = result['message'] as String? ?? '現場一覧を取得できませんでした';
+        _error = result.errorMessage ?? '現場一覧を取得できませんでした';
       }
     });
   }
@@ -3817,10 +3818,10 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      if (result['success'] == true) {
-        _sites = result['sites'] as List<dynamic>;
+      if (result.ok) {
+        _sites = result.data ?? const [];
       } else {
-        _error = result['message'] as String? ?? '現場一覧を取得できませんでした';
+        _error = result.errorMessage ?? '現場一覧を取得できませんでした';
       }
     });
   }
@@ -5230,17 +5231,17 @@ class _ReviewTabState extends State<ReviewTab> {
     });
     // 日報と休憩を並行取得。休憩は fail-soft＝失敗しても日報一覧は出す。
     final reportsF = ReportsService().getReportsByMonth(_monthStr);
-    final breaksF  = WorkModeService.instance.fetchBreakRequests(month: _monthStr);
+    final breaksF  = WorkModeService().fetchBreakRequests(month: _monthStr);
     final result   = await reportsF;
     final breakRes = await breaksF;
     if (!mounted) return;
     // 休憩の結果を先に反映（沈黙禁止＝失敗は _breakFailed で1行バナーに出す）
     setState(() {
-      _breaks       = breakRes.ok ? breakRes.requests : <Map<String, dynamic>>[];
+      _breaks       = (breakRes.ok ? breakRes.data : null) ?? <Map<String, dynamic>>[];
       _breakFailed  = !breakRes.ok;
     });
-    if (result['success'] == true) {
-      final raw = List<Map<String, dynamic>>.from(result['reports'] ?? []);
+    if (result.ok) {
+      final raw = List<Map<String, dynamic>>.from(result.data ?? const []);
       final targets = raw
           .where((r) => _isPending(r) || _isRevision(r))
           .map((r) => {
@@ -5574,12 +5575,12 @@ class PendingApprovalCard extends StatelessWidget {
                                 setSending(() => sending = true);
                                 final linkRes = await ReportsService()
                                     .linkReportToSite(reportId, chosenSiteId);
-                                if (linkRes['success'] != true) {
+                                if (!linkRes.ok) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                            '現場の紐づけに失敗しました：${linkRes['error']}'),
+                                            '現場の紐づけに失敗しました：${linkRes.errorMessage}'),
                                         backgroundColor: FieldTokens.statusError,
                                       ),
                                     );
@@ -5595,14 +5596,14 @@ class PendingApprovalCard extends StatelessWidget {
                             final result = await ReportsService()
                                 .approveReport(reportId,
                                     originType: selectedOrigin);
-                            final ok = result['success'] == true;
+                            final ok = result.ok;
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
                                     ok
                                         ? '承認しました'
-                                        : '承認に失敗しました：${result['error']}',
+                                        : '承認に失敗しました：${result.errorMessage}',
                                     // statusSuccess 塗りの上だけ暗色にする。null は
                                     // app_theme.dart の snackBarTheme.contentTextStyle
                                     // (textBody #EAE3D0) 継承＝statusError 側は現状維持。
@@ -5651,13 +5652,13 @@ class PendingApprovalCard extends StatelessWidget {
                             final res = await ReportsService().requestRevision(
                                 reportId, reasons,
                                 reason: comment ?? '');
-                            final ok = res['success'] == true;
+                            final ok = res.ok;
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(ok
                                       ? '修正依頼を送りました'
-                                      : '修正依頼に失敗しました：${res['error']}'),
+                                      : '修正依頼に失敗しました：${res.errorMessage}'),
                                   backgroundColor:
                                       ok ? FieldTokens.statusWarning : FieldTokens.statusError,
                                 ),
@@ -6467,11 +6468,12 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // 会社休日（GET /attendance/holidays/my）
   Future<void> _loadCompanyHolidays() async {
-    final res = await WorkModeService.instance.fetchCompanyHolidays();
+    final res = await WorkModeService().fetchCompanyHolidays();
     if (!mounted) return;
     setState(() {
-      _holidayWeekly = res.weekly;
-      _holidayDates  = res.dates;
+      // ★失敗時は空マップ（統一前も ok:false のとき weekly/dates は空だった）。
+      _holidayWeekly = res.data?.weekly ?? const {};
+      _holidayDates  = res.data?.dates  ?? const {};
       _holidayFailed = !res.ok;
     });
   }
@@ -6480,10 +6482,10 @@ class _CalendarTabState extends State<CalendarTab> {
   Future<void> _loadMyRestDays() async {
     final res = await ReportsService().getRestDaysMy(_monthStr);
     if (!mounted) return;
-    if (res['success'] == true) {
+    if (res.ok) {
       final map = <String, Map<String, dynamic>>{};
-      for (final d in (res['days'] as List? ?? [])) {
-        final m = Map<String, dynamic>.from(d as Map);
+      for (final d in (res.data ?? const <Map<String, dynamic>>[])) {
+        final m = Map<String, dynamic>.from(d);
         final date = m['rest_date'] as String? ?? '';
         if (date.isNotEmpty) map[date] = m;
       }
@@ -6500,12 +6502,12 @@ class _CalendarTabState extends State<CalendarTab> {
   Future<void> _ensureJpHolidays(int year) async {
     if (_jpYearsLoaded.contains(year) || _jpYearsLoading.contains(year)) return;
     _jpYearsLoading.add(year);
-    final res = await WorkModeService.instance.fetchJpHolidays(year);
+    final res = await WorkModeService().fetchJpHolidays(year);
     _jpYearsLoading.remove(year);
     if (!mounted) return;
     setState(() {
       if (res.ok) {
-        _jpHolidays.addAll(res.dates);
+        _jpHolidays.addAll(res.data ?? const {});
         _jpYearsLoaded.add(year);
       } else {
         _jpFailed = true; // 祝日色なしで描画を続行する（操作は止めない）

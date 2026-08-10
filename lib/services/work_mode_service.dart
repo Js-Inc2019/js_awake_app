@@ -1,10 +1,26 @@
 // ============================================================
 // lib/services/work_mode_service.dart
+//
+// ★段4での変更点（URL・body・timeout・判定条件は1文字も変えていない）:
+//   ① 独自 record 型（{ok, settings, statusCode, errorMessage} など6種類が
+//      メソッドごとに微妙に違う形で並存していた）を ApiResult<T> へ統一。
+//      統一前は「weekly/dates が空 = 取れなかった or 休日ゼロ」を ok で
+//      区別する、という同じ工夫を各メソッドが別々に再発明していた。
+//   ② シングルトンを静的フィールド型（`WorkModeService.instance`）から
+//      factory 型（`WorkModeService()`）へ。他8本の Service と揃える。
+//   ③ 手組みの Authorization ヘッダを AuthService.getAuthHeaders() へ集約。
+//      ★これに伴い GET 系にも 'Content-Type: application/json' が付く。
+//        body を持たない GET に Content-Type が付くだけで BE の挙動は変わらない
+//        （Express は本文が無ければパースしない）。
+//      ★「トークンが空ならリクエストを出さない」ガードは統一前のまま維持する
+//        （空 Bearer を BE へ投げない）。getAuthHeaders() は空でも 'Bearer ' を
+//        作ってしまうため、ガードは _auth.getToken() で先に行う。
 // ============================================================
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'api_result.dart';
+import 'auth_service.dart';
 import '../config/constants.dart';
 
 const String _apiBase = kApiBaseUrl;
@@ -32,15 +48,57 @@ class WorkModeSettings {
   static const WorkModeSettings defaults = WorkModeSettings();
 }
 
+/// 会社休日カレンダー（GET /attendance/holidays/my）。
+/// weekly: {"0".."6": 'legal'|'scheduled'} / dates: {"YYYY-MM-DD": 'legal'|'scheduled'}
+class CompanyHolidays {
+  const CompanyHolidays({required this.weekly, required this.dates});
+  final Map<String, String> weekly;
+  final Map<String, String> dates;
+}
+
+/// 当日（業務日）の勤怠行（GET /attendance/today）。
+class TodayAttendance {
+  const TodayAttendance({
+    required this.record,
+    required this.punchedIn,
+    required this.punchedOut,
+    required this.standardBreakMin,
+    required this.legalBreak6h,
+    required this.legalBreak8h,
+  });
+  final Map<String, dynamic>? record;
+  final bool punchedIn;
+  final bool punchedOut;
+  final int? standardBreakMin;
+  final int legalBreak6h;
+  final int legalBreak8h;
+}
+
 class WorkModeService {
-  static final WorkModeService instance = WorkModeService._();
-  WorkModeService._();
+  static final WorkModeService _instance = WorkModeService._internal();
+
+  factory WorkModeService() => _instance;
+
+  WorkModeService._internal();
+
+  final AuthService _auth = AuthService();
+
   static const _keyMode = 'work_mode';
   static const _keyDeemedStart = 'deemed_start';
   static const _keyDeemedEnd = 'deemed_end';
   static const _keyBreakMinutes = 'break_minutes';
   static const _keyCheckedIn = 'work_checked_in';
   static const _keyCheckInTime = 'work_check_in_time';
+
+  /// リクエスト前のトークン確認。空なら「出さずに失敗」を返す（統一前と同じ）。
+  /// 戻りが null＝トークンあり。非 null＝そのまま返すべき失敗。
+  Future<ApiResult<T>?> _requireToken<T>() async {
+    final token = await _auth.getToken() ?? '';
+    if (token.isEmpty) {
+      return apiFailure<T>(statusCode: 0, errorMessage: 'トークンがありません');
+    }
+    return null;
+  }
 
   Future<WorkModeSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -72,7 +130,8 @@ class WorkModeService {
     final now = DateTime.now();
     await prefs.setBool(_keyCheckedIn, true);
     await prefs.setString(_keyCheckInTime, now.toIso8601String());
-    await _sendAttendance('checkin', now);
+    // fail-soft: 送信結果は見ない（統一前と同じ。ローカルの打刻状態は必ず残す）。
+    await sendAttendance('checkin', now);
   }
 
   Future<void> resetCheckIn() async {
@@ -81,41 +140,56 @@ class WorkModeService {
     await prefs.remove(_keyCheckInTime);
   }
 
-  Future<WorkModeSettings> fetchFromServer() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) return await load();
-      final res = await http.get(
+  /// GET /work_settings/my の生の結果（ApiResult 標準）。
+  Future<ApiResult<WorkModeSettings>> fetchSettingsFromServer() async {
+    final guard = await _requireToken<WorkModeSettings>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<WorkModeSettings>(
+      'WorkModeService.fetchSettingsFromServer',
+      () => http.get(
         Uri.parse('$_apiBase/work_settings/my'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final settings = WorkModeSettings.fromJson(
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) {
+        final data = apiJsonMap(body) ?? <String, dynamic>{};
+        return WorkModeSettings.fromJson(
             (data['setting'] ?? data['settings']) as Map<String, dynamic>? ?? data);
-        await save(settings);
-        return settings;
-      }
-    } catch (e) {
-      debugPrint('work_mode fetchFromServer失敗: $e');
-    }
-    return await load();
+      },
+    );
   }
 
-  Future<void> _sendAttendance(String type, DateTime time) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) return;
-      await http.post(
-        Uri.parse('$_apiBase/attendance/$type'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: '{"time":"${time.toUtc().toIso8601String()}"}',
-      ).timeout(const Duration(seconds: 10));
-    } catch (e) {
-      debugPrint('attendance $type 送信失敗: $e');
+  /// 勤務設定を「サーバ優先・失敗時はローカル」で取る。
+  /// ★これは通信メソッドではなく方針メソッド。ApiResult を返さないのは、
+  ///   呼び手（punch_screen）が常に非 null の設定を必要とし、統一前から
+  ///   「取れなければローカル値で描く」という約束で動いているため。
+  ///   通信の成否を見たい呼び手は fetchSettingsFromServer() を直接使う。
+  Future<WorkModeSettings> fetchFromServer() async {
+    final r = await fetchSettingsFromServer();
+    final settings = r.data;
+    if (r.ok && settings != null) {
+      await save(settings);
+      return settings;
     }
+    return load();
+  }
+
+  /// POST /attendance/checkin|checkout
+  /// ★fail-soft（呼び手 checkIn() は結果を見ない）。統一前は private だったが、
+  ///   ApiResult を返す以上「結果を捨てているのは呼び手の判断」と分かる形にする。
+  Future<ApiResult<Map<String, dynamic>>> sendAttendance(String type, DateTime time) async {
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.sendAttendance',
+      () => http.post(
+        Uri.parse('$_apiBase/attendance/$type'),
+        headers: headers,
+        body: '{"time":"${time.toUtc().toIso8601String()}"}',
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 
   // ── 解決済み勤怠設定（/attendance 系のためこのサービスに置く）───────────
@@ -123,107 +197,61 @@ class WorkModeService {
   // BE: routes/attendance.js の GET /settings/resolved（services/attendanceSettings.js が解決）。
   // 打刻のお知らせ（punch_remind_*）は会社が決める統治項目で、本人は変更できない。
   //   この画面はそれを「読むだけ」＝表示用にここから取る。
-  // 戻り値は fetchCompanyHolidays(:128) と同じ ok 付きレコード流儀。
-  //   沈黙障害の禁止: 非200・例外は debugPrint で必ず出し ok:false で返す
-  //   （settings が空マップになるため「取れなかった」と「未設定」を ok で区別できる）。
-  Future<({bool ok, Map<String, dynamic> settings, int statusCode, String? errorMessage})>
-      fetchResolvedAttendanceSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        debugPrint('attendance/settings/resolved: トークンがありません');
-        return (ok: false, settings: <String, dynamic>{}, statusCode: 0, errorMessage: 'トークンがありません');
-      }
-      final res = await http.get(
+  Future<ApiResult<Map<String, dynamic>>> fetchResolvedAttendanceSettings() async {
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.fetchResolvedAttendanceSettings',
+      () => http.get(
         Uri.parse('$_apiBase/attendance/settings/resolved'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        return (ok: true, settings: body, statusCode: res.statusCode, errorMessage: null);
-      }
-      debugPrint('attendance/settings/resolved 非200: status=${res.statusCode} body=${res.body}');
-      return (ok: false, settings: <String, dynamic>{},
-              statusCode: res.statusCode, errorMessage: '勤怠設定を取得できませんでした');
-    } catch (e) {
-      debugPrint('attendance/settings/resolved 取得失敗: $e');
-      return (ok: false, settings: <String, dynamic>{}, statusCode: 0, errorMessage: e.toString());
-    }
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 
   // ── 会社休日カレンダー（/attendance 系のためこのサービスに置く）─────────
-  // GET /attendance/holidays/my → { weekly: {"0".."6": 'legal'|'scheduled'},
-  //                                 dates:  {"YYYY-MM-DD": 'legal'|'scheduled'} }
+  // GET /attendance/holidays/my
   // BE: routes/attendance.js:533（employee 限定・cooperation は 403 COOPERATION_FORBIDDEN）。
-  // 戻り値は punch(:149)/breakRequest(:192) と同じ ok 付きレコード流儀。
-  // 沈黙障害の禁止: 非200・例外は debugPrint で必ず出し、ok:false で呼び出し側へ返す
-  //（weekly/dates は空マップになるため「取れなかった」と「休日ゼロ」を ok で区別できる）。
-  Future<({bool ok, Map<String, String> weekly, Map<String, String> dates,
-            int statusCode, String? errorMessage})> fetchCompanyHolidays() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        debugPrint('attendance/holidays/my: トークンがありません');
-        return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
-                statusCode: 0, errorMessage: 'トークンがありません');
-      }
-      final res = await http.get(
+  // ★data が null かどうかで「取れなかった」と「休日ゼロ」を区別できる。
+  Future<ApiResult<CompanyHolidays>> fetchCompanyHolidays() async {
+    final guard = await _requireToken<CompanyHolidays>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<CompanyHolidays>(
+      'WorkModeService.fetchCompanyHolidays',
+      () => http.get(
         Uri.parse('$_apiBase/attendance/holidays/my'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        return (
-          ok:         true,
-          weekly:     _asStringMap(body['weekly']),
-          dates:      _asStringMap(body['dates']),
-          statusCode: res.statusCode,
-          errorMessage: null,
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) {
+        final data = apiJsonMap(body);
+        return CompanyHolidays(
+          weekly: _asStringMap(data?['weekly']),
+          dates:  _asStringMap(data?['dates']),
         );
-      }
-      debugPrint('attendance/holidays/my 非200: status=${res.statusCode} body=${res.body}');
-      return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
-              statusCode: res.statusCode, errorMessage: '会社休日を取得できませんでした');
-    } catch (e) {
-      debugPrint('attendance/holidays/my 取得失敗: $e');
-      return (ok: false, weekly: <String, String>{}, dates: <String, String>{},
-              statusCode: 0, errorMessage: e.toString());
-    }
+      },
+    );
   }
 
   // GET /attendance/holidays/jp?year=YYYY → { dates: {"YYYY-MM-DD": 祝日名}, year, count }
   // BE: routes/attendance.js:636。★/holidays/my の dates は値が 'legal'|'scheduled' だが、
   //     こちらの dates は値が【祝日名の文字列】。用途が違うので混同しないこと
   //     （こちらは文字色＝朱の判定にのみ使い、会社の休業設定とは無関係）。
-  // 取得は年単位（月ではない）。失敗時は ok:false・dates 空で返し、呼び出し側は
-  // 祝日色なしで描画を続行できる。
-  Future<({bool ok, Map<String, String> dates, int statusCode, String? errorMessage})>
-      fetchJpHolidays(int year) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        debugPrint('attendance/holidays/jp: トークンがありません');
-        return (ok: false, dates: <String, String>{}, statusCode: 0, errorMessage: 'トークンがありません');
-      }
-      final res = await http.get(
+  // 取得は年単位（月ではない）。失敗時は呼び出し側が祝日色なしで描画を続行できる。
+  Future<ApiResult<Map<String, String>>> fetchJpHolidays(int year) async {
+    final guard = await _requireToken<Map<String, String>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, String>>(
+      'WorkModeService.fetchJpHolidays',
+      () => http.get(
         Uri.parse('$_apiBase/attendance/holidays/jp?year=$year'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        return (ok: true, dates: _asStringMap(body['dates']),
-                statusCode: res.statusCode, errorMessage: null);
-      }
-      debugPrint('attendance/holidays/jp 非200: year=$year status=${res.statusCode} body=${res.body}');
-      return (ok: false, dates: <String, String>{},
-              statusCode: res.statusCode, errorMessage: '祝日情報を取得できませんでした');
-    } catch (e) {
-      debugPrint('attendance/holidays/jp 取得失敗: year=$year $e');
-      return (ok: false, dates: <String, String>{}, statusCode: 0, errorMessage: e.toString());
-    }
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) => _asStringMap(apiJsonMap(body)?['dates']),
+    );
   }
 
   // JSON の Map を Map<String,String> へ正規化（値が文字列でないキーは捨てる）。
@@ -240,121 +268,82 @@ class WorkModeService {
   /// shiftType は 'day'|'night'。BE は未指定＝day 互換（routes/attendance.js の GET /today）
   /// なので、送っていない旧クライアントの挙動は変わらない。
   /// 不正値はここで 'day' に倒す（BE へ想定外の値を投げない）。
-  Future<({Map<String, dynamic>? record, bool punchedIn, bool punchedOut,
-            int? standardBreakMin, int legalBreak6h, int legalBreak8h})?> fetchToday({
+  Future<ApiResult<TodayAttendance>> fetchToday({String shiftType = 'day'}) async {
+    final guard = await _requireToken<TodayAttendance>();
+    if (guard != null) return guard;
+    final shift = shiftType == 'night' ? 'night' : 'day';
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<TodayAttendance>(
+      'WorkModeService.fetchToday',
+      () => http.get(
+        Uri.parse('$_apiBase/attendance/today?shift_type=$shift'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) {
+        final data = apiJsonMap(body);
+        return TodayAttendance(
+          record:           data?['record']             as Map<String, dynamic>?,
+          punchedIn:        data?['punched_in']         as bool? ?? false,
+          punchedOut:       data?['punched_out']        as bool? ?? false,
+          standardBreakMin: data?['standard_break_min'] as int?,
+          legalBreak6h:    (data?['legal_break_6h_min'] as int?) ?? 45,
+          legalBreak8h:    (data?['legal_break_8h_min'] as int?) ?? 60,
+        );
+      },
+    );
+  }
+
+  /// POST /attendance/punch。data は応答の record。
+  /// shift_type は BE が受ける（'day'|'night'・省略時 day）。
+  /// 夜勤は BE 側 businessDateForShift で始業日に寄せられ、出勤/退勤が同一行に収まる。
+  Future<ApiResult<Map<String, dynamic>>> punch(String type,
+      {double? lat, double? lng, String? addr, String shiftType = 'day'}) async {
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final payload = <String, dynamic>{'type': type, 'shift_type': shiftType};
+    if (lat  != null) payload['lat']  = lat;
+    if (lng  != null) payload['lng']  = lng;
+    if (addr != null) payload['addr'] = addr;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.punch',
+      () => http.post(
+        Uri.parse('$_apiBase/attendance/punch'),
+        headers: headers,
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 10)),
+      (body) => apiJsonMap(body)?['record'] as Map<String, dynamic>?,
+    );
+  }
+
+  /// POST /attendance/break-request
+  /// N6: shift_type は BE が受ける（'day'|'night'）。同日に日勤/夜勤の2行が並存しうるため、
+  ///   これが無いと申告が両方の行へ二重適用される。BE 側は未指定・不正値とも 'day' に倒す
+  ///   ＝送っていない旧クライアントの挙動は不変。不正値はここでも 'day' に倒す。
+  Future<ApiResult<Map<String, dynamic>>> breakRequest({
+    required int breakMinutes,
+    required String reason,
+    String? workDate,
     String shiftType = 'day',
   }) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) return null;
-      final shift = shiftType == 'night' ? 'night' : 'day';
-      final res = await http.get(
-        Uri.parse('$_apiBase/attendance/today?shift_type=$shift'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        return (
-          record:           body['record']           as Map<String, dynamic>?,
-          punchedIn:        body['punched_in']        as bool? ?? false,
-          punchedOut:       body['punched_out']       as bool? ?? false,
-          standardBreakMin: body['standard_break_min'] as int?,
-          legalBreak6h:    (body['legal_break_6h_min'] as int?) ?? 45,
-          legalBreak8h:    (body['legal_break_8h_min'] as int?) ?? 60,
-        );
-      }
-      // 沈黙障害の禁止: 非200も理由を残す（戻り値 null は「取れなかった」であって
-      // 「打刻済み」ではない。呼び手はこの区別ができないため、ログだけは必ず出す）。
-      debugPrint('attendance/today 非200: status=${res.statusCode} body=${res.body}');
-      return null;
-    } catch (e) {
-      debugPrint('attendance/today 取得失敗: $e');
-      return null;
-    }
-  }
-
-  Future<({bool ok, Map<String, dynamic>? record, int statusCode, String? errorCode, String? errorMessage})>
-      punch(String type, {double? lat, double? lng, String? addr,
-                          String shiftType = 'day'}) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
-      }
-      // shift_type は BE の POST /attendance/punch が受ける（'day'|'night'・省略時 day）。
-      // 夜勤は BE 側 businessDateForShift で始業日に寄せられ、出勤/退勤が同一行に収まる。
-      final payload = <String, dynamic>{'type': type, 'shift_type': shiftType};
-      if (lat  != null) payload['lat']  = lat;
-      if (lng  != null) payload['lng']  = lng;
-      if (addr != null) payload['addr'] = addr;
-      final res = await http.post(
-        Uri.parse('$_apiBase/attendance/punch'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 10));
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (res.statusCode == 200) {
-        return (
-          ok:           true,
-          record:       body['record'] as Map<String, dynamic>?,
-          statusCode:   res.statusCode,
-          errorCode:    null,
-          errorMessage: null,
-        );
-      }
-      return (
-        ok:           false,
-        record:       null,
-        statusCode:   res.statusCode,
-        errorCode:    body['code']  as String?,
-        errorMessage: body['error'] as String?,
-      );
-    } catch (e) {
-      debugPrint('attendance/punch 送信失敗: $e');
-      return (ok: false, record: null, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
-    }
-  }
-
-  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      breakRequest({required int breakMinutes, required String reason, String? workDate,
-                    String shiftType = 'day'}) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
-      }
-      // N6: shift_type は BE の POST /attendance/break-request が受ける（'day'|'night'）。
-      //   同日に日勤/夜勤の2行が並存しうるため、これが無いと申告が両方の行へ二重適用される。
-      //   BE 側は未指定・不正値とも 'day' に倒す＝送っていない旧クライアントの挙動は不変。
-      //   不正値はここでも 'day' に倒す（punch(:249) / fetchToday(:214) と同じ流儀）。
-      final payload = <String, dynamic>{
-        'break_minutes': breakMinutes,
-        'reason':        reason,
-        'shift_type':    shiftType == 'night' ? 'night' : 'day',
-        if (workDate != null) 'work_date': workDate,
-      };
-      final res = await http.post(
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final payload = <String, dynamic>{
+      'break_minutes': breakMinutes,
+      'reason':        reason,
+      'shift_type':    shiftType == 'night' ? 'night' : 'day',
+      if (workDate != null) 'work_date': workDate,
+    };
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.breakRequest',
+      () => http.post(
         Uri.parse('$_apiBase/attendance/break-request'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        headers: headers,
         body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 10));
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (res.statusCode == 200) {
-        return (ok: true, statusCode: res.statusCode, errorCode: null, errorMessage: null);
-      }
-      return (
-        ok:           false,
-        statusCode:   res.statusCode,
-        errorCode:    body['code']  as String?,
-        errorMessage: body['error'] as String?,
-      );
-    } catch (e) {
-      debugPrint('attendance/break-request 送信失敗: $e');
-      return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
-    }
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 
   // ─── 休憩申告の確認・修正側（職長・事務/boss が使う）────────────────────
@@ -362,79 +351,45 @@ class WorkModeService {
   //     GET  /attendance/break-requests?month=YYYY-MM  (routes/attendance.js:1733)
   //     POST /attendance/break-request/:id/amend       (routes/attendance.js:1787)
   //   ★旧 /break-requests/pending・/approve・/reject は BE から撤去済み。
-  //     呼べない道を「嘘の記号」として残さないため、当メソッド群も削除した。
+  //     呼べない道を「嘘の記号」として残さないため、当メソッド群も削除済み。
   //   権限は MONTHLY_ROLES(admin_office/admin_exec/boss・:1459) で、権限不足は 403。
-  //   流儀は上の breakRequest(:276-308) と同一:
-  //     ・token は都度 SharedPreferences から取る
-  //     ・throw しない（ok 付きレコードで返す）
-  //     ・失敗時は statusCode / code / error をそのまま載せて呼び手に判断させる
 
   /// GET /attendance/break-requests?month=YYYY-MM
   /// 応答 {month, requests:[…]} の各行は BE の SELECT 列（routes/attendance.js:1760-1765）そのまま:
   ///   id / person_id / membership_id / work_date('YYYY-MM-DD') / break_override_min /
   ///   break_override_reason / break_override_status / break_override_req_at / person_name
-  Future<({bool ok, List<Map<String, dynamic>> requests, int statusCode, String? errorMessage})>
-      fetchBreakRequests({required String month}) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        return (ok: false, requests: <Map<String, dynamic>>[], statusCode: 0,
-                errorMessage: 'トークンがありません');
-      }
-      final res = await http.get(
+  Future<ApiResult<List<Map<String, dynamic>>>> fetchBreakRequests({required String month}) async {
+    final guard = await _requireToken<List<Map<String, dynamic>>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<Map<String, dynamic>>>(
+      'WorkModeService.fetchBreakRequests',
+      () => http.get(
         Uri.parse('$_apiBase/attendance/break-requests?month=$month'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final list = (body['requests'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
-        return (ok: true, requests: list, statusCode: res.statusCode, errorMessage: null);
-      }
-      String? msg;
-      try { msg = (jsonDecode(res.body) as Map<String, dynamic>)['error'] as String?; } catch (_) {}
-      return (ok: false, requests: <Map<String, dynamic>>[],
-              statusCode: res.statusCode, errorMessage: msg);
-    } catch (e) {
-      debugPrint('attendance/break-requests 取得失敗: month=$month $e');
-      return (ok: false, requests: <Map<String, dynamic>>[], statusCode: 0,
-              errorMessage: '通信に失敗しました');
-    }
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) => ((apiJsonMap(body)?['requests'] as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
   }
 
   /// POST /attendance/break-request/:id/amend   body:{ break_minutes }
   /// 申告された休憩の分数を管理側が修正する。理由・申告時刻は BE 側で保持される
   /// （routes/attendance.js:1825-1832）。
-  Future<({bool ok, int statusCode, String? errorCode, String? errorMessage})>
-      amendBreakRequest(String id, int breakMinutes) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        return (ok: false, statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
-      }
-      final res = await http.post(
+  Future<ApiResult<Map<String, dynamic>>> amendBreakRequest(String id, int breakMinutes) async {
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.amendBreakRequest',
+      () => http.post(
         Uri.parse('$_apiBase/attendance/break-request/$id/amend'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        headers: headers,
         body: jsonEncode({'break_minutes': breakMinutes}),
-      ).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        return (ok: true, statusCode: res.statusCode, errorCode: null, errorMessage: null);
-      }
-      String? code;
-      String? msg;
-      try {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        code = body['code']  as String?;
-        msg  = body['error'] as String?;
-      } catch (_) {}
-      return (ok: false, statusCode: res.statusCode, errorCode: code, errorMessage: msg);
-    } catch (e) {
-      debugPrint('attendance/break-request/amend 送信失敗: $e');
-      return (ok: false, statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
-    }
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 
   // ─── 打刻漏れの申告（打刻のお知らせ通知からの導線）──────────────────────
@@ -446,56 +401,30 @@ class WorkModeService {
   //     403 code=ATTENDANCE_EMPLOYEE_ONLY
   //   3値はすべて必須。省略すると 400 になるため、呼び手が欠けた値を埋めて
   //   （＝別の日を黙って申告して）しまわないよう、正規化は呼び手側で行う。
-  //   流儀は punch(:274-315) と同一:
-  //     ・token は都度 SharedPreferences から取る
-  //     ・throw しない（ok 付きレコードで返す）
-  //     ・非200は statusCode / code / error をそのまま載せて呼び手に判断させる
-  //   201 と 200 はどちらも ok:true で返し、alreadyDeclared で呼び手が区別する。
-  //   ★応答の id は載せない。読み手がゼロのフィールドを定義だけ持つのは事故の芽
-  //     （必要になった時点で足す）。
-  Future<({bool ok, bool alreadyDeclared,
-            int statusCode, String? errorCode, String? errorMessage})>
-      declareForgotPunch({required String side,
-                          required String shiftType,
-                          required String workDate}) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isEmpty) {
-        return (ok: false, alreadyDeclared: false,
-                statusCode: 0, errorCode: null, errorMessage: 'トークンがありません');
-      }
-      final payload = <String, dynamic>{
-        'side':       side,
-        'shift_type': shiftType,
-        'work_date':  workDate,
-      };
-      final res = await http.post(
+  //   ★201 と 200 はどちらも ok:true。「二度目」は statusCode == 200 で判別する
+  //     （統一前の alreadyDeclared フィールドと同じ意味・同じ判定式）。
+  //   ★409/400/403 の code は errorCode に載る（呼び手の文言分岐の根拠）。
+  Future<ApiResult<Map<String, dynamic>>> declareForgotPunch({
+    required String side,
+    required String shiftType,
+    required String workDate,
+  }) async {
+    final guard = await _requireToken<Map<String, dynamic>>();
+    if (guard != null) return guard;
+    final payload = <String, dynamic>{
+      'side':       side,
+      'shift_type': shiftType,
+      'work_date':  workDate,
+    };
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'WorkModeService.declareForgotPunch',
+      () => http.post(
         Uri.parse('$_apiBase/attendance/forgot-punch-declare'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        headers: headers,
         body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 10));
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (res.statusCode == 201 || res.statusCode == 200) {
-        return (
-          ok:              true,
-          alreadyDeclared: res.statusCode == 200,
-          statusCode:      res.statusCode,
-          errorCode:       null,
-          errorMessage:    null,
-        );
-      }
-      return (
-        ok:              false,
-        alreadyDeclared: false,
-        statusCode:      res.statusCode,
-        errorCode:       body['code']  as String?,
-        errorMessage:    body['error'] as String?,
-      );
-    } catch (e) {
-      debugPrint('attendance/forgot-punch-declare 送信失敗: $e');
-      return (ok: false, alreadyDeclared: false,
-              statusCode: 0, errorCode: null, errorMessage: '通信に失敗しました');
-    }
+      ).timeout(const Duration(seconds: 10)),
+      apiJsonMap,
+    );
   }
 }

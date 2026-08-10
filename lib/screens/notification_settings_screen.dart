@@ -58,8 +58,8 @@ class _NotificationSettingsScreenState
     });
     final res = await _svc.fetchNotificationSettings();
     if (!mounted) return;
-    if (res['success'] == true) {
-      final s = Map<String, dynamic>.from(res['settings'] as Map);
+    if (res.ok && res.data != null) {
+      final s = res.data!;
       setState(() {
         _remindEnabled = s['report_remind_enabled'] == true;
         _time1 = _asTime(s['remind_time1']);
@@ -81,10 +81,10 @@ class _NotificationSettingsScreenState
   }
 
   Future<void> _loadPunch() async {
-    final r = await WorkModeService.instance.fetchResolvedAttendanceSettings();
+    final r = await WorkModeService().fetchResolvedAttendanceSettings();
     if (!mounted) return;
     setState(() {
-      _punch = r.ok ? r.settings : const {};
+      _punch = (r.ok ? r.data : null) ?? const {};
       _punchLoaded = r.ok;
     });
   }
@@ -125,7 +125,7 @@ class _NotificationSettingsScreenState
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    if (res['success'] == true) {
+    if (res.ok) {
       showJsSnackbar(context, '保存しました');
       Navigator.pop(context);
     } else {

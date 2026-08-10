@@ -65,19 +65,21 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
       if (addr.isEmpty) return; // 材料なし＝チェック不可（登録は可能）
       final g = await _siteService.geocode(addr);
       if (!mounted) return;
-      if (g['status'] != 'ok') return; // not_found/error/offline → 静かにスキップ
-      lat = g['lat'] as double?;
-      lng = g['lng'] as double?;
+      // 統一前の status!='ok'（not_found/error/offline）＝ ok:false → 静かにスキップ
+      final geo = g.data;
+      if (!g.ok || geo == null) return;
+      lat = geo.lat;
+      lng = geo.lng;
       if (lat == null || lng == null) return;
     }
 
     final res = await _siteService.matchSites(lat, lng);
     if (!mounted) return;
-    if (res['ok'] == true) {
-      final sites = (res['sites'] as List).cast<Map<String, dynamic>>();
+    final sites = res.data;
+    if (res.ok && sites != null) {
       if (sites.isNotEmpty) setState(() => _nearby = sites);
     }
-    // res['ok']==false（非200/通信断）は静かにスキップ（登録をブロックしない）
+    // ok:false（非200/通信断）は静かにスキップ（登録をブロックしない）
   }
 
   Future<void> _submit() async {
@@ -89,13 +91,14 @@ class _SiteQuickRegisterScreenState extends State<SiteQuickRegisterScreen> {
       return;
     }
     setState(() => _submitting = true);
-    final siteId = await _siteService.createSiteReturningId(
+    final created = await _siteService.createSiteReturningId(
       siteName: name,
       address: _addrCtrl.text.trim().isEmpty ? null : _addrCtrl.text.trim(),
       lat: widget.lat,
       lng: widget.lng,
     );
     if (!mounted) return;
+    final siteId = created.ok ? created.data : null;
     if (siteId != null && siteId.isNotEmpty) {
       Navigator.pop(context, siteId); // 登録成功 → site_id を呼び出し元へ返す
       return;
