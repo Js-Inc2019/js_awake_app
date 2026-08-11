@@ -10,6 +10,7 @@ import '../services/notification_service.dart';
 import '../widgets/punch_remind_dialog.dart';
 import 'home_screen.dart' show ReportTabNavigator;
 import 'revision_inbox_screen.dart';
+import 'tamper_incident_detail_screen.dart';
 
 // ─────────────────────────────────────────────
 // NotificationListBody — Scaffold なし（シェルのタブとして使う実体）
@@ -133,6 +134,25 @@ class NotificationListBodyState extends State<NotificationListBody> {
     );
   }
 
+  // 展開部アクション: 改ざんの詳細を開く（tamper_detected / tamper_status_changed）
+  //   ★事件の識別子は ref_id（BE services/notify.js が refId: incident_id で積む）。
+  //     欠落していれば遷移先が決まらないので、推測せずここで止めて理由を出す
+  //     （_openPunchRemind:154-159 と同じ流儀）。
+  void _openTamperIncident(Map<String, dynamic> item) {
+    final incidentId = (item['ref_id'] ?? '').toString();
+    if (incidentId.isEmpty) {
+      showJsSnackbar(context, '対象の事案を特定できませんでした。事務へご連絡ください。',
+          isError: true);
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TamperIncidentDetailScreen(incidentId: incidentId),
+      ),
+    );
+  }
+
   // ── 展開部アクション: 打刻を申告する（punch_remind_in / punch_remind_out）──
   //   ★今回追加した経路だけの多重送信ガード。この画面には元々ガードフラグが
   //     1つも無いため新設した。既存の _onTapItem / _markAllRead / _goReport /
@@ -234,6 +254,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onRevision: _openRevision,
                 onPunchRemind: () => _openPunchRemind(_items[i]),
                 punchRemindBusy: _punchRemindBusy,
+                onTamper: () => _openTamperIncident(_items[i]),
               ),
             ),
     );
@@ -296,6 +317,7 @@ class _NotificationRow extends StatelessWidget {
     required this.onRevision,
     required this.onPunchRemind,
     required this.punchRemindBusy,
+    required this.onTamper,
   });
 
   final Map<String, dynamic> item;
@@ -305,6 +327,7 @@ class _NotificationRow extends StatelessWidget {
   final VoidCallback onRevision; // 'revision_request' 展開時「修正依頼を開く」
   final VoidCallback onPunchRemind; // 'punch_remind_*' 展開時「打刻を申告する」
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
+  final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
 
   @override
   Widget build(BuildContext context) {
@@ -418,6 +441,20 @@ class _NotificationRow extends StatelessWidget {
                           // 連打防止: 実行中は押せなくする（実体側にも
                           // _punchRemindBusy の早期returnガードがある）。
                           onPressed: punchRemindBusy ? null : onPunchRemind,
+                        ),
+                      ),
+                    ],
+                    // 改ざんのお知らせ（検知＝tamper_detected / 対処＝tamper_status_changed）。
+                    // 打刻と同様、既存の if/else if 連鎖には手を入れず独立した if で足す。
+                    if (type == 'tamper_detected' ||
+                        type == 'tamper_status_changed') ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _ActionButton(
+                          icon: Icons.gpp_maybe_outlined,
+                          label: '改ざんの詳細を開く',
+                          onPressed: onTamper,
                         ),
                       ),
                     ],

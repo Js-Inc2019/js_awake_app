@@ -13,30 +13,11 @@ import 'api_result.dart';
 import 'auth_service.dart';
 import '../config/constants.dart';
 
-/// 受信トレイの取得結果。改ざん件数は shares から導けるが、
-/// 呼び手が毎回同じ where を書かずに済むよう統一前と同じ形で持たせる。
-class InboxResult {
-  const InboxResult({
-    required this.shares,
-    required this.tamperedShares,
-  });
-
-  final List<dynamic> shares;
-  final List<dynamic> tamperedShares;
-
-  int get tamperedCount => tamperedShares.length;
-}
-
-/// 改ざんチェックの結果。
-/// ★「確認できなかった」を「正常」に混ぜないための型。
-///   通信失敗・非200 は ApiResult 側の ok:false で表すため、
-///   この型は成功時（200）にだけ現れる。
-class TamperCheckResult {
-  const TamperCheckResult({required this.isTampered, required this.message});
-
-  final bool isTampered;
-  final String message;
-}
+// ★InboxResult / TamperCheckResult は退役（呼び手だった inbox_screen.dart ごと撤去）。
+//   InboxResult.tamperedShares は shares を is_tampered == true で絞る作りだったが、
+//   BE の GET /shares/inbox は is_tampered を返さない（返すのは share_status と
+//   is_updated）。つまり常に空＝「改ざん0件」を名乗り続ける嘘の記号だった。
+//   改ざんの真実源は事件簿（TamperService・GET /tamper/incidents/:id）ただ一つ。
 
 class ShareService {
   static final ShareService _instance = ShareService._internal();
@@ -78,103 +59,20 @@ class ShareService {
     );
   }
 
-  // ============================================================
-  // 受信した日報一覧取得（受信トレイ）
-  // ============================================================
+  // ★共有トレイの導線（getInbox / getOutbox / markAsRead）は全退役。閲覧画面だった
+  //   inbox_screen.dart の撤去で呼び手が0になったため。FIELD に残る共有機能は
+  //   送信（sendReport）のみ。受信の閲覧・既読は OFFICE の受信トレイが担う。
 
-  Future<ApiResult<InboxResult>> getInbox() async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<InboxResult>(
-      'ShareService.getInbox',
-      () => http.get(
-        Uri.parse('$kApiBaseUrl/shares/inbox'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      (body) {
-        final shares = (apiJsonMap(body)?['shares'] as List<dynamic>?) ?? const [];
-        // 改ざん検知：is_tamperedがtrueのものを抽出
-        return InboxResult(
-          shares: shares,
-          tamperedShares: shares.where((s) => s['is_tampered'] == true).toList(),
-        );
-      },
-    );
-  }
+  // ★改ざんチェック（POST /shares/check-tamper）は退役した。呼び手だった
+  //   inbox_screen.dart（import 0・route 0 の到達不能画面）ごと撤去したため。
+  //   なお BE 側の門番は段2で can_audit 基準へ変わっており、FIELD の主利用者
+  //   （worker）は元より実行できない。
 
-  // ============================================================
-  // 送信した日報一覧取得（送信トレイ）
-  // ============================================================
-
-  Future<ApiResult<List<dynamic>>> getOutbox() async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<List<dynamic>>(
-      'ShareService.getOutbox',
-      () => http.get(
-        Uri.parse('$kApiBaseUrl/shares/outbox'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      (body) => (apiJsonMap(body)?['shares'] as List<dynamic>?) ?? const [],
-    );
-  }
-
-  // ============================================================
-  // 既読にする
-  // ============================================================
-
-  Future<ApiResult<Map<String, dynamic>>> markAsRead(String shareId) async {
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'ShareService.markAsRead',
-      () => http.put(
-        Uri.parse('$kApiBaseUrl/shares/$shareId/read'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      apiJsonMap,
-    );
-  }
-
-  // ============================================================
-  // 改ざんチェック（手動）
-  // ============================================================
-
-  /// 改ざんチェック（手動）。
-  /// ★確認失敗を「正常」に混同させない、という統一前からの約束は不変:
-  ///   ・通信失敗／非200            → ok:false（data は null）
-  ///   ・200 だが is_tampered が bool でない → ok:false（判定不能を正常にしない）
-  ///   ・200 かつ bool              → ok:true・data.isTampered で分岐
-  Future<ApiResult<TamperCheckResult>> checkTamper(String shareId) async {
-    final headers = await _auth.getAuthHeaders();
-    final r = await runApiCall<TamperCheckResult>(
-      'ShareService.checkTamper',
-      () => http.post(
-        Uri.parse('$kApiBaseUrl/shares/check-tamper'),
-        headers: headers,
-        body: jsonEncode({'share_id': shareId}),
-      ).timeout(const Duration(seconds: 15)),
-      (body) {
-        final data = apiJsonMap(body);
-        final tampered = data?['is_tampered'];
-        // 200 でも is_tampered が bool でなければ判定不能 → 安全側で失敗扱い
-        if (tampered is! bool) return null;
-        return TamperCheckResult(
-          isTampered: tampered,
-          message: (data?['message'] as String?) ??
-              (tampered ? '改ざんが検知されました' : '正常です'),
-        );
-      },
-    );
-    // parse が null を返した＝200 だが判定不能。ok:true のまま返すと
-    // 「確認できなかった」が「正常」に化けるため、ここで失敗へ倒す。
-    if (r.ok && r.data == null) {
-      return apiFailure<TamperCheckResult>(
-        statusCode: r.statusCode,
-        errorMessage: '確認結果を取得できませんでした',
-      );
-    }
-    return r;
-  }
-
-  // ★改ざん通知一覧の取得（GET /shares/notifications）は退役した。呼び手ゼロ。
-  //   FIELD の通知一覧は notification_service（GET /notifications）が唯一の窓口で、
-  //   改ざん通知もその中に含まれて届く。ここに2本目の窓口を残す理由が無い。
+  // ★改ざん通知一覧の取得（GET /shares/notifications）も退役済み。
+  //   改ざん通知は BE の services/notify.js 経由で汎用のお知らせ
+  //   （GET /notifications・type='tamper_detected' / 'tamper_status_changed'・
+  //     ref_id=incident_id）として届く。FIELD の通知の窓口は
+  //   notification_service ただ一つ。
+  //   事件の詳細取得と対処（状態変更）は TamperService
+  //   （GET /tamper/incidents/:id・PATCH /tamper/incidents/:id/status）が窓口。
 }

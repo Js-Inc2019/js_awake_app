@@ -10,6 +10,7 @@ import '../config/constants.dart';
 import 'api_result.dart';
 import '../screens/revision_inbox_screen.dart';
 import '../screens/notification_list_screen.dart';
+import '../screens/tamper_incident_detail_screen.dart';
 import '../screens/home_screen.dart'
     show ReportTabNavigator, PunchRemindDialogNavigator;
 import 'auth_service.dart';
@@ -185,7 +186,9 @@ class FcmService {
     if (type != 'revision_request' &&
         type != 'report_reminder' &&
         type != 'punch_remind_in' &&
-        type != 'punch_remind_out') {
+        type != 'punch_remind_out' &&
+        type != 'tamper_detected' &&
+        type != 'tamper_status_changed') {
       debugPrint('FCM tap: unknown type "$type" — ignored (no navigation)');
       return;
     }
@@ -215,6 +218,28 @@ class FcmService {
           MaterialPageRoute(builder: (_) => const NotificationListScreen()),
         );
       }
+      return;
+    }
+
+    // ── 改ざんのお知らせ（tamper_detected / tamper_status_changed）──
+    // 打刻と同じく、下の既存2type の分岐に手を入れずここで処理して return する。
+    // 事件の識別子は data['incident_id']（BE services/tamperIncidents.js の fcmData）。
+    // 欠落時は遷移先が決まらないので推測せず通知一覧へ倒す（punch_remind の
+    // フォールバックと同型＝袋小路にしない）。
+    if (type == 'tamper_detected' || type == 'tamper_status_changed') {
+      final incidentId = data['incident_id']?.toString() ?? '';
+      if (incidentId.isEmpty) {
+        debugPrint('FCM tap: tamper に incident_id が無い — 通知一覧へフォールバック');
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+        );
+        return;
+      }
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => TamperIncidentDetailScreen(incidentId: incidentId),
+        ),
+      );
       return;
     }
 
