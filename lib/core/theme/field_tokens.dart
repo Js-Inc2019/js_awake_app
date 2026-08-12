@@ -112,10 +112,6 @@ class FieldTokens {
   /// エラー。カレンダーの日曜文字色にも使う
   static const Color statusError = Color(0xFFE05252);
 
-  /// 危険を「面」で示すときの地（暗赤）。改ざん検知行の行地など。
-  /// 文字色の statusError とは役割が別で、surfaceCard の代わりに敷く
-  static const Color statusErrorSurface = Color(0xFF3D1515);
-
   // ─── スクリム（半透明黒・面トークンでは表現できない重ね色）──────
   /// 写真の上に置く操作ボタンの下敷き（黒54%）
   static const Color scrimStrong = Color(0x8A000000);
@@ -163,14 +159,10 @@ class FieldTokens {
   /// ★値は #7C4DFF（旧 worker6 と同値の紫）から朱丹へ差し替えた。経験色に紫系
   ///   （workerVeteran #7B6FD4）が入るため、役割色と経験色が近似しないようにする。
   static const Color foremanBase = Color(0xFFD4664A);
-  /// 事務。現状参照なし
-  static const Color officeBase = Color(0xFF00B4CC);
-  /// 社長（金）。現状参照なし
-  static const Color bossGold = Color(0xFFA89868);
-  /// 社長（白金）。現状参照なし
-  static const Color bossPlatinum = Color(0xFFE8E8E8);
-  /// 社長（深紅）。現状参照なし
-  static const Color bossCrimson = Color(0xFFC62828);
+  // ★FIELD の役割色は「職長」だけ。事務(#00B4CC)と社長3色(#A89868 / #E8E8E8 /
+  //   #C62828)は参照0のまま残っていたので Q11(a) で定義ごと削除した。
+  //   OFFICE 役割（事務・社長）は FIELD に画面が無く、色を持つ意味が無い。
+  //   ★退役した定数名はここに書かない（消えた識別子を指すコメントを残さない）。
 
   // ─── 経験年数 → 経験カラー ──────────────────────────────────
   /// 経験年数から経験カラーを引く。分岐の境界は experienceTier
