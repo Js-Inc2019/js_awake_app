@@ -165,13 +165,17 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     return '申告を送信できませんでした。';
   }
 
-  // ── 本日休みの登録（reports_service.dart:299 createRestDay を再利用）──────
+  // ── 本日休みの登録（reports_service.dart の createRestDay を再利用）──────
   //   reason は指定しない・portion は既定の 'full'。
-  //   rest_date はサーバが JST 業務日で確定するため FE からは送らない。
+  //   ★rest_date は通知が持っている業務日（widget.workDate）をそのまま渡す。
+  //     サーバ確定に任せると、深夜0時を跨いでタップしたときに「サーバの今日」が
+  //     通知の対象業務日と別の日になり、黙って違う日を休みにしてしまう（Q10(a)）。
+  //     打刻漏れ側（_declare:126-130）が work_date を明示するのと同じ理由・同じ値。
+  //     BE の許容は当日/前日のみ。範囲外は 400 INVALID_REST_DATE で返る。
   Future<void> _restDay() async {
     if (_submitting) return;
     setState(() { _error = null; _submitting = true; });
-    final res = await ReportsService().createRestDay();
+    final res = await ReportsService().createRestDay(restDate: widget.workDate);
     if (!mounted) return;
     if (res.ok) {
       Navigator.of(context).pop();
@@ -182,6 +186,13 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     if (res.statusCode == 409 && res.errorCode == 'ALREADY_RESTED') {
       Navigator.of(context).pop();
       widget.onNotify('すでに休みで登録されています。', false);
+      return;
+    }
+    // 400 INVALID_REST_DATE は rest_date を送るようになって初めて起こりうる。
+    // ベル一覧に残った古いお知らせ（当日/前日より前）を開いた場合がこれ。
+    // 打刻漏れ側の INVALID_WORK_DATE（_declareMessage:160-163）と同じ言い方に揃える。
+    if (res.statusCode == 400 && res.errorCode == 'INVALID_REST_DATE') {
+      _fail('登録できる期間を過ぎています。事務へご連絡ください。');
       return;
     }
     // ★statusCode:0 ＝ サーバまで届かなかった。統一前は「statusCode キーが無い」で

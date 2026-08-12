@@ -346,17 +346,32 @@ class ReportsService {
     );
   }
 
-  // POST /rest-days body {reason?, portion} → 201 成功 / 409 ALREADY_RESTED
+  // POST /rest-days body {reason?, portion, rest_date?} → 201 成功 / 409 ALREADY_RESTED
   // portion（full/am_half/pm_half）は BE 並行実装中＝未対応の間は無視されるだけで害なし。
   //   ★409 の code は errorCode に載る（呼び手が「すでに休みで登録されています」を出す根拠）。
-  Future<ApiResult<RestDayMutation>> createRestDay({String? reason, String portion = 'full'}) async {
+  //   ★restDate は任意。BE は未指定なら JST 業務日で確定するため、通常の休み申告
+  //     （rest_day_screen.dart:74）は従来どおり渡さない＝送信内容は1バイトも変わらない。
+  //     渡すのは打刻のお知らせ経由（punch_remind_dialog.dart）だけ。深夜0時を跨いで
+  //     タップすると「サーバの今日」が通知の対象業務日とズレるため、通知が持っている
+  //     業務日をそのまま送る。BE の許容は当日/前日のみで、範囲外・不正形式は
+  //     400 INVALID_REST_DATE（routes/rest_days.js の検証3段）。
+  Future<ApiResult<RestDayMutation>> createRestDay({
+    String? reason,
+    String portion = 'full',
+    String? restDate,
+  }) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<RestDayMutation>(
       'ReportsService.createRestDay',
       () => http.post(
         Uri.parse('$kApiBaseUrl/rest-days'),
         headers: headers,
-        body: jsonEncode({'reason': reason, 'portion': portion}),
+        body: jsonEncode({
+          'reason': reason,
+          'portion': portion,
+          // 未指定時はキー自体を送らない（既存呼び手の body を変えないため）。
+          if (restDate != null) 'rest_date': restDate,
+        }),
       ).timeout(const Duration(seconds: 15)),
       _parseRestDayMutation,
     );
