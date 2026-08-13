@@ -5,8 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
-// N1: slide_to_confirm.dart の import は撤去（打刻をボタン+確認ダイアログ化したため）。
-//   ウィジェット本体(lib/widgets/slide_to_confirm.dart)は他からの復帰に備えて残す。
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 import 'rest_day_screen.dart';
@@ -403,7 +401,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   }
 
   // ── N1: 打刻の確認ダイアログ ───────────────────────────────────────────
-  // スライダー(SlideToConfirm)を廃止した代わりに「押す → 時刻を見て確定」の2段にする。
+  // 打刻は「押す → 時刻を見て確定」の2段にする（旧スライド確定UIは撤去済み）。
   // ★表示している時刻は端末の現在時刻＝確認のための目安。実際に刻まれるのは BE の now()
   //   （routes/attendance.js の POST /punch が punch_in/punch_out に now() を入れる）。
   //   ここから時刻を送ることはしない＝真実源は BE のまま1文字も変えていない。
@@ -1185,7 +1183,7 @@ class _BreakInfoRow extends StatelessWidget {
 }
 
 // ── _PunchPrimaryButton ───────────────────────────────────────────────────────
-// N1: 出勤／退勤の主ボタン（旧 SlideToConfirm の置き換え）。
+// N1: 出勤／退勤の主ボタン（旧スライド確定UIの置き換え）。
 //   生成り枠1.5px＋同色文字＝_ReportOutlineButton と同一の「主」様式に揃える
 //   （トークンは FieldTokens.textBody。塗り面は作らない）。
 //   高さ 52（_kOpButtonHeight）。busy 中は押下不可＋インジケータ。

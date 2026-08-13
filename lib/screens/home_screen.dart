@@ -46,8 +46,6 @@ import '../services/notification_service.dart';
 import '../services/work_mode_service.dart';
 import 'after_report_screen.dart';
 import 'punch_screen.dart';
-// slide_to_confirm.dart の import は撤去（v2で日報フォームのスライド送信を廃止したため）。
-// ファイル本体は punch_screen.dart:6 が使用中のため削除していない。
 import '../widgets/approval_dialogs.dart';
 import '../widgets/report_photos.dart';
 import '../services/api_result.dart';
@@ -2525,7 +2523,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
         // 送信導線（画面最下部に固定・スクロール外）。
         // スライド送信は廃止し「内容を確かめる」→確認画面→「送る」の2段タップへ。
-        // slide_to_confirm.dart は punch_screen が共有しているため削除していない。
         Container(
           color: FieldTokens.bgBase,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),

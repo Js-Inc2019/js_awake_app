@@ -2,8 +2,9 @@
 // lib/services/profile_service.dart - ユーザープロフィール管理
 // 自宅住所・個人設定（prefs ラッパ）＋ /profile 系の HTTP
 //
-// ★段6で HTTP を追加。既存の prefs ラッパ4本（setHomeAddress / getHomeAddress /
-//   setWorkAddress / getWorkAddress）はそのまま維持する（呼び手あり）。
+// ★段6で HTTP を追加。prefs ラッパは setHomeAddress / getHomeAddress の2本のみ維持する
+//   （どちらも呼び手あり）。現場住所の setWorkAddress / getWorkAddress は
+//   呼び手ゼロだったため撤去した（'work_address' キーを読み書きする箇所は他に無い）。
 //
 // ★HTTP メソッドの URL・body・timeout・成否判定の正は「移設元の画面コード」。
 //   移設元は各メソッドのコメントに file:line で残してある（突合用）。
@@ -45,18 +46,6 @@ class ProfileService {
   Future<String?> getHomeAddress() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('home_address');
-  }
-
-  // 現場住所を保存
-  Future<void> setWorkAddress(String address) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('work_address', address);
-  }
-
-  // 現場住所を取得
-  Future<String?> getWorkAddress() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('work_address');
   }
 
   // ============================================================

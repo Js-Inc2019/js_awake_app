@@ -125,14 +125,10 @@ class WorkModeService {
     return prefs.getBool(_keyCheckedIn) ?? false;
   }
 
-  Future<void> checkIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    await prefs.setBool(_keyCheckedIn, true);
-    await prefs.setString(_keyCheckInTime, now.toIso8601String());
-    // fail-soft: 送信結果は見ない（統一前と同じ。ローカルの打刻状態は必ず残す）。
-    await sendAttendance('checkin', now);
-  }
+  // ★checkIn() は撤去した（呼び手ゼロ）。
+  //   併せて撤去した sendAttendance() が組んでいた POST /attendance/checkin は
+  //   BE の全ルート（server.js のマウント解決後177本）に存在せず、呼ばれれば 404 になる
+  //   死んだ呼び出しだった。実打刻は POST /attendance/punch（punch() :285）ただ一つ。
 
   Future<void> resetCheckIn() async {
     final prefs = await SharedPreferences.getInstance();
@@ -172,24 +168,6 @@ class WorkModeService {
       return settings;
     }
     return load();
-  }
-
-  /// POST /attendance/checkin|checkout
-  /// ★fail-soft（呼び手 checkIn() は結果を見ない）。統一前は private だったが、
-  ///   ApiResult を返す以上「結果を捨てているのは呼び手の判断」と分かる形にする。
-  Future<ApiResult<Map<String, dynamic>>> sendAttendance(String type, DateTime time) async {
-    final guard = await _requireToken<Map<String, dynamic>>();
-    if (guard != null) return guard;
-    final headers = await _auth.getAuthHeaders();
-    return runApiCall<Map<String, dynamic>>(
-      'WorkModeService.sendAttendance',
-      () => http.post(
-        Uri.parse('$_apiBase/attendance/$type'),
-        headers: headers,
-        body: '{"time":"${time.toUtc().toIso8601String()}"}',
-      ).timeout(const Duration(seconds: 10)),
-      apiJsonMap,
-    );
   }
 
   // ── 解決済み勤怠設定（/attendance 系のためこのサービスに置く）───────────

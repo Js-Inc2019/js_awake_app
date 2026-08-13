@@ -87,36 +87,17 @@ class AuthService {
     return prefs.getString('company_id');
   }
 
-  Future<String?> getRole() async {
-    final prefs = await SharedPreferences.getInstance();
-    // 二重キー統一: 顔（role）は 'user_role' に一本化
-    return prefs.getString('user_role');
-  }
-
-  Future<String?> getUserName() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('user_name');
-  }
-
   Future<bool> isLoggedIn() async {
     final token = await getToken();
     return token != null && token.isNotEmpty;
   }
 
-  Future<bool> isWorker() async {
-    final role = await getRole();
-    return role == 'worker';
-  }
-
-  Future<bool> isBoss() async {
-    final role = await getRole();
-    return role == 'boss';
-  }
-
-  Future<bool> isOfficeAdmin() async {
-    final role = await getRole();
-    return role == 'admin_office' || role == 'admin_exec';
-  }
+  // ★役割の判定ヘルパ5本（getRole / getUserName / isWorker / isBoss / isOfficeAdmin）は
+  //   撤去した。いずれも呼び手ゼロで、getRole は残り3本からしか呼ばれていなかった
+  //   （＝5本まとめてでないと外せない塊だった）。
+  //   画面が役割で分岐する箇所は prefs の 'user_role' を直接読むか、JWT の role を使う
+  //   （例: main.dart の起動時分岐・home_screen の isForeman）。ここに窓口を復活させる場合は
+  //   「読む場所を1つにする」意図を持たせること。今は誰も通らない窓口だったため落とした。
 
   // ============================================================
   // 共通の送信・応答処理
