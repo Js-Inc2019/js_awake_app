@@ -41,6 +41,7 @@ import 'day_reports_screen.dart';
 import 'management_history_screen.dart';
 import 'profile_screen.dart';
 import 'notification_list_screen.dart';
+import 'share_hub_screen.dart';
 import '../services/notification_service.dart';
 // CalendarTab が会社休日(/attendance/holidays/my)と祝日(/attendance/holidays/jp)を取るため。
 import '../services/work_mode_service.dart';
@@ -378,11 +379,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 書き換えずに push 先へも再描画を伝播させる。
   final GlobalKey<_ReportFormPageState> _reportPageKey = GlobalKey<_ReportFormPageState>();
 
-  // 通知/設定タブの Body へアクセスするキー。シェルの AppBar が
-  // 「すべて既読」「編集」を各 Body の公開 State 経由で実行するために持つ
+  // 共有/設定タブの Body へアクセスするキー。シェルが Body の公開 State 経由で
+  // 「タブ進入時の再取得」「編集」を実行するために持つ
   // （RevisionInboxBodyState を GlobalKey で使う既存流儀・:4303/:4348 と同型）。
-  final GlobalKey<NotificationListBodyState> _notifBodyKey =
-      GlobalKey<NotificationListBodyState>();
+  //
+  // ★通知タブは退役した（ボトム index2 は「共有」）。旧 _notifBodyKey は
+  //   AppBar の「すべて既読」をタブ内 Body へ届けるためのものだったが、
+  //   通知は AppBar の🔔から NotificationListScreen（自前 AppBar に
+  //   「すべて既読」を持つ・notification_list_screen.dart:285-302）を push する形へ
+  //   戻したので、シェル側から Body を掴む必要が無くなった＝キーごと退役。
+  final GlobalKey<ShareHubBodyState> _shareBodyKey =
+      GlobalKey<ShareHubBodyState>();
   final GlobalKey<ProfileBodyState> _profileBodyKey =
       GlobalKey<ProfileBodyState>();
 
@@ -1047,9 +1054,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _loadPendingApprovalCount();
       _loadRevisionCount();
     }
-    // 通知タブ(index2)進入時は未読件数を取り直す（旧AppBarベルの then(_loadUnreadCount) 相当）
+    // 共有タブ(index2)進入時は共有2鍵と未読枚数を取り直す。
+    //   ★鍵を prefs へ長期キャッシュしない（ボス裁定）ため、入るたびに引く。
+    //     会社の管理者が後から鍵を付けたときに「付与されたのに使えない」を残さない。
     if (index == 2) {
-      _loadUnreadCount();
+      _shareBodyKey.currentState?.reload();
     }
     SharedPreferences.getInstance().then((p) {
       final key = widget.isForeman ? 'last_tab_index_v2_foreman' : 'last_tab_index_v2_worker';
@@ -1790,7 +1799,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     switch (_tabIndex) {
       case 0: return 'ホーム';
       case 1: return '管理・履歴';
-      case 2: return '通知';
+      case 2: return '共有';
       case 3: return '設定';
       default: return 'ホーム';
     }
@@ -1808,7 +1817,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
 
     // IndexedStack の children リスト。ボトム4タブと1:1（職長でも数・並びは同じ）。
-    //   0: ホーム(PunchScreen) / 1: 管理・履歴 / 2: 通知 / 3: 設定
+    //   0: ホーム(PunchScreen) / 1: 管理・履歴 / 2: 共有 / 3: 設定
     // 日報フォーム(_buildHomeTabContent)はタブから外し、Navigator.push の全画面へ移した（_openReportForm）。
     final tabChildren = <Widget>[
       PunchScreen(
@@ -1892,13 +1901,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         initialSegment:   _mgmtSegment,
         segmentRequestId: _mgmtSegmentRequestId,
       ),
-      // 通知・設定は Scaffold なしの Body を使う（各画面の自前 AppBar と二重にならない）。
-      // AppBar のアクション（すべて既読 / 編集）はシェルの AppBar 側から
-      // GlobalKey 経由で呼ぶ＝機能を落とさない。
-      NotificationListBody(
-        key: _notifBodyKey,
-        onStateChanged: () { if (mounted) setState(() {}); },
-      ),
+      // 共有・設定は Scaffold なしの Body を使う（各画面の自前 AppBar と二重にならない）。
+      // 設定の AppBar アクション（編集）はシェルの AppBar 側から GlobalKey 経由で呼ぶ。
+      // ★共有タブは AppBar アクションを持たない（更新は本文の引っ張り更新と
+      //   タブ進入時の reload で足りる）。
+      ShareHubBody(key: _shareBodyKey),
       ProfileBody(
         key: _profileBodyKey,
         onStateChanged: () { if (mounted) setState(() {}); },
@@ -1965,8 +1972,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ─── 2段 AppBar ───
-  // 通知/設定は Body 化した（NotificationListBody / ProfileBody）ため自前の AppBar を持たない。
-  // よって全4タブでシェルの AppBar を出す＝_pageTitle の「通知」「設定」が実際に表示される。
+  // 共有/設定は Body 化した（ShareHubBody / ProfileBody）ため自前の AppBar を持たない。
+  // よって全4タブでシェルの AppBar を出す＝_pageTitle の「共有」「設定」が実際に表示される。
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       automaticallyImplyLeading: false,
@@ -1989,32 +1996,54 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ],
       ),
       actions: [
-        // 🧮 TOOL（ARC FLASH）ボタン ─ AppBar に残す唯一のアイコン。
-        // 撤去したもの（いずれもボトム4タブ側へ移設 or 導線消滅）:
+        // 🔔 お知らせ ─ TOOL アイコンのすぐ左隣（ボス裁定）。
+        //   ボトム「通知」タブを「共有」へ差し替えたため、通知の入口を AppBar へ戻した。
+        //   ★通知画面本体（NotificationListScreen）は退役させていない。ここから push する。
+        //     あちらは自前 AppBar に「すべて既読」を持つ（notification_list_screen.dart:285-302）
+        //     ので、シェル側にそのアクションを置き直す必要は無い。
+        //   ★バッジの見た目は _BottomTabItem の _badgeDot（:3393-3405）と同型
+        //     （丸・statusError 地・textBody 文字9px bold）。同じ意味の記号を2つの形で出さない。
+        //   ★_unreadCount の取得（_loadUnreadCount）は1文字も変えていない。
+        //     呼ばれる場所だけ「通知タブ進入時」→「通知画面から戻った時」へ移した
+        //     （初期取得 :914 とアプリ復帰時 :1092 は不変）。
+        IconButton(
+          tooltip: 'お知らせ',
+          onPressed: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+            );
+            if (mounted) _loadUnreadCount();
+          },
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_none, color: FieldTokens.brand),
+              if (_unreadCount > 0)
+                Positioned(
+                  top: -4, right: -6,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        color: FieldTokens.statusError, shape: BoxShape.circle),
+                    child: Text('$_unreadCount',
+                        style: const TextStyle(
+                            color: FieldTokens.textBody,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // 🧮 TOOL（ARC FLASH）ボタン。
+        // 撤去したもの（ボトム4タブ側へ移設 or 導線消滅）:
         //   ・🤝 協力申請 Icons.handshake_outlined（＋_linkCount バッジ）
-        //   ・🔔 お知らせ Icons.notifications_none（＋_unreadCount バッジ）→ ボトム「通知」タブへ
-        //   ・⚙️ 設定 Icons.settings                                     → ボトム「設定」タブへ
+        //   ・⚙️ 設定 Icons.settings → ボトム「設定」タブへ
         IconButton(
           icon: const Icon(Icons.calculate, color: FieldTokens.toolBrand),
           tooltip: 'TOOL',
           onPressed: _launchToolApp,
         ),
-        // 通知タブ(2): 旧 NotificationListScreen の AppBar アクション（文言・色・太さ・サイズは同一）
-        if (_tabIndex == 2)
-          Builder(builder: (_) {
-            final hasItems = _notifBodyKey.currentState?.hasItems ?? false;
-            return TextButton(
-              onPressed: hasItems ? () => _notifBodyKey.currentState?.markAllRead() : null,
-              child: Text(
-                'すべて既読',
-                style: TextStyle(
-                  color: hasItems ? FieldTokens.accent : FieldTokens.textFaint,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
-              ),
-            );
-          }),
         // 設定タブ(3): 旧 ProfileScreen の AppBar アクション（アイコン・色・tooltip は同一）
         if (_tabIndex == 3 && (_profileBodyKey.currentState?.canEdit ?? false))
           IconButton(
@@ -2074,11 +2103,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── BottomBar（全役割共通の4タブ）───
   // 職長かどうかでタブ数・並びを変えない＝isForeman による分岐をボトムから撤去した。
-  //   0: ホーム / 1: 管理・履歴 / 2: 通知 / 3: 設定
+  //   0: ホーム / 1: 管理・履歴 / 2: 共有 / 3: 設定
   // バッジ変数は1つも削除していない。付け替え先:
   //   _pendingApprovalCount → 「管理・履歴」1つ目（職長のときのみ。承認セグメントがそこに入るため）
   //   _revisionCount        → 「管理・履歴」2つ目（同上）
-  //   _unreadCount          → 「通知」（AppBar のベルから移設）
+  //   _unreadCount          → AppBar の🔔（通知タブ退役に伴い戻した）
+  // ★「共有」タブにはバッジを付けない。共有の未読【枚数】は共有タブ本文の
+  //   「受信トレイ」タイルのバッジが持つ（share_hub_screen.dart）。件数だけを返す
+  //   API は無く、ボトムに出すために受信明細一覧を常時叩く形にはしない。
   // BottomAppBar/色/高さ/divider/_BottomTabItem は既存のまま（デザイン変更なし）。
   Widget _buildBottomBar() {
     final divider = Container(width: 1, height: 36, color: FieldTokens.outline);
@@ -2114,11 +2146,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ),
         divider,
         _BottomTabItem(
-          icon: Icons.notifications_none,
-          label: '通知',
+          icon: Icons.folder_shared_outlined,
+          label: '共有',
           active: _tabIndex == 2,
           onTap: () => _setTab(2),
-          badge: _unreadCount,
         ),
         divider,
         _BottomTabItem(

@@ -7,9 +7,13 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/notification_service.dart';
+import '../services/profile_service.dart';
 import '../widgets/punch_remind_dialog.dart';
 import 'home_screen.dart' show ReportTabNavigator;
 import 'revision_inbox_screen.dart';
+import 'share_hub_screen.dart' show ShareKeys;
+import 'share_inbox_screen.dart';
+import 'share_outbox_screen.dart';
 import 'tamper_incident_detail_screen.dart';
 
 // ─────────────────────────────────────────────
@@ -153,6 +157,41 @@ class NotificationListBodyState extends State<NotificationListBody> {
     );
   }
 
+  // ── 展開部アクション: 会社間共有（share_received / share_sent）──
+  //   ★受信トレイは処理鍵で行の操作が変わるため、共有タブと同じ経路
+  //     （GET /profile → ShareKeys）で鍵を引いてから開く。
+  //     取得失敗時は canManage:false（fail-close）で開く＝閲覧の可否は BE の
+  //     見る門番が判定するので、ここで push を止めない（袋小路にしない）。
+  //   ★送信済みは鍵を要さないので即 push（余計な通信をしない）。
+  bool _shareBusy = false;
+
+  Future<void> _openShareInbox() async {
+    if (_shareBusy) return;
+    setState(() => _shareBusy = true);
+    final pr = await ProfileService().getProfile();
+    if (!mounted) return;
+    setState(() => _shareBusy = false);
+    final canManage = (pr.ok && pr.data != null)
+        ? ShareKeys.fromProfile(pr.data!).canManage
+        : false;
+    if (!pr.ok) {
+      debugPrint('通知→受信トレイ: 権限取得に失敗 '
+          '(status=${pr.statusCode}) — canManage:false で開く');
+    }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ShareInboxScreen(canManage: canManage)),
+    );
+  }
+
+  void _openShareOutbox() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ShareOutboxScreen()),
+    );
+  }
+
   // ── 展開部アクション: 打刻を申告する（punch_remind_in / punch_remind_out）──
   //   ★今回追加した経路だけの多重送信ガード。この画面には元々ガードフラグが
   //     1つも無いため新設した。既存の _onTapItem / _markAllRead / _goReport /
@@ -255,6 +294,9 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onPunchRemind: () => _openPunchRemind(_items[i]),
                 punchRemindBusy: _punchRemindBusy,
                 onTamper: () => _openTamperIncident(_items[i]),
+                onShareReceived: _openShareInbox,
+                onShareSent: _openShareOutbox,
+                shareBusy: _shareBusy,
               ),
             ),
     );
@@ -318,6 +360,9 @@ class _NotificationRow extends StatelessWidget {
     required this.onPunchRemind,
     required this.punchRemindBusy,
     required this.onTamper,
+    required this.onShareReceived,
+    required this.onShareSent,
+    required this.shareBusy,
   });
 
   final Map<String, dynamic> item;
@@ -328,6 +373,9 @@ class _NotificationRow extends StatelessWidget {
   final VoidCallback onPunchRemind; // 'punch_remind_*' 展開時「打刻を申告する」
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
   final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
+  final VoidCallback onShareReceived; // 'share_received' 展開時「受信トレイを開く」
+  final VoidCallback onShareSent;     // 'share_sent' 展開時「送信済みを開く」
+  final bool shareBusy; // 受信トレイを開く前の権限取得中は押せない（連打防止）
 
   @override
   Widget build(BuildContext context) {
@@ -455,6 +503,32 @@ class _NotificationRow extends StatelessWidget {
                           icon: Icons.gpp_maybe_outlined,
                           label: '改ざんの詳細を開く',
                           onPressed: onTamper,
+                        ),
+                      ),
+                    ],
+                    // 会社間共有のお知らせ（BE services/notify.js:77-78）。
+                    //   share_received（他社→自社）→ 受信トレイ
+                    //   share_sent（自社→他社・事務の事後把握）→ 送信済み
+                    // 上と同じく独立した if で足す（type は互いに排他）。
+                    if (type == 'share_received') ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _ActionButton(
+                          icon: Icons.inbox_outlined,
+                          label: '受信トレイを開く',
+                          onPressed: shareBusy ? null : onShareReceived,
+                        ),
+                      ),
+                    ],
+                    if (type == 'share_sent') ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _ActionButton(
+                          icon: Icons.outbox_outlined,
+                          label: '送信済みを開く',
+                          onPressed: onShareSent,
                         ),
                       ),
                     ],

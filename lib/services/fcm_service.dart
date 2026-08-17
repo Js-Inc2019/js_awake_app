@@ -11,6 +11,10 @@ import 'api_result.dart';
 import '../screens/revision_inbox_screen.dart';
 import '../screens/notification_list_screen.dart';
 import '../screens/tamper_incident_detail_screen.dart';
+import '../screens/share_hub_screen.dart' show ShareKeys;
+import '../screens/share_inbox_screen.dart';
+import '../screens/share_outbox_screen.dart';
+import 'profile_service.dart';
 import '../screens/home_screen.dart'
     show ReportTabNavigator, PunchRemindDialogNavigator;
 import 'auth_service.dart';
@@ -188,7 +192,9 @@ class FcmService {
         type != 'punch_remind_in' &&
         type != 'punch_remind_out' &&
         type != 'tamper_detected' &&
-        type != 'tamper_status_changed') {
+        type != 'tamper_status_changed' &&
+        type != 'share_received' &&
+        type != 'share_sent') {
       debugPrint('FCM tap: unknown type "$type" — ignored (no navigation)');
       return;
     }
@@ -239,6 +245,42 @@ class FcmService {
         MaterialPageRoute(
           builder: (_) => TamperIncidentDetailScreen(incidentId: incidentId),
         ),
+      );
+      return;
+    }
+
+    // ── 会社間共有のお知らせ（share_received / share_sent）──
+    // BE services/notify.js:77-78 の SHARE_RECEIVED / SHARE_SENT。
+    //   ・share_received（他社→自社）→ 受信トレイ
+    //   ・share_sent（自社→他社・事務の事後把握）→ 送信済み
+    // 打刻・改ざんと同じく、下の既存2type の分岐に手を入れずここで処理して return する。
+    //
+    // ★fcmData は { bundle_id } だが、どちらの画面も一覧なので使わない
+    //   （束詳細へ直接飛ばさない理由: GET /bundles/:bundle_id は受信側が開くと
+    //     received_at 確定と改ざん事件の台帳化という副作用を持つ
+    //     ・routes/bundles.js:1076-1114。通知タップという受動的な操作で
+    //     いきなり副作用を起こさない）。
+    if (type == 'share_received' || type == 'share_sent') {
+      if (type == 'share_sent') {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const ShareOutboxScreen()),
+        );
+        return;
+      }
+      // 受信トレイは処理鍵の有無で行の操作が変わるため、共有タブと同じ経路
+      // （GET /profile → ShareKeys）で鍵を引く。
+      // ★取得失敗時は canManage:false（fail-close）で開く。閲覧そのものは
+      //   BE の見る門番が判定する＝ここで push を止めない。
+      final pr = await ProfileService().getProfile();
+      final canManage = (pr.ok && pr.data != null)
+          ? ShareKeys.fromProfile(pr.data!).canManage
+          : false;
+      if (!pr.ok) {
+        debugPrint('FCM tap: share_received の権限取得に失敗 '
+            '(status=${pr.statusCode}) — canManage:false で受信トレイを開く');
+      }
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => ShareInboxScreen(canManage: canManage)),
       );
       return;
     }
