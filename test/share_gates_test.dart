@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:js_awake_app/screens/share_hub_screen.dart' show ShareKeys;
 import 'package:js_awake_app/screens/share_inbox_screen.dart'
     show ReceiptMark, receiptMarkOf, fmtShareDate, fmtShareDateTime;
+import 'package:js_awake_app/screens/share_send_screen.dart'
+    show ShareSendScreen, kSiteNone;
 
 void main() {
   // ──────────────────────────────────────────────────────────
@@ -108,6 +110,114 @@ void main() {
       });
       expect(k.canView, isTrue);
     });
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // ①' 送る鍵。★見る／処理とは条件が違う。
+  //    BE middleware/auth.js:167-215 の requirePermission('can_share_send'):
+  //      全権バイパスは admin_exec ただ一つ（:187-189）。admin_office は
+  //      見る／処理では鍵なしで通るが、送るときは列を持っていないと 403。
+  //    ここを取り違えると「事務のタイルが押せるのに BE で 403」＝嘘の入口になる。
+  // ──────────────────────────────────────────────────────────
+  group('ShareKeys.canSend（送る門番は条件が違う）', () {
+    test('社長(admin_exec)は鍵なしでも送れる（全権バイパス）', () {
+      expect(ShareKeys.fromProfile({'role': 'admin_exec'}).canSend, isTrue);
+    });
+
+    // ★本命。事務は「見る・処理」は鍵なしで通るが「送る」は鍵が要る。
+    test('事務(admin_office)は鍵なしでは送れない（見る・処理とは違う）', () {
+      final k = ShareKeys.fromProfile({'role': 'admin_office'});
+      expect(k.canView, isTrue);    // 見るは通る
+      expect(k.canManage, isTrue);  // 処理も通る
+      expect(k.canSend, isFalse);   // 送るだけ通らない
+    });
+
+    test('事務(admin_office)は can_share_send があれば送れる', () {
+      final k = ShareKeys.fromProfile({
+        'role': 'admin_office',
+        'can_share_send': true,
+      });
+      expect(k.canSend, isTrue);
+    });
+
+    test('職長・職人は can_share_send があれば送れる（view/manage は不要）', () {
+      for (final role in ['boss', 'worker']) {
+        final k = ShareKeys.fromProfile({
+          'role': role,
+          'can_share_send': true,
+        });
+        expect(k.canSend, isTrue, reason: role);
+      }
+    });
+
+    test('鍵ゼロの職長・職人は送れない', () {
+      for (final role in ['boss', 'worker']) {
+        expect(ShareKeys.fromProfile({'role': role}).canSend, isFalse,
+            reason: role);
+      }
+    });
+
+    test('can_share_send が true 以外なら送れない（fail-close）', () {
+      for (final v in <Object?>['true', 1, null, '']) {
+        expect(
+          ShareKeys.fromProfile({'role': 'boss', 'can_share_send': v}).canSend,
+          isFalse,
+          reason: 'can_share_send=$v',
+        );
+      }
+    });
+
+    test('view/manage を持っていても send 鍵が無ければ送れない', () {
+      final k = ShareKeys.fromProfile({
+        'role': 'boss',
+        'can_share_view': true,
+        'can_share_manage': true,
+      });
+      expect(k.canView, isTrue);
+      expect(k.canManage, isTrue);
+      expect(k.canSend, isFalse);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // ①'' 送信画面の role 判定。2つの集合が違うことを固定する。
+  //    ・職人カードを出すか   … role != 'worker'（BE reports.js:774-800）
+  //    ・職人候補APIを叩けるか … boss/admin_office/admin_exec（BE workers.js:551）
+  //    master は「会社軸だが職人候補は取れない」＝この2つが食い違う唯一の顔。
+  // ──────────────────────────────────────────────────────────
+  group('ShareSendScreen の role 判定', () {
+    test('worker は会社軸ではなく、職人候補も取れない', () {
+      const w = ShareSendScreen(role: 'worker');
+      expect(w.isCompanyScope, isFalse);
+      expect(w.canListWorkers, isFalse);
+    });
+
+    test('boss / 事務 / 社長は会社軸で職人候補も取れる', () {
+      for (final role in ['boss', 'admin_office', 'admin_exec']) {
+        final w = ShareSendScreen(role: role);
+        expect(w.isCompanyScope, isTrue, reason: role);
+        expect(w.canListWorkers, isTrue, reason: role);
+      }
+    });
+
+    test('master は会社軸だが職人候補は取れない（2つの集合は別物）', () {
+      const w = ShareSendScreen(role: 'master');
+      expect(w.isCompanyScope, isTrue);
+      expect(w.canListWorkers, isFalse);
+    });
+
+    test('空・未知の role は会社軸扱いになる（BEが403で断る）', () {
+      // ★FE は role で入口を作らない。GET /reports の想定外role は
+      //   BE が 403 ROLE_SCOPE_FORBIDDEN で断る（reports.js:799-801）。
+      const w = ShareSendScreen(role: '');
+      expect(w.isCompanyScope, isTrue);
+      expect(w.canListWorkers, isFalse);
+    });
+  });
+
+  // BE の予約語トークン。sites マスタには存在しない擬似ID。
+  test('kSiteNone は BE の site_ids=none と同一の文字列', () {
+    expect(kSiteNone, 'none');
   });
 
   // ──────────────────────────────────────────────────────────

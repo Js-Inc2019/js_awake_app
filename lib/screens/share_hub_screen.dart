@@ -21,8 +21,10 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/bundles_service.dart';
 import '../services/profile_service.dart';
+import '../main.dart' show showJsSnackbar;
 import 'share_inbox_screen.dart';
 import 'share_outbox_screen.dart';
+import 'share_send_screen.dart';
 
 /// 共有2鍵の判定結果。
 ///
@@ -35,7 +37,11 @@ import 'share_outbox_screen.dart';
 ///  よって FE の式は「事務・社長は鍵なしで通す／それ以外は鍵で判定」に留め、
 ///  漏れた場合は BE の 403 を画面に言い切って出す（袋小路にしない）。
 class ShareKeys {
-  const ShareKeys({required this.canView, required this.canManage});
+  const ShareKeys({
+    required this.canView,
+    required this.canManage,
+    required this.canSend,
+  });
 
   /// 共有を見られるか（受信トレイ・送信済み・束詳細）。
   final bool canView;
@@ -43,20 +49,36 @@ class ShareKeys {
   /// 共有を処理できるか（現場紐付け・既読・確認）。
   final bool canManage;
 
+  /// 共有を送れるか（日報を選んで他社へ送る）。
+  final bool canSend;
+
   /// GET /profile の応答から組む。
   ///
-  /// ★admin_exec / admin_office は鍵なしで通過（BE bundles.js:475 / :500 と同じ扱い）。
-  /// ★boss / worker は can_share_view、処理はさらに can_share_manage も要る
-  ///   （BE :477-479 / :502-504＝処理に見る鍵も要求する形をそのまま写す）。
-  /// ★キーが欠落・null のときは false（fail-close）。
+  /// ★見る／処理する（BE bundles.js:458-508 の門番）
+  ///   ・admin_exec / admin_office は鍵なしで通過（:475 / :500）。
+  ///   ・boss / worker は can_share_view、処理はさらに can_share_manage も要る
+  ///     （:477-479 / :502-504＝処理に見る鍵も要求する形をそのまま写す）。
+  ///
+  /// ★送る（BE bundles.js:149 の requirePermission('can_share_send')）は
+  ///   【条件が違う】。middleware/auth.js:167-215 を実測した結果:
+  ///   ・全権バイパスは admin_exec ただ一つ（:187-189）。
+  ///     admin_office は見る／処理では鍵なしで通るが、送るときは
+  ///     can_share_send の列を実際に持っていないと 403 になる。
+  ///   ・cooperation は無条件 403（:179-185）。
+  ///   ここを「事務も鍵なしで送れる」と書くと、事務のタイルが押せるのに
+  ///   BE で 403 になる＝嘘の入口になる。よって officeSide でまとめない。
+  ///
+  /// ★キーが欠落・null・true 以外のときは false（fail-close）。
   factory ShareKeys.fromProfile(Map<String, dynamic> p) {
     final role = (p['role'] ?? '').toString();
     final isOfficeSide = role == 'admin_exec' || role == 'admin_office';
     final view   = p['can_share_view']   == true;
     final manage = p['can_share_manage'] == true;
+    final send   = p['can_share_send']   == true;
     return ShareKeys(
       canView:   isOfficeSide || view,
       canManage: isOfficeSide || (view && manage),
+      canSend:   role == 'admin_exec' || send,
     );
   }
 }
@@ -75,6 +97,7 @@ class ShareHubBodyState extends State<ShareHubBody> {
   bool _loading = true;
   String? _error;        // 鍵の取得に失敗した理由（言い切る）
   ShareKeys? _keys;      // null＝未取得
+  String _role = '';     // GET /profile の role。送信画面の職人カード判定に渡す
   int _unread = 0;       // 受信トレイの未読【枚数】（read_at が null の受信明細数）
   String? _unreadError;  // 未読件数だけ取れなかった場合の理由（タイルは出す）
 
@@ -103,11 +126,13 @@ class ShareHubBodyState extends State<ShareHubBody> {
     }
 
     final keys = ShareKeys.fromProfile(pr.data!);
+    final role = (pr.data!['role'] ?? '').toString();
     // 鍵が無いなら受信明細は叩かない（403 を取りに行くだけの通信をしない）。
     if (!keys.canView) {
       setState(() {
         _loading = false;
         _keys = keys;
+        _role = role;
         _unread = 0;
         _unreadError = null;
       });
@@ -122,6 +147,7 @@ class ShareHubBodyState extends State<ShareHubBody> {
     setState(() {
       _loading = false;
       _keys = keys;
+      _role = role;
       if (rr.ok) {
         _unread = (rr.data ?? const []).where((e) => e['read_at'] == null).length;
         _unreadError = null;
@@ -286,7 +312,34 @@ class ShareHubBodyState extends State<ShareHubBody> {
                 builder: (_) => const ShareOutboxScreen(),
               )),
             ),
-            // 送信タイル（日報を選んで他社へ送る）は第2弾で解禁。
+            const SizedBox(height: 12),
+            // ── 送信（第2弾で解禁）─────────────────────────────
+            //   ★見る鍵があれば【タイルは必ず見せる】。送る鍵が無い人には
+            //     タップした時に「何が足りないか」を言う（袋小路にしない）。
+            //     タイルごと隠すと「自分は送れないのか、機能が無いのか」が
+            //     区別できず、管理者に依頼する当てが付かない。
+            //   ★送る門番は見る／処理と条件が違う（事務も鍵が必要）。
+            //     判定の根拠は ShareKeys.fromProfile のコメント参照。
+            _ShareTile(
+              icon: Icons.send_outlined,
+              title: '日報を送る',
+              subtitle: keys.canSend
+                  ? '条件で選んで他社へ共有する'
+                  : '『共有送信』の権限が必要です',
+              badge: 0,
+              locked: !keys.canSend,
+              onTap: () {
+                if (!keys.canSend) {
+                  showJsSnackbar(
+                      context, '共有を送る権限がありません（『共有送信』が必要）',
+                      isError: true);
+                  return;
+                }
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ShareSendScreen(role: _role),
+                ));
+              },
+            ),
           ],
         ),
       );
@@ -302,6 +355,7 @@ class _ShareTile extends StatelessWidget {
     required this.subtitle,
     required this.badge,
     required this.onTap,
+    this.locked = false,
   });
 
   final IconData icon;
@@ -309,6 +363,10 @@ class _ShareTile extends StatelessWidget {
   final String subtitle;
   final int badge;
   final VoidCallback onTap;
+
+  /// 鍵が足りず実行できないタイル。押せるままにして案内を出すため
+  /// onTap は無効化せず、見た目だけ落として🔒を添える。
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +382,9 @@ class _ShareTile extends StatelessWidget {
         ),
         child: Row(children: [
           Stack(clipBehavior: Clip.none, children: [
-            Icon(icon, color: FieldTokens.accent, size: 28),
+            Icon(icon,
+                color: locked ? FieldTokens.textFaint : FieldTokens.accent,
+                size: 28),
             if (badge > 0)
               Positioned(
                 top: -4, right: -6,
@@ -350,8 +410,10 @@ class _ShareTile extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(title,
-                      style: const TextStyle(
-                          color: FieldTokens.textBody,
+                      style: TextStyle(
+                          color: locked
+                              ? FieldTokens.textSupport
+                              : FieldTokens.textBody,
                           fontSize: 16,
                           fontWeight: FontWeight.bold)),
                 ),
@@ -366,7 +428,9 @@ class _ShareTile extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, color: FieldTokens.textSupport),
+          Icon(locked ? Icons.lock_outline : Icons.chevron_right,
+              color: FieldTokens.textSupport,
+              size: locked ? 18 : 24),
         ]),
       ),
     );

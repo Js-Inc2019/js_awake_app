@@ -25,6 +25,22 @@ class ReportDetail {
   final List<dynamic> photos;
 }
 
+/// 期間絞り込みでの日報一覧（GET /reports の拡張経路・BE v542）。
+///
+/// ★[truncated] を一緒に運ぶために型を作った。List だけ返す形にすると
+///   「上限で切れた」という事実の置き場が無くなり、呼び手が全件だと誤解する。
+///   BE は常に返す（routes/reports.js:919 の `{success, reports, truncated}`）。
+class ReportsRange {
+  const ReportsRange({required this.reports, required this.truncated});
+
+  /// 応答の reports[]。0件は空リスト（取得失敗は ApiResult.ok=false 側で表す）。
+  final List<Map<String, dynamic>> reports;
+
+  /// 上限で切れたか。BE は「上限+1件」取れたかで判定する
+  /// （routes/reports.js:903-909）。期間指定経路の上限は 1000。
+  final bool truncated;
+}
+
 /// 本日休みの状態（GET /rest-days/today）。
 class RestDayToday {
   const RestDayToday({
@@ -188,6 +204,70 @@ class ReportsService {
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
+    );
+  }
+
+  // ============================================================
+  // 期間・現場・職人で絞った日報一覧（GET /reports の拡張経路・BE v542）
+  //   ★既存の getReports / getReportsByMonth / getReportsByCompany は
+  //     1文字も触っていない。あちらは date / 無指定の経路で上限も別
+  //     （BE: date?150:50・上限300／こちらは期間経路で既定1000・上限1000）。
+  //     同じ URL でも天井と応答の読み方が違うため、1本に畳まない。
+  // ============================================================
+
+  /// 期間（片側可）＋現場＋職人で日報を引く。共有の送信画面が使う。
+  ///
+  /// ★BE のスコープが最終権威。role 分岐（routes/reports.js:774-800）で
+  ///   worker は `r.user_id = 自分`、boss / admin_office / admin_exec は
+  ///   `r.company_id = 自社` に固定され、下の絞り込みはその【内側】に AND で足される。
+  ///   つまり worker が他人の [userIds] を渡しても交差して0件になるだけで、
+  ///   見える範囲は1ミリも広がらない（同 :877-879 のコメントが根拠）。
+  ///   ★よって画面側は「worker に職人セレクタを出さない」ことで揃える。
+  ///     出しても効かない選択肢は嘘の記号になる。
+  ///
+  /// ★[siteIds] のトークン 'none' は「現場未設定（r.site_id IS NULL）」を意味する
+  ///   BE の予約語（同 :886-899）。sites マスタには無い擬似 ID。
+  /// ★[startDate] / [endDate] は 'YYYY-MM-DD' のみ。両端を含む。
+  ///   両方 null で呼ぶと BE は期間経路にならず既定50件の一覧に落ちるため、
+  ///   呼び手は片側以上を必ず入れる（画面のボタン活性でそれを保証する）。
+  /// ★空リストは「条件なし」として送らない（＝現場は全部／職人は全員）。
+  ///   空文字だけの配列を送ると BE は 400（'site_idsの指定が空です'）で断る。
+  /// ★[limit] は既定で送らない＝BE の期間経路既定（1000）に委ねる。
+  ///
+  /// ★400 の文言は BE の error をそのまま errorMessage に載る（api_result 規約2）。
+  ///   画面は丸めずにそれを出す。日付の形式・逆転・併用違反はすべてここに来る。
+  Future<ApiResult<ReportsRange>> getReportsRange({
+    String? startDate,
+    String? endDate,
+    List<String>? siteIds,
+    List<String>? userIds,
+    int? limit,
+  }) async {
+    final headers = await _auth.getAuthHeaders();
+    final qp = <String, String>{
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+      if (siteIds != null && siteIds.isNotEmpty) 'site_ids': siteIds.join(','),
+      if (userIds != null && userIds.isNotEmpty) 'user_ids': userIds.join(','),
+      if (limit != null) 'limit': '$limit',
+    };
+    final uri =
+        Uri.parse('$kApiBaseUrl/reports').replace(queryParameters: qp);
+    return runApiCall<ReportsRange>(
+      'ReportsService.getReportsRange',
+      // ★30秒。他の GET 系（15秒）より長いのは、期間経路の天井が 1000 件で
+      //   1リクエストの実所要が最大になる経路だから（OFFICE 側の同経路も30秒）。
+      () => http.get(uri, headers: headers)
+          .timeout(const Duration(seconds: 30)),
+      (body) {
+        final data = apiJsonMap(body);
+        return ReportsRange(
+          reports: ((data?['reports'] as List?) ?? const [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+          truncated: data?['truncated'] == true,
+        );
+      },
     );
   }
 
