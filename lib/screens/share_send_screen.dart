@@ -951,11 +951,20 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
           border: Border(top: BorderSide(color: FieldTokens.outline)),
         ),
         child: Row(children: [
-          Text('$n件を選択中',
-              style: const TextStyle(
-                  color: FieldTokens.textBody,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold)),
+          // ★Flexible + FittedBox で縮退させる（省略記号や切り落としは使わない＝
+          //   件数は数えた事実であって、丸めたり消したりして良い値ではない）。
+          //   流儀は同ファイル :733-742（条件サマリ）と同一。
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text('$n件を選択中',
+                  style: const TextStyle(
+                      color: FieldTokens.textBody,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
           const Spacer(),
           SizedBox(
             height: 48,
@@ -968,6 +977,14 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
                 foregroundColor: FieldTokens.onAccent,
                 disabledBackgroundColor: FieldTokens.outlineStrong,
                 disabledForegroundColor: FieldTokens.textFaint,
+                // ★横の最小幅をゼロ起点へ戻す。app_theme.dart:62(elevatedButtonTheme)が
+                //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子
+                //   として置くと「幅＝無限」を要求して BoxConstraints forces an infinite
+                //   width で落ちる（＝下部バーの Row ごとレイアウト不能。リリース版では
+                //   例外表示が出ないためボタンが消えたように見えた）。
+                //   同じ罠と対処は approval_day_screen.dart:399-404 / 同ファイル :666
+                //   :1112 :1127 に前例がある。高さ48・角丸10・色は現状のまま。
+                minimumSize: const Size(0, 48),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
