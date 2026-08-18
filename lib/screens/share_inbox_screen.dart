@@ -20,7 +20,7 @@
 //     どちらも嘘になるため（BE も 'tampered' と 'updated' を別の値として持つ・
 //     routes/bundles.js:1039-1041）。
 //
-// 確認しました: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
+// 確認を送る: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
 //   ★確認は【束単位・人単位】。1回押すと同じ束に属する行が全て確認済みになるので、
 //     成功後は一覧を取り直して全行へ反映する。
 //   ★確認済みかどうかは受信明細（GET /receipts）に無い（日報単位の confirmed は
@@ -170,7 +170,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
       ? _receipts
       : _receipts.where((e) => e['sender_company_id'] == _companyFilter).toList();
 
-  // ── 確認しました（束単位・行カードから直接押す）──────────────────
+  // ── 確認を送る（束単位・行カードから直接押す）──────────────────
   // ★確認は【束単位・人単位】（bundles_service.dart:283-285）。同じ束に属する行が
   //   複数あれば1回押すと全行が確認済みになる。だから成功後は _load() で取り直し、
   //   bundle_id で引き直す（行ごとに別々の確認状態を持たせない）。
@@ -247,7 +247,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text('確認しました'),
+              child: const Text('送る'),
             ),
           ],
         ),
@@ -781,7 +781,7 @@ class _ReceiptRow extends StatelessWidget {
   }
 }
 
-// ─── 確認しました／確認済み（束単位・印の直下）─────────────────────
+// ─── 確認を送る／確認済み（束単位・印の直下）─────────────────────
 // 未確認の束 → ボタン／確認済みの束 → 印（_MarkBadge と同じ枠の流儀）。
 //   ★確認は【人単位】（my_confirmed_at）。既読が会社単位なのと粒度が違うため、
 //     印（既読/未読）と同じ段には並べず、下の段に分けている。
@@ -828,7 +828,7 @@ class _ConfirmCell extends StatelessWidget {
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: FieldTokens.accent))
             : const Icon(Icons.check_circle_outline, size: 15),
-        label: Text(confirming ? '送信中…' : '確認しました',
+        label: Text(confirming ? '送信中…' : '確認を送る',
             style: const TextStyle(fontSize: 12)),
         style: OutlinedButton.styleFrom(
           foregroundColor: FieldTokens.accent,

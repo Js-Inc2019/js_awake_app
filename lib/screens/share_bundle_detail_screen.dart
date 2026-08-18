@@ -251,7 +251,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
           const SizedBox(height: 22),
         ],
 
-        // ── 確認しました（受信社のみ）──────────────────────────
+        // ── 確認を送る（受信社のみ）──────────────────────────
         if (isReceiver) ...[
           if (_confirmedAt != null && _confirmedAt!.isNotEmpty)
             Container(
@@ -280,7 +280,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
               child: ElevatedButton.icon(
                 onPressed: _busy ? null : _confirm,
                 icon: const Icon(Icons.check, size: 18),
-                label: Text(_busy ? '送信中…' : '確認しました'),
+                label: Text(_busy ? '送信中…' : '確認を送る'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: FieldTokens.accent,
                   foregroundColor: FieldTokens.onAccent,
