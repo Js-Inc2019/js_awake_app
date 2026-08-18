@@ -63,9 +63,10 @@ class BundlesService {
   /// 自社の複数日報を1束にまとめ、1社以上へ送る。
   /// BE: routes/bundles.js:149-385（成功は 201・門番 requirePermission('can_share_send')）
   ///
-  /// ★第2弾で解禁: 画面側の呼び手（送信タイル・送信画面）は第1弾では作らない
-  ///   （ボス裁定3）。窓口だけ先に置くのは、受信側の2枚（受信トレイ／送信済み）と
-  ///   同じ1本のサービスで /bundles 系を閉じるため。
+  /// ★呼び手は share_send_screen.dart:422（確認画面で「送信する」を押した後）の1箇所のみ。
+  ///   共有タブの送信タイル（share_hub_screen.dart:323-）はその画面への導線で、
+  ///   ここを直接は叩かない。受信側の2枚（受信トレイ／送信済み）と同じ1本の
+  ///   サービスで /bundles 系を閉じている。
   ///
   /// ★[initialAxis] は date / site / worker のみ（bundles.js:29 VALID_AXES）。
   ///   null を送ると BE が 'date' を既定にする（:170）。3値以外は 400 INVALID_AXIS。
