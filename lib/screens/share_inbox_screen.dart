@@ -20,6 +20,16 @@
 //     どちらも嘘になるため（BE も 'tampered' と 'updated' を別の値として持つ・
 //     routes/bundles.js:1039-1041）。
 //
+// 確認しました: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
+//   ★確認は【束単位・人単位】。1回押すと同じ束に属する行が全て確認済みになるので、
+//     成功後は一覧を取り直して全行へ反映する。
+//   ★確認済みかどうかは受信明細（GET /receipts）に無い（日報単位の confirmed は
+//     存在しない＝裁定Q10）。GET /bundles/inbox の my_confirmed_at を bundle_id で
+//     引いて出す。取得は一覧本体と切り離す（fail-soft＝落ちても一覧は出す）。
+//   ★処理鍵が無い人にもボタンは出し、タップ時に案内する（袋小路にしない）。
+//     束詳細（share_bundle_detail_screen.dart）の「確認しました」は温存＝そちらは
+//     束の全体を見ながら押す口として残す。
+//
 // 現場紐付け: 各行に置く（PATCH /bundles/receipts/:id/site）。
 //   未設定→「現場を紐付け」／設定済→「変更」＋「解除」（解除は確認1回）。
 //   ★処理鍵（can_share_manage）が無い人がタップしたら案内を出す＝袋小路にしない。
@@ -90,6 +100,17 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
   String? _companyFilter;      // null＝すべて。値は sender_company_id
   String? _busyReceiptId;      // 紐付け処理中の行（連打を止める）
 
+  // 束ごとの確認状態（bundle_id -> my_confirmed_at）。
+  //   ★受信明細（GET /receipts）の18キーに confirmed は【無い】
+  //     （bundles_service.dart:172-174「日報単位の confirmed は存在しない＝裁定Q10」）。
+  //     確認は束単位・人単位の事実なので、GET /bundles/inbox の my_confirmed_at
+  //     （同 :118「confirmed_count / my_confirmed_at だけは【人数・人単位】」）を
+  //     bundle_id で引く。門番は受信箱と同じ blockShareViewer＝新たな鍵は要らない。
+  //   ★取れなかった場合は空のまま＝未確認扱いでボタンを出す。確認は冪等
+  //     （同 :285「二度押しても値は動かない」）なので害が無く、隠す方が袋小路になる。
+  Map<String, String?> _confirmedByBundle = const {};
+  String? _confirmingBundleId; // 確認送信中の束（連打よけ・行の出し分けにも使う）
+
   @override
   void initState() {
     super.initState();
@@ -99,9 +120,17 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     final r = await _svc.getReceipts();
+    // 束の確認状態を併せて取る（_confirmedByBundle のコメント参照）。
+    //   ★一覧の成否とは切り離す（fail-soft）。こちらが落ちても受信トレイは出す
+    //     ＝確認状態だけが分からなくなる。一覧ごと消える方がはるかに困る。
+    final inbox = await _svc.getInbox();
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _confirmedByBundle = {
+        for (final b in (inbox.ok ? (inbox.data ?? const []) : const []))
+          (b['bundle_id'] ?? '').toString(): b['my_confirmed_at'] as String?,
+      };
       if (r.ok) {
         _receipts = r.data ?? const [];
         _error = null;
@@ -140,6 +169,89 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
   List<Map<String, dynamic>> get _visible => _companyFilter == null
       ? _receipts
       : _receipts.where((e) => e['sender_company_id'] == _companyFilter).toList();
+
+  // ── 確認しました（束単位・行カードから直接押す）──────────────────
+  // ★確認は【束単位・人単位】（bundles_service.dart:283-285）。同じ束に属する行が
+  //   複数あれば1回押すと全行が確認済みになる。だから成功後は _load() で取り直し、
+  //   bundle_id で引き直す（行ごとに別々の確認状態を持たせない）。
+  // ★鍵が無い人はボタンを隠さずタップ時に案内する（_onTapLink:161-164 と同じ流儀＝
+  //   袋小路にしない。最終門番は BE の blockShareManager）。
+  Future<void> _onTapConfirm(Map<String, dynamic> r) async {
+    if (!widget.canManage) {
+      showJsSnackbar(context, kShareManageDeniedMessage, isError: true);
+      return;
+    }
+    final bundleId = (r['bundle_id'] ?? '').toString();
+    if (bundleId.isEmpty || _confirmingBundleId != null) return;
+
+    // 押し間違いで相手に伝わらないよう確認を1回挟む（_confirmUnlink と同じ型）。
+    final yes = await _confirmSend((r['sender_company_name'] ?? '').toString());
+    if (yes != true || !mounted) return;
+
+    setState(() => _confirmingBundleId = bundleId);
+    final res = await _svc.confirmBundle(bundleId);
+    if (!mounted) return;
+    setState(() => _confirmingBundleId = null);
+
+    if (res.ok) {
+      showJsSnackbar(context, '「確認しました」を送りました');
+      // 束単位＝同じ束の全行が確認済みになる。取り直して全行へ反映する。
+      await _load();
+      return;
+    }
+    // 非200を握り潰さない（規約6＝statusCode と errorCode で言い切る）。
+    //   分岐は share_bundle_detail_screen.dart:104-115（同じ confirm の呼び手）と同型。
+    final String msg;
+    if (res.statusCode == 403) {
+      msg = res.errorMessage ?? kShareManageDeniedMessage;
+    } else if (res.statusCode == 404) {
+      msg = 'この束は自社宛ではないため確認できません';
+    } else if (res.statusCode == 0) {
+      msg = '通信できませんでした';
+    } else {
+      msg = res.errorMessage ?? '確認を送信できませんでした';
+    }
+    showJsSnackbar(context, msg, isError: true);
+  }
+
+  Future<bool?> _confirmSend(String companyName) => showDialog<bool>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          backgroundColor: FieldTokens.surfaceCard,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          title: const Text('「確認しました」を送りますか？',
+              style: TextStyle(
+                  color: FieldTokens.textBody, fontWeight: FontWeight.bold)),
+          content: Text(
+            companyName.trim().isEmpty
+                ? '送信元に「確認済」と表示されます。この共有に含まれる日報すべてが確認済みになります。'
+                : '「${companyName.trim()}」に「確認済」と表示されます。'
+                    'この共有に含まれる日報すべてが確認済みになります。',
+            style: const TextStyle(
+                color: FieldTokens.textSupport, fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(false),
+              style: TextButton.styleFrom(minimumSize: const Size(88, 44)),
+              child: const Text('キャンセル',
+                  style: TextStyle(color: FieldTokens.textSupport)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(112, 44),
+                backgroundColor: FieldTokens.accent,
+                foregroundColor: FieldTokens.onAccent,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('確認しました'),
+            ),
+          ],
+        ),
+      );
 
   // ── 現場紐付け ───────────────────────────────────────────
   Future<void> _onTapLink(Map<String, dynamic> r) async {
@@ -499,8 +611,14 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
         itemBuilder: (_, i) => _ReceiptRow(
           receipt: rows[i],
           busy: _busyReceiptId == (rows[i]['receipt_id'] ?? '').toString(),
+          // 確認状態は束単位。行ではなく bundle_id で引く。
+          confirmedAt:
+              _confirmedByBundle[(rows[i]['bundle_id'] ?? '').toString()],
+          confirming: _confirmingBundleId ==
+              (rows[i]['bundle_id'] ?? '').toString(),
           onTap: () => _openReceipt(rows[i]),
           onTapLink: () => _onTapLink(rows[i]),
+          onTapConfirm: () => _onTapConfirm(rows[i]),
         ),
       ),
     );
@@ -517,14 +635,24 @@ class _ReceiptRow extends StatelessWidget {
   const _ReceiptRow({
     required this.receipt,
     required this.busy,
+    required this.confirmedAt,
+    required this.confirming,
     required this.onTap,
     required this.onTapLink,
+    required this.onTapConfirm,
   });
 
   final Map<String, dynamic> receipt;
   final bool busy;
+
+  /// この行が属する束の確認時刻（null＝未確認）。束単位・人単位の事実。
+  final String? confirmedAt;
+
+  /// この行が属する束の確認を送信中か。
+  final bool confirming;
   final VoidCallback onTap;
   final VoidCallback onTapLink;
+  final VoidCallback onTapConfirm;
 
   @override
   Widget build(BuildContext context) {
@@ -559,7 +687,22 @@ class _ReceiptRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              _MarkBadge(mark: mark, receipt: receipt),
+              // 印（3段階・裁定は不変）と、その【直下】に確認の導線を置く。
+              //   ★印を4段階にするものではない（印は _MarkBadge のまま）。
+              //     確認は束単位・人単位の別の事実なので、段を分けて出す。
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MarkBadge(mark: mark, receipt: receipt),
+                  const SizedBox(height: 8),
+                  _ConfirmCell(
+                    confirmedAt: confirmedAt,
+                    confirming: confirming,
+                    onTap: onTapConfirm,
+                  ),
+                ],
+              ),
             ]),
             const SizedBox(height: 6),
             // 2段目: 日付・職人
@@ -632,6 +775,72 @@ class _ReceiptRow extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── 確認しました／確認済み（束単位・印の直下）─────────────────────
+// 未確認の束 → ボタン／確認済みの束 → 印（_MarkBadge と同じ枠の流儀）。
+//   ★確認は【人単位】（my_confirmed_at）。既読が会社単位なのと粒度が違うため、
+//     印（既読/未読）と同じ段には並べず、下の段に分けている。
+class _ConfirmCell extends StatelessWidget {
+  const _ConfirmCell({
+    required this.confirmedAt,
+    required this.confirming,
+    required this.onTap,
+  });
+
+  final String? confirmedAt;
+  final bool confirming;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = (confirmedAt ?? '').isNotEmpty;
+    if (done) {
+      // 確認済みの印。_MarkBadge と同じ枠・同じ作り（淡い地＋枠＋文字）。
+      const c = FieldTokens.statusSuccess;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: c),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text('確認済 ${fmtShareDateTime(confirmedAt)}',
+              style: const TextStyle(
+                  color: c, fontSize: 10, fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 44, // タッチターゲット44pt以上
+      child: OutlinedButton.icon(
+        onPressed: confirming ? null : onTap,
+        icon: confirming
+            ? const SizedBox(
+                width: 13,
+                height: 13,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: FieldTokens.accent))
+            : const Icon(Icons.check_circle_outline, size: 15),
+        label: Text(confirming ? '送信中…' : '確認しました',
+            style: const TextStyle(fontSize: 12)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: FieldTokens.accent,
+          side: const BorderSide(color: FieldTokens.accent),
+          // ★横の最小幅をゼロ起点へ明示的に戻す。app_theme.dart:62/:72 が
+          //   minimumSize: Size(double.infinity, 52) を課しており、Row/Column の
+          //   横方向に無制約な文脈へ置くと「幅＝無限」を要求して
+          //   BoxConstraints forces an infinite width で落ちる（bba77ef の実害と同じ罠）。
+          minimumSize: const Size(0, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );
