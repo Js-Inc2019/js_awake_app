@@ -15,6 +15,7 @@ import 'membership_select_screen.dart';
 import '../services/auth_service.dart';
 import '../services/worker_service.dart';
 import '../utils/device_id.dart';
+import '../utils/field_role_gate.dart';
 import '../main.dart' show bossPinOk;
 import '../core/theme/field_tokens.dart';
 
@@ -215,47 +216,89 @@ class _LoginScreenState extends State<LoginScreen> {
         final response = await AuthService().verifyToken();
 
         if (response.statusCode == 200) {
+          // ★role ガード（起動時のトークン復帰）の判定結果だけをここで受ける。
+          //   この経路は「既にログイン済みの端末」が毎回通る道で、サーバ真実の role を
+          //   prefs へ上書きしてから /gate へ入れていた。役職が後から
+          //   worker/boss → admin_office/admin_exec へ変わった場合、FIELD に入れては
+          //   いけない顔をそのまま通してしまう（他の経路と同じ穴）。
+          //   ★案内と return は下の try の【外】で行う。この try は catch (_) {} で
+          //     全例外を握り潰す構造なので、案内処理を中に置くと万一の例外で握り潰され、
+          //     そのまま下の /gate へ進む＝弾いたつもりが通る形になる。
+          //     判定は代入だけ（例外を投げ得ない）にして、行動は外に出す。
+          bool resumeBlocked = false;
           try {
             final data = response.data;
             if (data == null) throw StateError('verify-token 応答が空');
             // サーバ真実（DBの role/worker_id/user_id）を毎回 prefs へ上書き保存してから /gate へ
             final user = data['user'];
-            if (user is Map) {
-              final serverRole = user['role'] as String?;
-              if (serverRole != null && serverRole.isNotEmpty) {
-                await prefs.setString('user_role', serverRole);
+            // ★fail-close（他の経路と同じ）。role が FIELD の名簿に無ければ弾く。
+            //   欠落・空・未知の値も弾く＝isFieldRole が false を返す側に倒す。
+            //   ★fail-close にできる根拠（BE 実測）:
+            //     js-office-api routes/auth.js:445-455 が
+            //       user = { ...user, role: row.role, ... };
+            //       return res.status(200).json({ success: true, user });
+            //     の形で【必ず】 user.role を載せる。row.role は同 :384 の
+            //     `SELECT ... m.role ...` で引いた membership の値で、
+            //     memberships.role は NOT NULL DEFAULT 'worker'
+            //     （db/prod_schema_v72.sql:1114）。さらに同 :408 が
+            //     `!row.membership_id` を 401 で先に弾くため、200 に到達した時点で
+            //     membership 行は必ず存在する＝role が空になる経路が無い。
+            //     よって正規の FIELD 利用者（worker/boss）がここで弾かれることはない。
+            //   ★この穴が実際に踏まれる筋道（fail-open で残せない理由）:
+            //     役職変更は force_reauth を立てる（js-office-api routes/workers.js:1285 /
+            //     :1436）ので、通常は verify-token が 401 ROLE_CHANGED を返す（同 auth.js:398-402）。
+            //     しかし force_reauth は PIN 照合成功で解除される（同 auth.js:109-115）。
+            //     verify-pin は OFFICE アプリと共用なので、OFFICE で PIN ログインした時点で
+            //     解除され、その後 FIELD を開くと 200＋role='admin_office' が返る。
+            //     ＝BE の force_reauth だけでは塞がらない。
+            final resumeRole = (user is Map) ? user['role'] as String? : null;
+            resumeBlocked = !isFieldRole(resumeRole);
+            // ★弾くと決めた回は prefs へ1つも書かない。書いてから弾くと、入れていないのに
+            //   user_role だけが OFFICE 側の値に書き換わって残る。
+            if (!resumeBlocked) {
+              if (user is Map) {
+                final serverRole = user['role'] as String?;
+                if (serverRole != null && serverRole.isNotEmpty) {
+                  await prefs.setString('user_role', serverRole);
+                }
+                final serverWorkerId = user['worker_id'] as String?;
+                if (serverWorkerId != null && serverWorkerId.isNotEmpty) {
+                  await prefs.setString('worker_id', serverWorkerId);
+                }
+                final serverUserId = user['user_id'] as String?;
+                if (serverUserId != null && serverUserId.isNotEmpty) {
+                  await prefs.setString('user_id', serverUserId);
+                }
               }
-              final serverWorkerId = user['worker_id'] as String?;
-              if (serverWorkerId != null && serverWorkerId.isNotEmpty) {
-                await prefs.setString('worker_id', serverWorkerId);
-              }
-              final serverUserId = user['user_id'] as String?;
-              if (serverUserId != null && serverUserId.isNotEmpty) {
-                await prefs.setString('user_id', serverUserId);
-              }
-            }
-            // 旧 'role' キーの残骸掃除（二重キー統一・ログイン成功時に1回）
-            await prefs.remove('role');
+              // 旧 'role' キーの残骸掃除（二重キー統一・ログイン成功時に1回）
+              await prefs.remove('role');
 
-            final serverConsentAt = data['consent_agreed_at'];
-            if (serverConsentAt != null) {
-              await prefs.setString('consent_agreed_at', serverConsentAt.toString());
-            }
-            final serverConsentVersion = data['consent_version'];
-            if (serverConsentVersion != null) {
-              await prefs.setString('consent_version', serverConsentVersion.toString());
-            }
-            // 承認待ちステータス確認
-            final status = data['status'] as String?;
-            if (status == 'pending') {
-              if (mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
-                );
+              final serverConsentAt = data['consent_agreed_at'];
+              if (serverConsentAt != null) {
+                await prefs.setString('consent_agreed_at', serverConsentAt.toString());
               }
-              return;
+              final serverConsentVersion = data['consent_version'];
+              if (serverConsentVersion != null) {
+                await prefs.setString('consent_version', serverConsentVersion.toString());
+              }
+              // 承認待ちステータス確認
+              final status = data['status'] as String?;
+              if (status == 'pending') {
+                if (mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
+                  );
+                }
+                return;
+              }
             }
           } catch (_) {}
+          // ★auth_token は消さない。サーバ側では有効な資格情報のままで、消す判断は
+          //   サーバが無効と言ったとき（下の 401/403 の枝）の仕事。
+          if (resumeBlocked) {
+            await _rejectNonFieldRole();
+            return;
+          }
           if (mounted) Navigator.of(context).pushReplacementNamed('/gate');
           return;
         } else if (response.statusCode == 401 || response.statusCode == 403) {
@@ -378,6 +421,14 @@ class _LoginScreenState extends State<LoginScreen> {
               await _handleMembershipSelection(recoverData);
               return;
             }
+            // ★role ガード（単一所属＝full-login 応答）。
+            //   BE は verify-device の full-login 応答に role を必ず載せる
+            //   （js-office-api routes/auth.js:667 の res.json に role: chosen.role）。
+            //   FIELD で扱えない役職なら保存も遷移もせず案内して留まる。
+            if (!isFieldRole(recoverData['role'] as String?)) {
+              await _rejectNonFieldRole();
+              return;
+            }
             // 保存・遷移は既存 _saveAndNavigate に一任（is_registered=true・.js_reg 再作成・
             // role 等サーバ真実の prefs 保存を含む）。
             await _saveAndNavigate(recoverData);
@@ -446,6 +497,12 @@ class _LoginScreenState extends State<LoginScreen> {
           await _handleMembershipSelection(Map<String, dynamic>.from(data));
           return;
         }
+        // ★role ガード（単一所属＝full-login 応答）。応答の role は
+        //   js-office-api routes/auth.js:667（verify-device）が必ず載せる。
+        if (!isFieldRole(data['role'] as String?)) {
+          await _rejectNonFieldRole();
+          return;
+        }
         await _saveAndNavigate(data);
         return;
       }
@@ -481,6 +538,15 @@ class _LoginScreenState extends State<LoginScreen> {
         // 複数所属 → 選択フロー（従来経路は変更なし）
         if (data['requires_selection'] == true) {
           await _handleMembershipSelection(Map<String, dynamic>.from(data));
+          return;
+        }
+        // ★role ガード（単一所属＝full-login 応答）。応答の role は
+        //   js-office-api routes/auth.js:194（verify-pin）が必ず載せる。
+        //   ★bossPinOk を立てるより【前】に置く。あちらはグローバル変数
+        //     （main.dart:43）で prefs ではないが、弾いた回に副作用を1つも
+        //     残さないため、判定の前に何も書かない順序にする。
+        if (!isFieldRole(data['role'] as String?)) {
+          await _rejectNonFieldRole();
           return;
         }
         final role = data['role'] as String? ?? 'worker';
@@ -614,16 +680,8 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleMembershipSelection(Map<String, dynamic> data) async {
     _preAuthToken = data['pre_auth_token'] as String?;
 
-    // memberships[] を FIELD 用にフィルタ: role が 'worker' または 'boss' のみ残す。
-    final rawList = data['memberships'];
-    final all = (rawList is List) ? rawList.whereType<Map>() : const <Map>[];
-    final field = all
-        .where((m) {
-          final role = m['role'] as String?;
-          return role == 'worker' || role == 'boss';
-        })
-        .map((m) => Map<String, dynamic>.from(m))
-        .toList();
+    // memberships[] を FIELD 用にフィルタ（絞り込みは field_role_gate.dart に1つだけ）。
+    final field = filterFieldMemberships(data['memberships']);
 
     // pre_auth_token が無い異常応答 → 袋小路回避でログイン画面へ（prefs は触らない）。
     if (_preAuthToken == null || _preAuthToken!.isEmpty) {
@@ -646,7 +704,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _showPinLogin = false;
         _biometricFailed = false;
       });
-      await _showOfficeOnlyDialog();
+      await showOfficeOnlyDialog(context);
       _preAuthToken = null;
       return;
     }
@@ -752,6 +810,17 @@ class _LoginScreenState extends State<LoginScreen> {
   // 保存は既存 _saveAndNavigate を再利用（同意束の救済刻印・version 判定を重複実装しない）。
   Future<void> _finishMembershipLogin(Map<String, dynamic> data) async {
     _preAuthToken = null; // 用済み・メモリからも破棄
+    // ★保存前の再検査。ここへ来る membership_id は _handleMembershipSelection が
+    //   worker/boss で絞った中から選ばれているが、絞ったのは【verify 応答に載っていた
+    //   memberships[] のスナップショット】であって、select-membership が返す role が
+    //   サーバの最終真実である（js-office-api routes/auth.js:318 が m.role を返す）。
+    //   その2つがずれた場合（選択中に役職が変わった等）に備え、保存の直前でもう一度見る。
+    //   OFFICE 側も同じ位置に同じ再検査を置いている
+    //   （js_office_app .../login_screen.dart:520 の「門番A（保存前）」）。
+    if (!isFieldRole(data['role'] as String?)) {
+      await _rejectNonFieldRole();
+      return;
+    }
     // boss は _doLoginWithPin と同じく bossPinOk を立てる（ゲート整合）。
     final role = data['role'] as String? ?? 'worker';
     if (role == 'boss') {
@@ -787,31 +856,30 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // フィルタ後 0件（FIELD 用の役割なし）→ OFFICE アプリへ案内。閉じたらログイン画面に留まる。
-  Future<void> _showOfficeOnlyDialog() async {
+  // ─── FIELD で扱えない役職だったときの共通処理 ───────────────────────
+  //
+  // ★ダイアログ本体は lib/utils/field_role_gate.dart へ移設した（画面ごとに作らない）。
+  //   文言・見た目・barrierDismissible:false は移設前と同一。
+  //
+  // ★呼んだら必ず即 return すること。この先で _saveAndNavigate を呼んではいけない。
+  //   prefs / .js_reg / device_id へ書くのは _saveAndNavigate ただ一つなので、
+  //   その手前で止めれば端末には何も残らない（下の「保存しない」の根拠）。
+  //
+  // ★状態の戻し方は複数所属経路の「フィルタ後0件」枝と同一にする
+  //   （_isLoading / _showPinLogin / _biometricFailed を全て false）。
+  //   3つとも false になると build() は最後まで落ちてランディング画面を返す＝
+  //   PIN入力・招待コード登録・機種変更の導線が並ぶ画面に戻る。よって袋小路にならない。
+  //   ★_errorMessage は触らない。0件枝も触っておらず、ここだけ挙動を変えないため。
+  Future<void> _rejectNonFieldRole() async {
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: FieldTokens.surfaceCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('ご案内',
-            style: TextStyle(color: FieldTokens.accent, fontSize: 16)),
-        content: const Text('この端末の役割はOFFICEアプリをご利用ください',
-            style: TextStyle(color: FieldTokens.textBody, height: 1.7)),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: FieldTokens.accent,
-              foregroundColor: FieldTokens.onAccent,
-            ),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+    setState(() {
+      _isLoading       = false;
+      _showPinLogin    = false;
+      _biometricFailed = false;
+    });
+    await showOfficeOnlyDialog(context);
+    // pre_auth_token を持っている経路（選択フロー経由）でも確実に捨てる。
+    _preAuthToken = null;
   }
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
