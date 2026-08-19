@@ -249,7 +249,8 @@ class _TamperIncidentDetailScreenState
   Widget _content(Map<String, dynamic> inc) {
     final status = inc['status'] as String?;
     final c = _statusColor(status);
-    final isBundle = inc['target_type'] == 'bundle';
+    // ★isBundle（target_type == 'bundle' の判定）は撤去した。BE(v550)で常に true にしか
+    //   ならない値になり、分岐そのものが意味を失ったため（下の「共有情報」節を参照）。
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -297,22 +298,28 @@ class _TamperIncidentDetailScreenState
         if (_s(inc['gps_address']) != '-') _row('報告場所', _s(inc['gps_address'])),
         const SizedBox(height: 24),
 
-        // ── 共有の種別 ────────────────────────────────────
-        _section('共有の種別'),
-        _row('種別', isBundle ? 'まとめ共有' : '単発共有'),
+        // ── 共有情報 ──────────────────────────────────────
+        //   ★見出しは「共有の種別」から改めた。BE(v550)で旧・単発共有が退役し
+        //     target_type は常に 'bundle' ＝ 種別という軸が無くなったため「種別」行ごと
+        //     撤去した。見出しだけ残すと中身と食い違う。
+        //   ★受信社行も撤去した。receiver_company_name は BE 応答から消えており
+        //     （routes/tamper.js の INCIDENT_SELECT に存在しない）、残すと常に '-' を
+        //     出すだけの行になる。まとめ共有は受信社が複数社ありうるので、
+        //     そもそも1行で表せる値が無い。
+        _section('共有情報'),
         _row('送信社', _s(inc['sender_company_name'])),
-        if (isBundle)
-          _row('まとめ名', _s(inc['bundle_title']))
-        else
-          _row('受信社', _s(inc['receiver_company_name'])),
+        _row('まとめ名', _s(inc['bundle_title'])),
         const SizedBox(height: 24),
 
         // ── 検知情報 ──────────────────────────────────────
         _section('検知情報'),
         _row('検知日時', _fmtJst(inc['detected_at'] as String?)),
         _row('検知者', _s(inc['detected_by_name'])),
-        _row('検知方法',
-            inc['detected_via'] == 'bundle_view' ? '閲覧時の自動検知' : '手動チェック'),
+        // ★「手動チェック」は撤去した。この語が指していた detected_via='manual_check' の
+        //   生成元は旧・単発共有の POST /shares/check-tamper ただ一つで、BE(v550)で
+        //   経路ごと退役している。今 BE が書くのは 'bundle_view' だけ。
+        //   ★未知の値を黙って既定の語へ読み替えない: 想定外なら「不明」と分かる形で出す。
+        _row('検知方法', _detectedViaLabel(inc['detected_via'] as String?)),
         const SizedBox(height: 8),
         _hashRow('共有時のハッシュ', inc['hash_before'] as String?),
         _hashRow('現在のハッシュ', inc['hash_after'] as String?),
@@ -395,6 +402,19 @@ class _TamperIncidentDetailScreenState
   static String _s(dynamic v) {
     final s = (v ?? '').toString().trim();
     return s.isEmpty ? '-' : s;
+  }
+
+  // detected_via→検知方法ラベル。
+  //   ★BE(v550)が書くのは 'bundle_view' ただ一つ。旧 'manual_check'（＝退役した
+  //     単発共有の POST /shares/check-tamper）は生成元ごと消えている。
+  //   ★既定値を持たせて未知の値を既知の語へ読み替えることはしない。
+  //     旧実装は bundle_view 以外を全て「手動チェック」と表示しており、
+  //     キー欠落や将来の新しい値が「手動でチェックした」という嘘に化けていた。
+  //     分からないものは分からないと出す（値も併記して調査の手掛かりを残す）。
+  static String _detectedViaLabel(String? via) {
+    if (via == 'bundle_view') return '閲覧時の自動検知';
+    final s = (via ?? '').trim();
+    return s.isEmpty ? '不明' : '不明（$s）';
   }
 
   Widget _section(String label) => Padding(

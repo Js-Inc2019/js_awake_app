@@ -38,11 +38,17 @@ class TamperService {
   // ============================================================
   // 事件の詳細
   //   応答: { success, incident: {...} }
-  //   incident のキー: incident_id / status / target_type('share'|'bundle') /
-  //     sender_company_name / receiver_company_name(束は null) / bundle_title /
+  //   incident のキー: incident_id / status / target_type / bundle_id / report_id /
+  //     sender_company_id / sender_company_name / bundle_title /
   //     worker_name / report_date / site_name / work_content / gps_address /
-  //     detected_at / detected_by_name / detected_via / hash_before / hash_after /
-  //     resolved_by_name / resolved_at / resolution_note
+  //     detected_at / detected_by / detected_by_name / detected_via /
+  //     hash_before / hash_after / resolved_by / resolved_by_name / resolved_at /
+  //     resolution_note
+  //   ★BE(v550・migrate_v74)で旧・単発共有が器ごと退役した。これに伴い:
+  //     ・receiver_company_name は応答から【消えた】（まとめ共有は受信社が複数社ありうる）。
+  //     ・target_type は常に 'bundle' の固定値（'share' はもう返らない）。
+  //     ・share_id は列ごと撤去され応答に載らない。
+  //     ・detected_via は 'bundle_view' のみ（'manual_check' の生成元は退役済み）。
   //   404=自社が当事者でない or 不在、403=監査権限なし（呼び手が出し分ける）。
   // ============================================================
 

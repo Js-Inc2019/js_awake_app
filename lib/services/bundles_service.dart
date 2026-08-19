@@ -3,9 +3,12 @@
 //
 // ★存在理由:
 //   BE の routes/bundles.js（8エンドポイント）に対する FIELD 側の窓口。
-//   複数日報を1束にして1社以上へ送る／受け取る系統で、単発共有の /shares 系とは別。
-//   ★/shares 系の FE（旧 share_screen.dart + share_service.dart）は本工事で撤去した。
-//     FIELD の会社間共有はこの /bundles 系ただ一本になった。
+//   複数日報を1束にして1社以上へ送る／受け取る系統。
+//   ★かつて併存していた旧・単発共有（/shares 系）は完全に退役した:
+//     ・FE（旧 share_screen.dart + share_service.dart）は本工事で撤去。
+//     ・BE も v550 で routes/shares.js ごと撤去し、migrate_v74 で
+//       report_shares / share_site_links をテーブルごと DROP した。
+//     FIELD の会社間共有はこの /bundles 系ただ一本で、復活する余地はもう無い。
 //
 // ★規約は api_result.dart 冒頭ただ一つ。全メソッドが runApiCall を通し、
 //   ApiResult<T> を返す。timeout は既定15秒（規約5）。
@@ -75,7 +78,9 @@ class BundlesService {
   /// ★自社宛の混入は 400 SELF_SHARE_NOT_ALLOWED、他社/不在の日報混入は
   ///   403 REPORT_NOT_OWNED、送信先不在は 404 RECEIVER_NOT_FOUND。
   ///   どれも「1件でも駄目なら全体を通さない」＝部分送信は起きない。
-  /// ★data は {bundle_id, report_count, receiver_count, bundle_hash}（:374-379）。
+  /// ★data は {bundle_id, report_count, receiver_count}。
+  ///   ★bundle_hash は BE(v550・裁定Q9)で BUNDLE_FIELDS から外れた（応答3経路とも）。
+  ///     生ハッシュは配らない方針で、健全性は束詳細の bundle_integrity が畳んで返す。
   Future<ApiResult<Map<String, dynamic>>> sendBundle({
     required List<String> reportIds,
     required List<String> receiverCompanyIds,
@@ -136,14 +141,17 @@ class BundlesService {
   }
 
   /// 自社が送信した束一覧（送信側）。受信社ごとの状態が receivers に入る。
-  /// BE: routes/bundles.js:619-662（門番 blockShareViewer・応答 {success, bundles:[...]}）
+  /// BE: routes/bundles.js の GET /bundles/outbox
+  ///     （門番 blockShareViewer・応答 {success, bundles:[...]}）
   ///
   /// ★門番は【見る門番】。旧 blockOutboxViewer（can_share_send OR 役職）は
   ///   段階3で退役した＝送る鍵を持たない人でも「自社が誰へ何を送ったか」は見える。
-  /// ★1件は {bundle_id, title, initial_axis, include_photos, bundle_hash,
+  /// ★1件は {bundle_id, title, initial_axis, include_photos,
   ///   created_at, report_count, receivers:[...]}。receivers[] は
   ///   {receiver_company_id, company_name, bundle_status, received_at,
   ///    read_count, report_count, confirmed_count}。
+  ///   ★bundle_hash は BE(v550・裁定Q9)で応答から外れた（判断材料は束詳細の
+  ///     bundle_integrity）。receiver_company_id と bundle_status は現役。
   /// ★receivers[].read_count / report_count の数え方は GET /:bundle_id の
   ///   receivers と完全に同一（同じ事実を2画面が別々に数えて食い違わないため）。
   ///   ここでも read_count は【枚数】・confirmed_count は【人数】。

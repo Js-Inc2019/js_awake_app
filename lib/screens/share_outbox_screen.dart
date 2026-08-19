@@ -4,14 +4,21 @@
 // 導線: 共有タブ（share_hub_screen.dart）の「送信済み」タイル。
 //
 // BE: GET /bundles/outbox（BundlesService.getOutbox）。
-//   ・スコープは sender_company_id = 自社。並びは created_at DESC（BE 確定・
-//     routes/bundles.js:653）なので FE で並べ替え直さない。
-//   ・門番は【見る門番】blockShareViewer（:620）。旧 blockOutboxViewer
+//   ・スコープは sender_company_id = 自社。並びは created_at DESC（BE 確定）なので
+//     FE で並べ替え直さない。
+//   ・門番は【見る門番】blockShareViewer。旧 blockOutboxViewer
 //     （can_share_send OR 役職）は段階3で退役＝送る鍵が無くても送信履歴は見える。
-//   ・1件 = {bundle_id, title, initial_axis, include_photos, bundle_hash,
-//            created_at, report_count, receivers:[...]}（:625-650）
+//   ・1件 = {bundle_id, title, initial_axis, include_photos,
+//            created_at, report_count, receivers:[...]}
 //     receivers[] = {receiver_company_id, company_name, bundle_status,
 //                    received_at, read_count, report_count, confirmed_count}
+//     ★bundle_hash は BE(v550・裁定Q9)で応答3経路すべてから外れた。生ハッシュは
+//       配らない方針で、まとめの健全性は束詳細(GET /bundles/:bundle_id)の
+//       bundle_integrity('ok'|'broken') が畳んで返す＝判断材料はそちら。
+//     ★receiver_company_id は【現存する】（退役したのは旧・単発共有側の
+//       receiver_company_name であって、この列ではない）。
+//     ★bundle_status も現役（share_bundle_receivers 由来。退役した
+//       report_shares.share_status とは別物）。
 //     ★read_count / report_count は【枚数】（受信社宛の受信明細を数える）。
 //       confirmed_count だけ【人数】（acks・確認は既読と別の事実）。
 //       この画面はその区別を文言でも保つ＝「n枚中m枚読了」「確認n人」。
