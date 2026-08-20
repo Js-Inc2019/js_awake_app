@@ -16,7 +16,7 @@
 //   ★通信断・その他の失敗も同様に表示は継続する（閲覧を止める理由が無い）。
 //
 // 写真: 束が include_photos=true で送られていた場合だけ原本から見える
-//   （BE routes/reports.js:2294-2305 の束経路＝include_photos=true かつ自社が受信社）。
+//   （BE routes/reports.js:2318-2330 の束経路＝include_photos=true かつ自社が受信社）。
 //   ★共通の ReportPhotos ウィジェットは使わない。あちらは取得失敗を
 //     「写真の取得に失敗しました」の一文で表すため（report_photos.dart:62）、
 //     写真を含めずに送られた束（＝404 が正常）でも「失敗」と言ってしまう。
