@@ -20,14 +20,14 @@
 //     どちらも嘘になるため（BE も 'tampered' と 'updated' を別の値として持つ・
 //     routes/bundles.js:1039-1041）。
 //
-// 確認を送る: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
+// 確認済みにする: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
 //   ★確認は【束単位・人単位】。1回押すと同じ束に属する行が全て確認済みになるので、
 //     成功後は一覧を取り直して全行へ反映する。
 //   ★確認済みかどうかは受信明細（GET /receipts）に無い（日報単位の confirmed は
 //     存在しない＝裁定Q10）。GET /bundles/inbox の my_confirmed_at を bundle_id で
 //     引いて出す。取得は一覧本体と切り離す（fail-soft＝落ちても一覧は出す）。
 //   ★処理鍵が無い人にもボタンは出し、タップ時に案内する（袋小路にしない）。
-//     束詳細（share_bundle_detail_screen.dart）の「確認しました」は温存＝そちらは
+//     束詳細（share_bundle_detail_screen.dart）の「確認済みにする」は温存＝そちらは
 //     束の全体を見ながら押す口として残す。
 //
 // 現場紐付け: 各行に置く（PATCH /bundles/receipts/:id/site）。
@@ -109,7 +109,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
   //   ★取れなかった場合は空のまま＝未確認扱いでボタンを出す。確認は冪等
   //     （同 :285「二度押しても値は動かない」）なので害が無く、隠す方が袋小路になる。
   Map<String, String?> _confirmedByBundle = const {};
-  String? _confirmingBundleId; // 確認送信中の束（連打よけ・行の出し分けにも使う）
+  String? _confirmingBundleId; // 確認処理中の束（連打よけ・行の出し分けにも使う）
 
   @override
   void initState() {
@@ -170,7 +170,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
       ? _receipts
       : _receipts.where((e) => e['sender_company_id'] == _companyFilter).toList();
 
-  // ── 確認を送る（束単位・行カードから直接押す）──────────────────
+  // ── 確認済みにする（束単位・行カードから直接押す）────────────────
   // ★確認は【束単位・人単位】（bundles_service.dart:283-285）。同じ束に属する行が
   //   複数あれば1回押すと全行が確認済みになる。だから成功後は _load() で取り直し、
   //   bundle_id で引き直す（行ごとに別々の確認状態を持たせない）。
@@ -194,7 +194,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
     setState(() => _confirmingBundleId = null);
 
     if (res.ok) {
-      showJsSnackbar(context, '「確認しました」を送りました');
+      showJsSnackbar(context, '確認済みにしました');
       // 束単位＝同じ束の全行が確認済みになる。取り直して全行へ反映する。
       await _load();
       return;
@@ -205,11 +205,11 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
     if (res.statusCode == 403) {
       msg = res.errorMessage ?? kShareManageDeniedMessage;
     } else if (res.statusCode == 404) {
-      msg = 'この束は自社宛ではないため確認できません';
+      msg = 'この共有は自社宛ではないため確認できません';
     } else if (res.statusCode == 0) {
       msg = '通信できませんでした';
     } else {
-      msg = res.errorMessage ?? '確認を送信できませんでした';
+      msg = res.errorMessage ?? '確認済みにできませんでした';
     }
     showJsSnackbar(context, msg, isError: true);
   }
@@ -220,7 +220,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
           backgroundColor: FieldTokens.surfaceCard,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          title: const Text('「確認しました」を送りますか？',
+          title: const Text('確認済みにしますか？',
               style: TextStyle(
                   color: FieldTokens.textBody, fontWeight: FontWeight.bold)),
           content: Text(
@@ -247,7 +247,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text('送る'),
+              child: const Text('確認済みにする'),
             ),
           ],
         ),
@@ -648,7 +648,7 @@ class _ReceiptRow extends StatelessWidget {
   /// この行が属する束の確認時刻（null＝未確認）。束単位・人単位の事実。
   final String? confirmedAt;
 
-  /// この行が属する束の確認を送信中か。
+  /// この行が属する束が確認処理中か。
   final bool confirming;
   final VoidCallback onTap;
   final VoidCallback onTapLink;
@@ -781,7 +781,7 @@ class _ReceiptRow extends StatelessWidget {
   }
 }
 
-// ─── 確認を送る／確認済み（束単位・印の直下）─────────────────────
+// ─── 確認済みにする／確認済み（束単位・印の直下）───────────────────
 // 未確認の束 → ボタン／確認済みの束 → 印（_MarkBadge と同じ枠の流儀）。
 //   ★確認は【人単位】（my_confirmed_at）。既読が会社単位なのと粒度が違うため、
 //     印（既読/未読）と同じ段には並べず、下の段に分けている。
@@ -828,7 +828,7 @@ class _ConfirmCell extends StatelessWidget {
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: FieldTokens.accent))
             : const Icon(Icons.check_circle_outline, size: 15),
-        label: Text(confirming ? '送信中…' : '確認を送る',
+        label: Text(confirming ? '処理中…' : '確認済みにする',
             style: const TextStyle(fontSize: 12)),
         style: OutlinedButton.styleFrom(
           foregroundColor: FieldTokens.accent,

@@ -286,7 +286,7 @@ class BundlesService {
     );
   }
 
-  /// 束を「確認しました」にする。自社が受信社の場合のみ（送信社は 404）。
+  /// 束を「確認済み」にする。自社が受信社の場合のみ（送信社は 404）。
   /// BE: routes/bundles.js:1179-1243（応答 {success, confirmed_at}）
   ///
   /// ★確認は【束単位・人単位】（share_bundle_acks.confirmed_at）。日報1枚ごとの

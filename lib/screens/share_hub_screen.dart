@@ -307,7 +307,7 @@ class ShareHubBodyState extends State<ShareHubBody> {
             _ShareTile(
               icon: Icons.outbox_outlined,
               title: '送信済み',
-              subtitle: '自社が他社へ送った束',
+              subtitle: '自社が他社へ送った日報',
               badge: 0,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => const ShareOutboxScreen(),

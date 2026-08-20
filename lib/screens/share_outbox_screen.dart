@@ -147,7 +147,7 @@ class _ShareOutboxScreenState extends State<ShareOutboxScreen> {
             SizedBox(
               height: 320,
               child: Center(
-                child: Text('送信した束はありません',
+                child: Text('送信した日報はありません',
                     style: TextStyle(
                         color: FieldTokens.textSupport, fontSize: 14)),
               ),

@@ -14,7 +14,7 @@
 //     （routes/bundles.js:1076-1114・fail-open）。だから【開いた1件だけ】を叩く。
 //     一覧の見た目を整えるための先読みは絶対にしない。
 //
-// 「確認しました」: POST /bundles/:bundle_id/confirm（受信社のみ・送信社は404）。
+// 「確認済みにする」: POST /bundles/:bundle_id/confirm（受信社のみ・送信社は404）。
 //   ★束単位・人単位の事実（share_bundle_acks.confirmed_at）で、日報1枚ごとの
 //     既読とは別物。冪等（初回時刻を保つ）。
 //   ★この GET の応答には「自分が確認済みか」が入っていない
@@ -39,7 +39,7 @@ class ShareBundleDetailScreen extends StatefulWidget {
 
   final String bundleId;
 
-  /// 処理鍵。「確認しました」を押せるかの入口判定に使う（最終門番は BE）。
+  /// 処理鍵。「確認済みにする」を押せるかの入口判定に使う（最終門番は BE）。
   final bool canManage;
 
   @override
@@ -52,7 +52,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
 
   Map<String, dynamic>? _data;   // 応答全体（null＝未取得 or 失敗）
   bool _loading = true;
-  bool _busy = false;            // 確認の送信中（連打を止める）
+  bool _busy = false;            // 確認処理中（連打を止める）
   String? _error;
   String? _confirmedAt;          // 押して成功した時刻（押す前は知らない＝null）
 
@@ -76,10 +76,10 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
         _error = r.statusCode == 403
             ? (r.errorMessage ?? '共有を見る権限がありません')
             : r.statusCode == 404
-                ? '束が見つかりません'
+                ? 'この共有は見つかりません'
                 : r.statusCode == 0
                     ? '通信できませんでした'
-                    : (r.errorMessage ?? '束を取得できませんでした');
+                    : (r.errorMessage ?? '共有を読み込めませんでした');
       }
     });
   }
@@ -98,7 +98,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
     if (r.ok) {
       setState(() =>
           _confirmedAt = (r.data?['confirmed_at'] ?? '').toString());
-      showJsSnackbar(context, '確認しました');
+      showJsSnackbar(context, '確認済みにしました');
       return;
     }
     final String msg;
@@ -106,11 +106,11 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
       msg = r.errorMessage ?? kShareManageDeniedMessage;
     } else if (r.statusCode == 404) {
       // 送信社が押した場合もここ（BE は関係者以外と同じ 404 で返す）。
-      msg = 'この束は自社宛ではないため確認できません';
+      msg = 'この共有は自社宛ではないため確認できません';
     } else if (r.statusCode == 0) {
       msg = '通信できませんでした';
     } else {
-      msg = r.errorMessage ?? '確認できませんでした';
+      msg = r.errorMessage ?? '確認済みにできませんでした';
     }
     showJsSnackbar(context, msg, isError: true);
   }
@@ -122,7 +122,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
       appBar: AppBar(
         backgroundColor: FieldTokens.bgBase,
         foregroundColor: FieldTokens.accent,
-        title: const Text('束の全体'),
+        title: const Text('共有の内容'),
         actions: [
           IconButton(
             onPressed: (_loading || _busy) ? null : _load,
@@ -148,7 +148,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
               const Icon(Icons.error_outline,
                   size: 56, color: FieldTokens.statusError),
               const SizedBox(height: 16),
-              Text(_error ?? '束を取得できませんでした',
+              Text(_error ?? '共有を読み込めませんでした',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                       color: FieldTokens.textSupport, fontSize: 15)),
@@ -197,7 +197,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
                   color: FieldTokens.statusError, size: 22),
               SizedBox(width: 12),
               Expanded(
-                child: Text('束全体の照合が一致しません。中身が送信時と同じであることを保証できません。',
+                child: Text('共有内容の照合が一致しません。中身が送信時と同じであることを保証できません。',
                     style: TextStyle(
                         color: FieldTokens.textBody,
                         fontSize: 13,
@@ -209,7 +209,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
         ],
 
         // ── 束 ─────────────────────────────────────────
-        _section('束'),
+        _section('共有の情報'),
         if (_s(bundle['title']) != '-') _row('件名', _s(bundle['title'])),
         _row('送信者', _s(bundle['sender_name'])),
         _row('送信日時', fmtShareDateTime(bundle['created_at'])),
@@ -227,7 +227,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
         const SizedBox(height: 22),
 
         // ── 明細 ───────────────────────────────────────
-        _section('入っている日報'),
+        _section('対象の日報'),
         if (items.isEmpty)
           const Text('日報がありません',
               style: TextStyle(color: FieldTokens.textSupport, fontSize: 13))
@@ -241,7 +241,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
         //     同じ束が他にどこへ届いたかは自社の業務判断に使わない
         //     （BE は両側へ同じ構造を返すが、出す/出さないは画面の裁量）。
         if (!isReceiver) ...[
-          _section('送信先ごとの状況'),
+          _section('送信先の状況'),
           if (receivers.isEmpty)
             const Text('送信先がありません',
                 style: TextStyle(color: FieldTokens.textSupport, fontSize: 13))
@@ -251,7 +251,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
           const SizedBox(height: 22),
         ],
 
-        // ── 確認を送る（受信社のみ）──────────────────────────
+        // ── 確認済みにする（受信社のみ）────────────────────────
         if (isReceiver) ...[
           if (_confirmedAt != null && _confirmedAt!.isNotEmpty)
             Container(
@@ -266,7 +266,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
                     color: FieldTokens.statusSuccess, size: 20),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text('確認しました（${fmtShareDateTime(_confirmedAt)}）',
+                  child: Text('確認済 ${fmtShareDateTime(_confirmedAt)}',
                       style: const TextStyle(
                           color: FieldTokens.statusSuccess,
                           fontSize: 14,
@@ -280,7 +280,7 @@ class _ShareBundleDetailScreenState extends State<ShareBundleDetailScreen> {
               child: ElevatedButton.icon(
                 onPressed: _busy ? null : _confirm,
                 icon: const Icon(Icons.check, size: 18),
-                label: Text(_busy ? '送信中…' : '確認を送る'),
+                label: Text(_busy ? '処理中…' : '確認済みにする'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: FieldTokens.accent,
                   foregroundColor: FieldTokens.onAccent,

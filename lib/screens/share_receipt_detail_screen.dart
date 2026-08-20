@@ -43,7 +43,7 @@ class ShareReceiptDetailScreen extends StatefulWidget {
   /// GET /bundles/receipts の1行（18キー）。呼び手がコピーを渡す。
   final Map<String, dynamic> receipt;
 
-  /// 処理鍵。束詳細の「確認しました」の出し分けにそのまま渡す。
+  /// 処理鍵。束詳細の「確認済みにする」の出し分けにそのまま渡す。
   final bool canManage;
 
   @override
@@ -114,7 +114,7 @@ class _ShareReceiptDetailScreenState extends State<ShareReceiptDetailScreen> {
         _photoLoading = false;
         // 404/403 は「写真つきで送られていない」＝正常。失敗と混ぜない。
         _photoNote = (res.statusCode == 404 || res.statusCode == 403)
-            ? 'この束は写真を含めずに送られています'
+            ? 'この共有は写真を含めずに送られています'
             : res.statusCode == 0
                 ? '写真を取得できませんでした（通信できませんでした）'
                 : '写真を取得できませんでした（${res.errorMessage ?? "理由不明"}）';
@@ -286,7 +286,7 @@ class _ShareReceiptDetailScreenState extends State<ShareReceiptDetailScreen> {
             child: OutlinedButton.icon(
               onPressed: _openBundle,
               icon: const Icon(Icons.inventory_2_outlined, size: 18),
-              label: const Text('この束の全体を見る'),
+              label: const Text('共有の内容を見る'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: FieldTokens.accent,
                 side: const BorderSide(color: FieldTokens.accent),
