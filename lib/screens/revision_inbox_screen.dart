@@ -37,7 +37,7 @@ class _RevisionInboxScreenState extends State<RevisionInboxScreen> {
 
 // タブ埋め込み用: Scaffold/AppBar を持たない本体（S2で承認・是正タブに束ねる）
 class RevisionInboxBody extends StatefulWidget {
-  // isForeman は呼び出し元（home_screen.dart:3396 は true / RevisionInboxScreen は既定 false）
+  // isForeman は呼び出し元（home_screen.dart の ForemanHomeScreen は true / RevisionInboxScreen は既定 false）
   // との互換のため構造上残すが、タップ分岐は「提出者本人か」の判定に切替済みで参照しない。
   //   本人（rev['user_id']==自分）→ RevisionEditScreen（編集・再提出）
   //   本人以外（職長が他人の差戻しを見る等）→ ReportDetailSheet（閲覧）

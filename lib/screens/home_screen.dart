@@ -87,7 +87,7 @@ class _WeatherData {
   ///   モデルで捨てないため（表示を戻すときに取得側から直す必要が無い）。
   final String? wbgtMessage;
 
-  /// 気象アラート。BE の alert.level / alert.message（weatherEngine.js:250-276）。
+  /// 気象アラート。BE の alert.level / alert.message（weatherEngine.js の computeAlert）。
   /// message は絵文字込みの完成文＝端末で組み立て直さない。
   final String? alertLevel;
   final String? alertMessage;
@@ -176,13 +176,13 @@ Color _wbgtColor(double wbgt) {
 //     旧 OWM 経路 / 旧フォールバック経路 … 端末から気象APIを直接叩いていた2本。
 //                                   フォールバックは BE 内で完結する。
 //     旧アイコン変換2種            … 天気コード→絵文字の変換表が2系統あった。
-//                                   BE が絵文字を返す（weatherEngine.js:368）。
+//                                   BE が絵文字を返す（weatherEngine.js の weatherEmoji）。
 //     旧WBGT計算・閾値ラベル       … 端末側の独自式とラベル判定。
 //                                   真実源は BE（日本生気象学会 Ver.4 換算表）。
 //   ＝FIELD と OFFICE が同じ数字・同じ絵文字・同じ言葉になる。
 //
 // ★測位できていない（lat/lon が無い）ときは呼ばない。BE は lat/lon 必須で
-//   400 を返すため（tools_weather.js:51）、投げる前にここで止める。
+//   400 を返すため（tools_weather.js の「lat, lon が必要です」）、投げる前にここで止める。
 // ★失敗（非200・401・通信不成立）は data を返さず、呼び手が静かに劣化させる。
 //   天気の失敗で snackbar を出さない・ログイン画面へ飛ばさない（現行どおり）。
 // ─────────────────────────────────────────────
@@ -293,7 +293,7 @@ class ReportTabNavigator {
 
 // 打刻のお知らせ（FCM: punch_remind_in / punch_remind_out）の2択ダイアログを、
 // 画面外（fcm_service.dart）から開くための橋。
-//   ・上の ReportTabNavigator(:349-363) と同型。違いは引数を3つ取ることだけ。
+//   ・上の ReportTabNavigator と同型。違いは引数を3つ取ることだけ。
 //   ・showDialog に渡す context は「生きている画面の State」のもの＝lib 配下の
 //     既存 showDialog 35箇所と同じ流儀。navigatorKey.currentContext は使わない
 //     （当リポジトリに showDialog での使用実績が無いため）。
@@ -332,12 +332,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   int _tabIndex = 0;
 
   // 「管理・履歴」タブ(index1)の中で開きたいセグメントの指定。
-  //   ・ラベルで指定する（management_history_screen.dart:38-45 の理由による。
+  //   ・ラベルで指定する（management_history_screen.dart の _labels の理由による。
   //     枚数と並びが職人2枚/職長4枚で異なるため index は渡さない）。
   //   ・_mgmtSegmentRequestId は「今もう一度開いてほしい」の通し番号。
-  //     管理・履歴画面は IndexedStack(:1561) の子で作り直されないため、
+  //     管理・履歴画面は IndexedStack の子で作り直されないため、
   //     同じラベルを渡し直すだけでは切り替わらない。要求のたびに +1 する。
-  //   ★ボトムバッジからのタブ切替(:1741 onTap)はこの2値を触らない＝挙動不変。
+  //   ★ボトムバッジからのタブ切替(_BottomTabItem の onTap)はこの2値を触らない＝挙動不変。
   String? _mgmtSegment;
   int _mgmtSegmentRequestId = 0;
 
@@ -348,7 +348,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   int _revisionCount = 0;
   int _pendingApprovalCount = 0;
   // _linkCount（協力申請の未処理件数）は撤去した。
-  // 唯一の読み手だった AppBar の 🤝 アイコン（旧 :1575-1600）を撤去したため、
+  // 唯一の読み手だった AppBar の 🤝 アイコンを撤去したため、
   // 保持し続けると unused_field 警告になる。取得処理 _loadLinkCount() も併せて撤去
   // （GET /company-links/my を毎起動叩くだけで誰も読まない状態を残さないため）。
   // ※ company_link_screen.dart 本体は削除していない。
@@ -381,12 +381,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // 共有/設定タブの Body へアクセスするキー。シェルが Body の公開 State 経由で
   // 「タブ進入時の再取得」「編集」を実行するために持つ
-  // （RevisionInboxBodyState を GlobalKey で使う既存流儀・:4303/:4348 と同型）。
+  // （RevisionInboxBodyState を GlobalKey で使う既存流儀と同型）。
   //
   // ★通知タブは退役した（ボトム index2 は「共有」）。旧 _notifBodyKey は
   //   AppBar の「すべて既読」をタブ内 Body へ届けるためのものだったが、
   //   通知は AppBar の🔔から NotificationListScreen（自前 AppBar に
-  //   「すべて既読」を持つ・notification_list_screen.dart:285-302）を push する形へ
+  //   「すべて既読」を持つ・notification_list_screen.dart の canMarkAllRead / markAllRead）を push する形へ
   //   戻したので、シェル側から Body を掴む必要が無くなった＝キーごと退役。
   final GlobalKey<ShareHubBodyState> _shareBodyKey =
       GlobalKey<ShareHubBodyState>();
@@ -401,7 +401,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── GPS ───
   String _gpsAddress = '';
-  // fetchGpsAddress(main.dart:653) の status をそのまま保持する。
+  // fetchGpsAddress(main.dart) の status をそのまま保持する。
   // '' = 未取得 / 'ok' / 'address_failed'（座標フォールバック）/ 'gps_failed'
   String _gpsStatus = '';
   bool _gpsLoading = false;
@@ -469,7 +469,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 完了ビューが日報タブ(index1)を占有中か。true の間フォームへ到達不能＝二重報告防止の要
   bool _todayReportDone = false;
   // K1: 打刻状態のミラー。真実源は PunchScreen が fetchToday から受け取った値で、
-  //   onPunchStateChanged(punch_screen.dart:66) 経由で流れてくるだけ＝ここで判定は作らない。
+  //   onPunchStateChanged(punch_screen.dart) 経由で流れてくるだけ＝ここで判定は作らない。
   //   初期値は「実打刻でない・未打刻」＝完了ビューの出し分けが最も緩い側（従来と同じ見え方）。
   bool _punchIsActual = false;
   bool _punchedInToday = false;
@@ -509,11 +509,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   /// エラー時の自動ジャンプ。確認画面(_ConfirmSendScreen)を1枚 pop してフォームへ戻り、
   /// 指定ステップを開いてスクロールを先頭へ戻す。
-  ///   ・_submit の呼び手は確認画面の onSend のみ（実測・:1473 が唯一）。
+  ///   ・_submit の呼び手は確認画面の onSend のみ（実測・1箇所のみ）。
   ///     よって pop 対象は常に確認画面1枚。
   ///   ・pop 後も _ConfirmSendScreenState は退場アニメ中 mounted のままだが、
   ///     ②③の中断経路は _todayReportDone が false のため
-  ///     :2515 `if (widget.isDone()) Navigator.pop(context);` は発火せず二重popしない。
+  ///     `if (widget.isDone()) Navigator.pop(context);` は発火せず二重popしない。
   void _jumpToStep(int s) {
     if (!mounted) return;
     final nav = Navigator.of(context);
@@ -885,7 +885,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ─── 移動手段のデフォルト復元 ───
-  // 既存の 'today_transport'（_saveDraft:576）は「今日の下書き」で _clearDraft(:583) が
+  // 既存の 'today_transport'（_saveDraft）は「今日の下書き」で _clearDraft が
   // 送信時に消す上、復元は _restoreDraft が呼ばれる経路（restoreWorkStatus != null）でしか
   // 効かなかった。デフォルトとして日をまたいで残すのは別責務なので、
   // last_site_* と同じ流儀で専用キーを新設する（既存キーには一切触れない）。
@@ -963,7 +963,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     });
   }
 
-  // 作業3: 会社名サジェスト。company_link_screen.dart:256-268 と同じ流儀（300msデバウンス）。
+  // 作業3: 会社名サジェスト。company_link_screen.dart と同じ流儀（300msデバウンス）。
   //   結果を _carpoolCompanyResults に格納し、SearchSuggestField の candidates を再生成する。
   void _onCarpoolCompanyChanged(String v) {
     _carpoolCompanyDebounce?.cancel();
@@ -1189,7 +1189,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     final (:address, lat: _, lon: _, :status) = await fetchGpsAddress();
     // キャッシュ焼き付きの停止: 住所の構築に成功した値だけを保存する。
     // 座標フォールバック('address_failed')や '位置情報の権限がありません' 等
-    // ('gps_failed')を保存すると、次回起動時に _loadCacheAndStart(:748) が
+    // ('gps_failed')を保存すると、次回起動時に _loadCacheAndStart が
     // それを復元して住所のふりをして表示し続けるため。
     if (status == 'ok') prefs?.setString('gps_address', address);
     if (mounted) {
@@ -1361,7 +1361,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (_gpsAddress.isEmpty) return;
 
     // ★世代トークン: 開始時に採番し、setState 直前に自分が最新かを検査する。
-    //   GPS再取得(_fetchGps:740) と 起点変更(_OriginSelector) が同時に走ったとき、
+    //   GPS再取得(_fetchGps) と 起点変更(_OriginSelector) が同時に走ったとき、
     //   後から返った古い結果が新しい結果を上書きする事故を根治する。
     final myGen = ++_routeGen;
 
@@ -1579,7 +1579,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
-        // 提出座標（_fetchGps:959 が置いた最新値）。null なら main.dart:328-333 が送らない。
+        // 提出座標（_fetchGps が置いた最新値）。null なら main.dart が送らない。
         // ★diffKey（差異検知の7要素）には入れない＝確認画面の判定は1文字も変えていない。
         gpsLat: _lat,
         gpsLon: _lon,
@@ -1601,7 +1601,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
       if (!mounted) return;
-      // 送信完了の snackbar は撤去。直後に出る完了ビュー(AfterReportBody:56-93)が
+      // 送信完了の snackbar は撤去。直後に出る完了ビュー(AfterReportBody)が
       // 「報告完了 / ☀日勤 7/22分を送信しました」または「未送信（再送待ち）」を
       // バッジ付きで正面に出しており、同じ事実の二重表示だった。
       // snackbar 側は完了ビューの行動カードに数秒かぶるだけで情報を足していない。
@@ -1619,12 +1619,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // ★裁定A+引き継ぎ: 送信後に現場を「対象なし」へ戻す処理は撤去した。
         //   選んだ現場は次回のデフォルトとして残るのが裁定であり、
         //   ここで null に戻すと同じ日の2枚目で毎回選び直しになるため。
-        //   payload は上の addReport(:1002) で送信済み＝この変更の影響を受けない。
+        //   payload は上の addReport で送信済み＝この変更の影響を受けない。
         // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
         // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
         _lastSentOk = sent;   // 送信直後経路は実際の送信成否を渡す
         _todayReportDone = true;
-        // K3: 直前に刻んだ work_status は 'done'（:1356）＝締め済みではない。
+        // K3: 直前に刻んだ work_status は 'done'＝締め済みではない。
         //   prefs とミラーがズレないようここでも false に揃える。
         _todayClosed = false;
       });
@@ -1854,7 +1854,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   ・todayClosed … みなしの締め状態。判定は当State（_todayClosed）が唯一の真実源で、
         //     PunchScreen は受けた真偽で表示を出し分けるだけ（判定式を複製しない）。
         //     build 中に読む親所有の値なので shiftType と同じく素の値で下ろす。
-        //   ・onExtraDeclaration … 完了ビューの onOvertime(:2136) と同一の既存ハンドラ。
+        //   ・onExtraDeclaration … 完了ビューの onOvertime と同一の既存ハンドラ。
         //     残業/休憩短縮の出し分けも実処理も _openExtraDeclarationPicker のまま＝入口が増えただけ。
         todayClosed: _todayClosed,
         onExtraDeclaration: _openExtraDeclarationPicker,
@@ -1871,14 +1871,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           loading:       _weatherLoading,
         ),
         // ── 要対応の件数（取得処理は既存のものをそのまま使う。新APIは作っていない）──
-        //   差し戻し   = _revisionCount        (:382 / 取得 :1010 _loadRevisionCount)
-        //   承認待ち   = _pendingApprovalCount (:383 / 取得 :1033 _loadPendingApprovalCount)
-        //     ※職長のみ。isForeman の掛け方はボトムバッジ :1745 と同一の流儀。
+        //   差し戻し   = _revisionCount        (取得は _loadRevisionCount)
+        //   承認待ち   = _pendingApprovalCount (取得は _loadPendingApprovalCount)
+        //     ※職長のみ。isForeman の掛け方はボトムバッジと同一の流儀。
         revisionCount: _revisionCount,
         pendingApprovalCount: widget.isForeman ? _pendingApprovalCount : 0,
         // 遷移先も既存のものを使う:
-        //   差し戻し → RevisionInboxScreen（notification_list_screen.dart:130 /
-        //              monthly_history_screen.dart:327 / fcm_service.dart:118 と同一）
+        //   差し戻し → RevisionInboxScreen（notification_list_screen.dart /
+        //              monthly_history_screen.dart / fcm_service.dart の RevisionInboxScreen 遷移と同一）
         onOpenRevisions: () async {
           await Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
@@ -1939,8 +1939,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     // GlobalKey の重複で例外になるため（日報報告ボタンの連打対策）。
     if (_reportFormOpen) return;
     _reportFormOpen = true;
-    // フォームを開く瞬間に現在地を取り直す（既存 _fetchGps:959 を呼ぶだけ・新しい測位ロジックは作らない）。
-    // ★await しない＝非ブロッキング。フォームは即開き、成功したら setState(:984) で
+    // フォームを開く瞬間に現在地を取り直す（既存 _fetchGps を呼ぶだけ・新しい測位ロジックは作らない）。
+    // ★await しない＝非ブロッキング。フォームは即開き、成功したら setState で
     //   _gpsAddress が差し替わる。失敗しても保存値のまま出る＝ここで詰まらせない。
     _fetchGps();
     try {
@@ -1999,13 +1999,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 🔔 お知らせ ─ TOOL アイコンのすぐ左隣（ボス裁定）。
         //   ボトム「通知」タブを「共有」へ差し替えたため、通知の入口を AppBar へ戻した。
         //   ★通知画面本体（NotificationListScreen）は退役させていない。ここから push する。
-        //     あちらは自前 AppBar に「すべて既読」を持つ（notification_list_screen.dart:285-302）
+        //     あちらは自前 AppBar に「すべて既読」を持つ（notification_list_screen.dart）
         //     ので、シェル側にそのアクションを置き直す必要は無い。
-        //   ★バッジの見た目は _BottomTabItem の _badgeDot（:3393-3405）と同型
+        //   ★バッジの見た目は _BottomTabItem の _badgeDot と同型
         //     （丸・statusError 地・textBody 文字9px bold）。同じ意味の記号を2つの形で出さない。
         //   ★_unreadCount の取得（_loadUnreadCount）は1文字も変えていない。
         //     呼ばれる場所だけ「通知タブ進入時」→「通知画面から戻った時」へ移した
-        //     （初期取得 :914 とアプリ復帰時 :1092 は不変）。
+        //     （初期取得とアプリ復帰時は不変）。
         IconButton(
           tooltip: 'お知らせ',
           onPressed: () async {
@@ -2136,10 +2136,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           badgeColor: FieldTokens.statusSuccess,
           // badge2（差し戻し）は職人にも点灯させる。差し戻しは「自分の日報が
           // 突き返された」通知で、直すのは本人（RevisionEditScreen は本人のみ・
-          // revision_inbox_screen.dart:131-135）。ホームの差し戻し行(:1553)も
+          // revision_inbox_screen.dart の本人判定）。ホームの差し戻し行も
           // 既に職人へ出しているため、バッジと表示条件を揃える。
-          // ※ _revisionCount の取得(_loadRevisionCount :1019)は元から
-          //   isForeman で絞っていない（初期 :914 / タブ進入 :829）ため、
+          // ※ _revisionCount の取得(_loadRevisionCount)は元から
+          //   isForeman で絞っていない（初期取得 / タブ進入とも）ため、
           //   値はそのまま使える＝取得ロジックは1文字も変更していない。
           badge2: _revisionCount,
           badge2Color: FieldTokens.statusWarning,
@@ -2478,8 +2478,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 // ★根治: 旧実装は「車(own)の分岐」と「その他の分岐」が独立していたため、
                 //   car と other を同時選択すると同じ _parkingCtrl / _parkingPhotoPaths を
                 //   共有する入力欄と写真帯が2組並んでいた。条件を OR で1本化して解消する。
-                //   controller・paths は従来と同一のため、下書き保存(:649)・復元(:674)・
-                //   送信(:1157-1167)の経路は一切変わらない。
+                //   controller・paths は従来と同一のため、下書き保存(_saveDraft)・復元(_restoreDraft)・
+                //   送信の経路は一切変わらない。
                 if ((_transports.contains(TransportType.car) && _carType == 'own') ||
                     _transports.contains(TransportType.other)) ...[
                   const SizedBox(height: 10),
@@ -2611,7 +2611,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ── 「追加の申告」種別選択（残業 / 休憩の短縮）─────────────────────────
-  //   提出後画面 after_report_screen.dart:122-139 の続行1行目から onOvertime 経由で来る。
+  //   提出後画面 after_report_screen.dart の続行1行目から onOvertime 経由で来る。
   //   縦2行・暗枠1px・塗りなし（カードは使わない＝_ActionCard 様式は持ち込まない）。
   Future<void> _openExtraDeclarationPicker() async {
     final choice = await showDialog<String>(
@@ -2714,7 +2714,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 }
 
 // 「追加の申告」ダイアログの選択肢1行。暗枠1px・塗りなし。
-// 枠トークンは同ファイルのチップ群（:2349 ほか）と同じ FieldTokens.outline。
+// 枠トークンは同ファイルのチップ群と同じ FieldTokens.outline。
 class _DeclarationChoiceRow extends StatelessWidget {
   const _DeclarationChoiceRow({
     required this.icon,
@@ -2895,7 +2895,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
           _FormInputShell(
             icon: Icons.edit_note,
             child: TextField(
-              // _FormInputShell は height:46 固定（:2848）なので1行のまま使う
+              // _FormInputShell は height:46 固定なので1行のまま使う
               controller: _reasonCtrl,
               onChanged: (_) {
                 if (_error != null) setState(() => _error = null);
@@ -3377,7 +3377,7 @@ class ForemanHomeScreen extends StatelessWidget {
 // ─────────────────────────────────────────────
 // 日報フォームの push 先ページ（器のみ）
 //   builder は _JsMainShellState._buildHomeTabContent。フォームの中身は一切持たない。
-//   refresh() は親 State の setState オーバーライド（:392-396）から呼ばれる。
+//   refresh() は親 State の setState オーバーライドから呼ばれる。
 // ─────────────────────────────────────────────
 class _ReportFormPage extends StatefulWidget {
   const _ReportFormPage({super.key, required this.builder});
@@ -3421,7 +3421,7 @@ class _BottomTabItem extends StatelessWidget {
         decoration: BoxDecoration(color: c, shape: BoxShape.circle),
         child: Text('$n',
             style: TextStyle(
-                // c は success / error / warning の3値のみ（:1722-1724, :2589-2590）。
+                // c は success / error / warning の3値のみ（本ファイルの呼び出し2箇所）。
                 // success(#6FD6B4) は明るい面なので白文字だと 1.76:1 で読めない。
                 // 暗色 onAccent なら 8.75:1。
                 // error/warning は白のまま＝今回のスコープ(success)外のため未変更。
@@ -3742,7 +3742,7 @@ class _SitePickerSheetState extends State<_SitePickerSheet> {
   }
 }
 
-// 提出時刻を JST「MM/DD HH:mm」へ整形（端末TZ=Asia/Tokyo前提・punch_screen.dart:17 と同型の手動整形）
+// 提出時刻を JST「MM/DD HH:mm」へ整形（端末TZ=Asia/Tokyo前提・punch_screen.dart と同型の手動整形）
 String? _fmtSubmittedJst(String? iso) {
   if (iso == null) return null;
   final dt = DateTime.tryParse(iso)?.toLocal();
@@ -3988,7 +3988,7 @@ class _GpsBar extends StatelessWidget {
     required this.onRefresh,
   });
   final String address;
-  /// fetchGpsAddress(main.dart:653) の status。'' = 未取得。
+  /// fetchGpsAddress(main.dart) の status。'' = 未取得。
   final String status;
   final bool loading;
   final VoidCallback onRefresh;
@@ -4064,7 +4064,7 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
   @override
   Widget build(BuildContext context) {
     // カード撤去: 箱で囲まず、区切りは1pxの線と余白だけで表す。
-    // 横padding は PunchScreen 本体（punch_screen.dart:314 の horizontal:20）と
+    // 横padding は PunchScreen 本体（punch_screen.dart の horizontal:20）と
     // 揃えて、1pxの線が本文の区切り線と同じ位置で始まるようにする。
     return Container(
       color: FieldTokens.bgBase,
@@ -4074,7 +4074,7 @@ class _PunchWeatherPanelState extends State<_PunchWeatherPanel> {
         children: [
           // ── WBGT行（独立1行・ボス裁定の配置替え）────────────────────
           //   会社名・氏名の行（AppBar bottom）と天気メトリクス行の間に入る。
-          //   この天気パネルは本文の先頭に置かれる（punch_screen.dart:608）ため、
+          //   この天気パネルは本文の先頭に置かれる（punch_screen.dart の本文先頭）ため、
           //   パネルの先頭＝ヘッダー直下＝狙いの位置になる。
           //   【左】WBGTバッジ（値＋5段階ラベル）
           //   【右】注意文（alert.message）＝Expanded で残り幅を全部取り、右寄せ1行
@@ -4243,7 +4243,7 @@ class _PunchWeatherItem extends StatelessWidget {
   }
 }
 
-// WBGT行 右: 気象アラート1行（BE の alert{level,message}・weatherEngine.js:250-276）。
+// WBGT行 右: 気象アラート1行（BE の alert{level,message}・weatherEngine.js の computeAlert）。
 //
 // ★判定・色は OFFICE（dashboard_screen.dart の showAlert 判定）と同一仕様:
 //   ・level=='warning' / 'danger' のときだけ出す。
@@ -4359,7 +4359,7 @@ class _PunchForecastStrip extends StatelessWidget {
 //   色は _wbgtColor（閾値 21/25/28/31 は環境省指針）。
 //   外枠（Padding や Row）は持たない＝置き場所ごとの余白は呼び手が決める。
 // ★値もラベルも BE（wbgt.value / wbgt.level）。端末では計算しない。
-//   BE は wbgt を常時返す（tools_weather.js:45-47）ため通年表示は現行のまま。
+//   BE は wbgt を常時返す（tools_weather.js の応答契約）ため通年表示は現行のまま。
 // ★非表示規約: 未取得（value か level が無い）ならバッジごと出さない。
 //   実際には呼び手が _hasWbgt で先に弾くが、この widget 単体でも安全側に倒す。
 class _WbgtBadge extends StatelessWidget {
@@ -5080,7 +5080,7 @@ class _RouteInfoBar extends StatelessWidget {
 // 判定順・条件・書式を二重に書かないため、要素ごとに上の _routeParts をそのまま呼ぶ。
 //
 // ★train と bus の重複回避（理由）:
-//   _routeParts は train も bus も同じ comparisons['transit'] を参照する（:3983-3985）。
+//   _routeParts は train も bus も同じ comparisons['transit'] を参照する。
 //   BE の POST /routes/compare が返すのは route_transit 1本だけで、バス単独の経路検索は
 //   存在しない（js-office-api/routes/routes-calc.js は transit と car の2種のみ算出）。
 //   したがって train と bus を同時に選ぶと「同一ルートの運賃・所要時間」が2行に
@@ -5164,7 +5164,7 @@ class ForemanManagementBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 「📅 カレンダー」は撤去した（管理・履歴タブの1つ目が同じ CalendarTab を持つため二重表示だった）。
-    // CalendarTab クラス本体は削除していない（management_history_screen.dart:39 で使用中）。
+    // CalendarTab クラス本体は削除していない（management_history_screen.dart で使用中）。
     // 「👥 社員」「🏢 協力」の中身（_StaffTab / _CooperationTab）は1行も変更していない。
     return DefaultTabController(
       length: 2,
@@ -5218,7 +5218,7 @@ class _ReviewTabState extends State<ReviewTab> {
   bool _breakFailed = false;
 
   // 休憩申請の日付キー（'YYYY-MM-DD'）。BE は work_date::text で返す
-  // （routes/attendance.js:1641）ので先頭10文字で足りる。
+  // （routes/attendance.js の GET /attendance/break-requests の ar.work_date::text）ので先頭10文字で足りる。
   static String _breakDateKey(Map<String, dynamic> b) {
     final raw = b['work_date'] as String? ?? '';
     return raw.length >= 10 ? raw.substring(0, 10) : raw;
@@ -5233,7 +5233,7 @@ class _ReviewTabState extends State<ReviewTab> {
     _load();
   }
 
-  // 月ナビ（CalendarTab:5333-5356 の流儀に揃える）
+  // 月ナビ（CalendarTab の流儀に揃える）
   void _prevMonth() {
     setState(() =>
         _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
@@ -5251,7 +5251,7 @@ class _ReviewTabState extends State<ReviewTab> {
   }
 
   // 抽出条件は旧実装の判定式をそのまま使う。
-  //   承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない（旧 _loadPending:4426-4431）
+  //   承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない（旧 _loadPending）
   //   差し戻し＝revision_requested==true（旧 RevisionInboxBody の ?revision_requested=true）
   static bool _isPending(Map<String, dynamic> r) =>
       r['is_sent'] == true &&
@@ -5304,7 +5304,7 @@ class _ReviewTabState extends State<ReviewTab> {
     final isCurrentMonth =
         _selectedMonth.year == now.year && _selectedMonth.month == now.month;
 
-    // 日付グループ化（monthly_history_screen.dart:118-124 と同じ作り方・新しい順）
+    // 日付グループ化（monthly_history_screen.dart の日付グループ化と同じ作り方・新しい順）
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final r in _targets) {
       final key = r['report_date'] as String? ?? '';
@@ -5326,7 +5326,7 @@ class _ReviewTabState extends State<ReviewTab> {
 
     return Column(
       children: [
-        // 月ナビ（CalendarTab:5482-5514 の流儀）
+        // 月ナビ（CalendarTab の流儀）
         Container(
           color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -6003,7 +6003,7 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
                           // 数値は valueColor: textBody(#EAE3D0) で高コントラストに描く。
                           // 出勤日数だけ valueColor 未指定＝statusSuccess のまま（安全色・裁定）。
                           // 枠・背景・ラベルは従来のセマンティック色を維持し階層を残す
-                          // （_StaffStatChip:6027-6037＝面 α0.1／枠 α0.4／ラベルは色そのもの）。
+                          // （_StaffStatChip＝面 α0.1／枠 α0.4／ラベルは色そのもの）。
                           Row(
                             children: [
                               _StaffStatChip(
@@ -6348,7 +6348,7 @@ class _CalendarTabState extends State<CalendarTab> {
   // ── 日本の祝日（GET /attendance/holidays/jp?year=）──
   //   ★値は【祝日名の文字列】。holidays/my の 'legal'|'scheduled' とは別物。
   //   文字色（朱）の判定にのみ使い、会社の休業設定とは無関係（OFFICE
-  //   holiday_calendar_screen.dart:24-33 の裁定と同一の思想）。
+  //   holiday_calendar_screen.dart の _holidayText の裁定と同一の思想）。
   //   取得は年単位。成功した年だけ _jpYearsLoaded に入れる＝失敗年は再訪で再試行される。
   final Map<String, String> _jpHolidays  = {};
   final Set<int> _jpYearsLoaded  = {};
@@ -6620,7 +6620,7 @@ class _CalendarTabState extends State<CalendarTab> {
     final lastDay  =
         DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
     // DateTime.weekday は 月=1..日=7。%7 で 日=0..土=6 になる（OFFICE
-    // holiday_calendar_screen.dart:516 と同一の作り方）。
+    // holiday_calendar_screen.dart の _buildCalendar と同一の作り方）。
     final startOffset = firstDay.weekday % 7;
     final rowCount = ((startOffset + lastDay.day) / 7).ceil();
 
@@ -6690,7 +6690,7 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // ── (e) 選択日の詳細 ────────────────────────────────────────
   // 表示: 会社休み / 自分の休み（終日・午前休・午後休）/ 日報の有無。
-  // 旧「日付をタップして日報を確認」のヒント（旧 :5644-5654）はこれに置き換えた。
+  // 旧「日付をタップして日報を確認」のヒントはこれに置き換えた。
   // ★DayReportsScreen への遷移は削除せず、日報がある日は必ずここから行ける。
   Widget _buildSelectedDay() {
     final ds = _selectedDate;
@@ -6813,7 +6813,7 @@ class _CalendarTabState extends State<CalendarTab> {
 //   ドット     = 日報提出済（hasReport）
 //   今日=金の枠 / 選択中=本文色の枠
 // 文字色は「その日の性質」であり休日設定とは無関係に固定（OFFICE
-// holiday_calendar_screen.dart:24-33 の裁定と同一）。優先順は 日曜 ＞ 祝日 ＞ 土曜 ＞ 平日。
+// holiday_calendar_screen.dart の _holidayText の裁定と同一）。優先順は 日曜 ＞ 祝日 ＞ 土曜 ＞ 平日。
 class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.day,

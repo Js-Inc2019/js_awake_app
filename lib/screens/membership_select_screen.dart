@@ -86,7 +86,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
     }
 
     if (res.statusCode == 401) {
-      // pre_auth 失効（TOKEN_EXPIRED / auth.js:255）→ 時間切れ案内 → ログインへ戻す。
+      // pre_auth 失効（TOKEN_EXPIRED / auth.js）→ 時間切れ案内 → ログインへ戻す。
       setState(() => _submittingId = null);
       await _showTimeoutDialog();
       if (mounted) Navigator.of(context).pop(); // 袋小路なし: ログイン画面へ
@@ -97,7 +97,7 @@ class _MembershipSelectScreenState extends State<MembershipSelectScreen> {
     // errorMessage は BE の error フィールド優先（無ければ本文先頭）＝移設前と同じ出所。
     // statusCode:0（通信不成立）も同じ枝に入る＝規約1の
     // 「サーバーに接続できません: $e」をそのまま出す（prefix を重ねない）。
-    // ★同じ selectMembership を叩く login_screen.dart:795-804 と同一の形。
+    // ★同じ selectMembership を叩く login_screen.dart の _autoSelectMembership と同一の形。
     final serverMsg = res.errorMessage;
     setState(() {
       _submittingId = null;

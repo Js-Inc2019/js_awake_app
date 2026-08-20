@@ -24,7 +24,7 @@ import 'notification_settings_screen.dart';
 import 'company_link_screen.dart';
 
 // ─── 経験年数 → 経験色 ─────────────────────────────────────
-// 色の実体は FieldTokens.getWorkerAccent（field_tokens.dart:182-188）。
+// 色の実体は FieldTokens.getWorkerAccent（field_tokens.dart）。
 // ★色の境界を下の experienceTier と同じ 1/3/10/20 に揃えたので、同じラベルの中で
 //   色が変わる区分は無くなった（移行前は8色・境界 1/3/5/10/15/20 でズレていた）。
 // ★0年はラベルが空文字になる区分で、色も textSupport（主張しない補助色）になる。
@@ -121,8 +121,8 @@ Widget _profileAvatarImage(String url, {double iconSize = 48}) {
 // ProfileScreen — 表示画面
 // ─────────────────────────────────────────────
 // ProfileBody — Scaffold なし（シェルのタブとして使う実体）
-//   monthly_history_screen.dart の MonthlyHistoryBody(:17) / MonthlyHistoryScreen(:233) と同流儀。
-//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart:49 と同じ既存流儀）。
+//   monthly_history_screen.dart の MonthlyHistoryBody / MonthlyHistoryScreen と同流儀。
+//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart と同じ既存流儀）。
 //   AppBar の「編集」アイコンは表示側（Screen ラッパー / シェル）から
 //   GlobalKey<ProfileBodyState> 経由で canEdit / openEdit() を使う。
 //   ★中身（項目・並び・色）は1行も変更していない。Scaffold と AppBar を剥がしただけ。
@@ -138,10 +138,10 @@ class ProfileBody extends StatefulWidget {
 }
 
 class ProfileBodyState extends State<ProfileBody> {
-  /// 「編集」アイコンの表示判定（旧 :264 の `p != null` と同一の値）。
+  /// 「編集」アイコンの表示判定（旧 AppBar の `p != null` と同一の値）。
   bool get canEdit => _profile != null;
 
-  /// 「編集」実行（旧 :268 の onPressed と同一の実体）。
+  /// 「編集」実行（旧 AppBar の onPressed と同一の実体）。
   void openEdit() {
     final p = _profile;
     if (p != null) _openEdit(p);
@@ -151,7 +151,7 @@ class ProfileBodyState extends State<ProfileBody> {
   bool _loading = true;
   // 段C: _token は撤去した _ToolKeyCard へ渡すためだけのフィールドだった。
   //   カード撤去で読み手がゼロになったため、フィールドごと削除
-  //   （トークンが要る箇所は都度 prefs から読む既存流儀。例: :1188）。
+  //   （トークンが要る箇所は都度 prefs から読む既存流儀）。
   String _consentDate = '';
   String _consentVersion = '';
 
@@ -297,7 +297,7 @@ class ProfileBodyState extends State<ProfileBody> {
                         // 通知設定・プライバシーポリシー・利用規約/同意状況はログアウト直上ブロックへ
                         const SizedBox(height: 16),
                         _buildNotificationSettingsTile(),
-                        // 協力申請は職長のみ（p.role の判定は :82/:91/:650 と同じ既存の値を使う）
+                        // 協力申請は職長のみ（p.role の判定は本ファイルの既存の p.role 判定と同じ値を使う）
                         if (p.role == 'boss') ...[
                           const SizedBox(height: 12),
                           _buildCooperationTile(),
@@ -410,7 +410,7 @@ class ProfileBodyState extends State<ProfileBody> {
     await prefs.remove('route_cache_json');
     await prefs.remove('last_tab_index_worker');
     await prefs.remove('last_tab_index_foreman');
-    // 現行タブキー(v2)：旧キー削除だけでは残置するため追加（home_screen.dart:562/576）
+    // 現行タブキー(v2)：旧キー削除だけでは残置するため追加（home_screen.dart が読み書きするキー）
     await prefs.remove('last_tab_index_v2_worker');
     await prefs.remove('last_tab_index_v2_foreman');
     // 日報：未送信キューとキャッシュ履歴（前ユーザーの日報が次ユーザーのトークンで
@@ -590,7 +590,7 @@ class ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // 協力申請（職長のみ表示・呼び出し側 :294 で p.role=='boss' を判定）。
+  // 協力申請（職長のみ表示・呼び出し側で p.role=='boss' を判定）。
   // 旧 home_screen.dart の AppBar 🤝 アイコンが唯一の導線だったため、その代替。
   // レイアウト・色・余白・フォントは直上の _buildNotificationSettingsTile と完全に同一
   // （padding 14/12・radius 10・icon size 18・ラベル 10/letterSpacing 0.5・本文 14/w500）。
@@ -896,8 +896,8 @@ class ProfileBodyState extends State<ProfileBody> {
 
 // ─────────────────────────────────────────────
 // ProfileScreen — 単体プッシュ用（Scaffold ラッパー）
-//   monthly_history_screen.dart:233 の MonthlyHistoryScreen と同流儀。
-//   AppBar（タイトル・編集アイコンの色/tooltip）は切り出し前（旧 :261-271）と同一。
+//   monthly_history_screen.dart の MonthlyHistoryScreen と同流儀。
+//   AppBar（タイトル・編集アイコンの色/tooltip）は切り出し前の AppBar と同一。
 // ─────────────────────────────────────────────
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

@@ -4,7 +4,7 @@
 // 導線: 受信トレイ（share_inbox_screen.dart）の行タップ。
 //
 // ★本文は【受信トレイの行が持っている18キーだけで描く】。追加の GET は写真のためだけ。
-//   理由: GET /bundles/receipts の白リスト射影（routes/bundles.js:793-812）に
+//   理由: GET /bundles/receipts の白リスト射影（routes/bundles.js）に
 //   worker_name / report_date / site_name / work_content / gps_address /
 //   report_created_at まで載っているため、本文を出すのに原本を取り直す必要が無い。
 //   取り直すと「受信社に見せる範囲」を FE 側で2通りに持つことになる。
@@ -16,13 +16,13 @@
 //   ★通信断・その他の失敗も同様に表示は継続する（閲覧を止める理由が無い）。
 //
 // 写真: 束が include_photos=true で送られていた場合だけ原本から見える
-//   （BE routes/reports.js:2318-2330 の束経路＝include_photos=true かつ自社が受信社）。
+//   （BE routes/reports.js の GET /reports/:report_id の bundleAccess 判定＝include_photos=true かつ自社が受信社）。
 //   ★共通の ReportPhotos ウィジェットは使わない。あちらは取得失敗を
-//     「写真の取得に失敗しました」の一文で表すため（report_photos.dart:62）、
+//     「写真の取得に失敗しました」の一文で表すため（report_photos.dart）、
 //     写真を含めずに送られた束（＝404 が正常）でも「失敗」と言ってしまう。
 //     受信側では 404/403 を「共有されていない」と言い切る必要があるので、
-//     この画面専用に持つ。ReportPhotos 自体は日報・履歴の経路（home_screen:5545 /
-//     revision_inbox_screen:372）で現役なので触らない。
+//     この画面専用に持つ。ReportPhotos 自体は日報・履歴の経路（home_screen.dart /
+//     revision_inbox_screen.dart の ReportPhotos 呼び出し）で現役なので触らない。
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -357,7 +357,7 @@ class _ShareReceiptDetailScreenState extends State<ShareReceiptDetailScreen> {
         ),
       );
 
-  // 体裁は tamper_incident_detail_screen.dart:400-424 と同型。
+  // 体裁は tamper_incident_detail_screen.dart の _section / _row と同型。
   Widget _section(String label) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(label,

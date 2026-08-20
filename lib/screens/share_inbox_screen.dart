@@ -6,7 +6,7 @@
 // BE: GET /bundles/receipts（BundlesService.getReceipts）。
 //   ・1階層・日報ごと1行・時系列。並びは BE が
 //     sent_at DESC → report_date DESC → worker_name ASC で確定させている
-//     （routes/bundles.js:790-791）ので FE で並べ替え直さない。
+//     （routes/bundles.js の GET /bundles/receipts の ORDER BY）ので FE で並べ替え直さない。
 //   ・会社絞りは sender_company_id（会社IDで絞る＝同名会社を文字列一致で
 //     混ぜないための裁定Q11。表示名は sender_company_name）。
 //
@@ -18,7 +18,7 @@
 //   ★①の2つは同じ枠・同じ色・同じ優先順（＝3段階のまま）だが、言葉は分ける。
 //     'tampered' を「原本変更」と呼ぶのも、単なる更新を「改ざん」と呼ぶのも
 //     どちらも嘘になるため（BE も 'tampered' と 'updated' を別の値として持つ・
-//     routes/bundles.js:1039-1041）。
+//     routes/bundles.js の PATCH /bundles/receipts/:receipt_id/read）。
 //
 // 確認済みにする: 各行の印の【直下】に置く（POST /bundles/:bundle_id/confirm）。
 //   ★確認は【束単位・人単位】。1回押すと同じ束に属する行が全て確認済みになるので、
@@ -33,7 +33,7 @@
 // 現場紐付け: 各行に置く（PATCH /bundles/receipts/:id/site）。
 //   未設定→「現場を紐付け」／設定済→「変更」＋「解除」（解除は確認1回）。
 //   ★処理鍵（can_share_manage）が無い人がタップしたら案内を出す＝袋小路にしない。
-//     最終門番は BE（bundles.js:483-508 blockShareManager）。
+//     最終門番は BE（bundles.js の blockShareManager）。
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -59,7 +59,7 @@ String fmtShareDate(Object? raw) {
 }
 
 /// 日時（ISO）→ JST「MM/DD HH:mm」（端末TZ=Asia/Tokyo前提）。
-/// tamper_incident_detail_screen.dart:37-44 の _fmtJst と同じ整形。
+/// tamper_incident_detail_screen.dart の _fmtJst と同じ整形。
 String fmtShareDateTime(Object? raw) {
   final s = (raw ?? '').toString();
   if (s.isEmpty) return '-';
@@ -102,12 +102,12 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
 
   // 束ごとの確認状態（bundle_id -> my_confirmed_at）。
   //   ★受信明細（GET /receipts）の18キーに confirmed は【無い】
-  //     （bundles_service.dart:172-174「日報単位の confirmed は存在しない＝裁定Q10」）。
+  //     （bundles_service.dart の「日報単位の confirmed は存在しない＝裁定Q10」）。
   //     確認は束単位・人単位の事実なので、GET /bundles/inbox の my_confirmed_at
-  //     （同 :118「confirmed_count / my_confirmed_at だけは【人数・人単位】」）を
+  //     （同ファイルの「confirmed_count / my_confirmed_at だけは【人数・人単位】」）を
   //     bundle_id で引く。門番は受信箱と同じ blockShareViewer＝新たな鍵は要らない。
   //   ★取れなかった場合は空のまま＝未確認扱いでボタンを出す。確認は冪等
-  //     （同 :285「二度押しても値は動かない」）なので害が無く、隠す方が袋小路になる。
+  //     （同ファイルの「二度押しても値は動かない」）なので害が無く、隠す方が袋小路になる。
   Map<String, String?> _confirmedByBundle = const {};
   String? _confirmingBundleId; // 確認処理中の束（連打よけ・行の出し分けにも使う）
 
@@ -171,10 +171,10 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
       : _receipts.where((e) => e['sender_company_id'] == _companyFilter).toList();
 
   // ── 確認済みにする（束単位・行カードから直接押す）────────────────
-  // ★確認は【束単位・人単位】（bundles_service.dart:283-285）。同じ束に属する行が
+  // ★確認は【束単位・人単位】（bundles_service.dart の confirmBundle）。同じ束に属する行が
   //   複数あれば1回押すと全行が確認済みになる。だから成功後は _load() で取り直し、
   //   bundle_id で引き直す（行ごとに別々の確認状態を持たせない）。
-  // ★鍵が無い人はボタンを隠さずタップ時に案内する（_onTapLink:161-164 と同じ流儀＝
+  // ★鍵が無い人はボタンを隠さずタップ時に案内する（_onTapLink と同じ流儀＝
   //   袋小路にしない。最終門番は BE の blockShareManager）。
   Future<void> _onTapConfirm(Map<String, dynamic> r) async {
     if (!widget.canManage) {
@@ -200,7 +200,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
       return;
     }
     // 非200を握り潰さない（規約6＝statusCode と errorCode で言い切る）。
-    //   分岐は share_bundle_detail_screen.dart:104-115（同じ confirm の呼び手）と同型。
+    //   分岐は share_bundle_detail_screen.dart（同じ confirm の呼び手）と同型。
     final String msg;
     if (res.statusCode == 403) {
       msg = res.errorMessage ?? kShareManageDeniedMessage;
@@ -558,7 +558,7 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             // 選択中の面は outlineStrong（accent 面は上の textBody が 1.37:1 で読めない
-            // ＝field_tokens.dart:48-50 の実測理由に従う）。
+            // ＝field_tokens.dart の outlineStrong の実測理由に従う）。
             color: active ? FieldTokens.outlineStrong : Colors.transparent,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
@@ -833,7 +833,7 @@ class _ConfirmCell extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           foregroundColor: FieldTokens.accent,
           side: const BorderSide(color: FieldTokens.accent),
-          // ★横の最小幅をゼロ起点へ明示的に戻す。app_theme.dart:62/:72 が
+          // ★横の最小幅をゼロ起点へ明示的に戻す。app_theme.dart の elevatedButtonTheme / outlinedButtonTheme が
           //   minimumSize: Size(double.infinity, 52) を課しており、Row/Column の
           //   横方向に無制約な文脈へ置くと「幅＝無限」を要求して
           //   BoxConstraints forces an infinite width で落ちる（bba77ef の実害と同じ罠）。

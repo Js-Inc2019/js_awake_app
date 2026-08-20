@@ -123,9 +123,9 @@ class AuthService {
   // ============================================================
 
   /// サーバのウォームアップ（Heroku のコールドスタート対策）。
-  /// 移設元: login_screen.dart:168（GET kHealthUrl・15秒）
+  /// 移設元: login_screen.dart の _warmUpServer（GET kHealthUrl・15秒）
   ///
-  /// ★移設元 _warmUpServer（login_screen.dart:165-175）は本リクエストを
+  /// ★移設元 _warmUpServer（login_screen.dart）は本リクエストを
   ///   「最大3回・失敗時は2秒待って再試行」というループで包んでいる。
   ///   ループは呼び手側の再試行方針なので本メソッドには入れない
   ///   （ApiResult は1リクエスト＝1結果の型）。段5で画面から呼び替える際は
@@ -142,15 +142,15 @@ class AuthService {
   }
 
   /// 保存済みトークンの検証。
-  /// 移設元: login_screen.dart:221-228（POST /auth/verify-token・10秒）
+  /// 移設元: login_screen.dart の _init（POST /auth/verify-token・10秒）
   ///
   /// ★単一の顔の掟: body の device_id は必須（未送信は 400 DEVICE_ID_REQUIRED）。
   /// ★token は prefs の auth_token、device_id は utils/device_id.dart の getDeviceId()。
-  ///   移設元の _getDeviceId()（login_screen.dart:141-143）は
+  ///   移設元の _getDeviceId()（login_screen.dart）は
   ///   `return getDeviceId();` そのものなので同一。
   /// ★data はサーバ応答全体。user / status / consent_agreed_at / consent_version を
-  ///   含むため、呼び手はそこから必要な値を取る（移設元 :234-261 と同じ形）。
-  /// ★「token が空なら呼ばない」ガードは呼び手側に残る（移設元 login_screen.dart:217）。
+  ///   含むため、呼び手はそこから必要な値を取る（移設元 _init の応答の読み方と同じ形）。
+  /// ★「token が空なら呼ばない」ガードは呼び手側に残る（移設元 login_screen.dart の _init）。
   ///   ここでは判断せず、持っているトークンでそのまま問い合わせる。
   Future<ApiResult<Map<String, dynamic>>> verifyToken() async {
     final token    = await getToken() ?? '';
@@ -167,7 +167,7 @@ class AuthService {
   }
 
   /// 端末アンカーによるサイレント復帰の照会。
-  /// 移設元: login_screen.dart:339-342（既定8秒）/ login_screen.dart:453-456（10秒）
+  /// 移設元: login_screen.dart の _init（既定8秒）/ _autoLogin（10秒）
   ///
   /// ★同じリクエストを2か所が別の秒数で叩いていた。既定を8秒とし、
   ///   10秒側は呼び出し時に timeout を明示する（丸めて片方の挙動を消さない）。
@@ -189,7 +189,7 @@ class AuthService {
   }
 
   /// PIN ログイン。
-  /// 移設元: login_screen.dart:552-561（POST /auth/verify-pin・10秒）
+  /// 移設元: login_screen.dart の _doLoginWithPin（POST /auth/verify-pin・10秒）
   ///
   /// ★deviceName は移設元で `Platform.isAndroid ? 'Android' : 'iPhone'` を
   ///   画面が組み立てている。ここで再実装すると判定が二重になるため引数で受ける。
@@ -217,7 +217,7 @@ class AuthService {
   }
 
   /// 複数所属からの所属選択（pre_auth_token → 本ログイン）。
-  /// 移設元: login_screen.dart:802-809 / membership_select_screen.dart:77-86
+  /// 移設元: login_screen.dart の _autoSelectMembership / membership_select_screen.dart の _select
   ///         （どちらも POST /auth/select-membership・10秒・body 2キー・完全一致）
   ///
   /// ★2画面の実装を突合したうえで共通形にした。URL・headers・body・timeout・
@@ -244,11 +244,11 @@ class AuthService {
   }
 
   /// 同意証跡のサーバ刻印（既存ユーザー救済）。
-  /// 移設元: login_screen.dart:950-957 / recovery_screen.dart:168-175
+  /// 移設元: login_screen.dart の _saveAndNavigate / recovery_screen.dart の _finishMembershipLogin
   ///         （どちらも POST /auth/consent・8秒・完全一致）
   ///
   /// ★consentToken は「その場で受け取った data['token']」。prefs 保存前に呼ばれる
-  ///   経路があるため引数で受ける（移設元 login_screen.dart:946 / recovery_screen.dart:164）。
+  ///   経路があるため引数で受ける（移設元 login_screen.dart の _saveAndNavigate / recovery_screen.dart の _finishMembershipLogin）。
   /// ★consentVersion も引数。画面側の _kCurrentConsentVersion がバージョンの正であり、
   ///   ここに定数を作ると同じ値が2か所に増えて必ず片方が古くなる。
   /// ★移設元は失敗を握り潰す fail-open（`catch (_) {}`）だが、それは
@@ -270,13 +270,13 @@ class AuthService {
   }
 
   /// 明示ログアウト（サーバ側の端末アンカー白紙化）。
-  /// 移設元: profile_screen.dart:377-381（POST /auth/logout・5秒）
+  /// 移設元: profile_screen.dart の _confirmLogout（POST /auth/logout・5秒）
   ///
   /// ★BE は device_id 受領時に白紙化する。冪等・常時200。
   /// ★移設元は「通信失敗でもローカルログアウトは絶対にブロックしない」方針で
   ///   結果を一切見ていない（袋小路禁止）。その判断は呼び手に残すため、
   ///   ここでは結果をそのまま返すだけにする。
-  /// ★device_id が空のときに呼ばないガードも呼び手側（移設元 :375）。
+  /// ★device_id が空のときに呼ばないガードも呼び手側（移設元 _confirmLogout）。
   Future<ApiResult<Map<String, dynamic>>> logout(String deviceId) {
     return _run<Map<String, dynamic>>(
       'logout',
@@ -290,7 +290,7 @@ class AuthService {
   }
 
   /// 会社コード＋作業員ID＋PIN による端末復旧。
-  /// 移設元: recovery_screen.dart:65-74（POST /auth/recover-by-code・30秒）
+  /// 移設元: recovery_screen.dart（POST /auth/recover-by-code・30秒）
   ///
   /// ★30秒は移設元のまま。他の認証系より長いのは、この経路が
   ///   コールドスタート直後に叩かれることがあるため（丸めない）。

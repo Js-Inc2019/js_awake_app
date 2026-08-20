@@ -11,7 +11,7 @@
 //   BE が /tools/weather ひとつで気温・風速・降水確率・週間予報・WBGT・
 //   アラートまで返すようになったため、天気の真実源をサーバ1本へ寄せる。
 //
-// ★応答契約の正は js-office-api の routes/tools_weather.js:29-47。
+// ★応答契約の正は js-office-api の routes/tools_weather.js の GET /tools/weather。
 //   {
 //     location: string,
 //     current: { temp, feels_like, humidity, wind_speed, weather, icon,
@@ -21,11 +21,11 @@
 //     wbgt:    { level: 'safe'|'caution'|'warning'|'severe'|'danger',
 //                value, message }
 //   }
-//   ・icon は絵文字（weatherEngine.js:368）。端末で引き直さない。
-//   ・wbgt は常時オブジェクト（tools_weather.js:45-47）。統一前は WBGT<21 で
+//   ・icon は絵文字（weatherEngine.js の weatherEmoji）。端末で引き直さない。
+//   ・wbgt は常時オブジェクト（tools_weather.js の応答契約）。統一前は WBGT<21 で
 //     null だったが、「安全」と「取得できていない」が区別できないため
 //     level:'safe' を新設して null を廃した経緯がある。
-//   ・alert も常時返る（weatherEngine.js:372 / :455）。
+//   ・alert も常時返る（weatherEngine.js の fetchFromOwm / fetchFromWttr が computeAlert で必ず載せる）。
 //
 // ★このクラスは通信の運び屋。パースも表示判断もしない（data は応答そのまま）。
 //   降水確率の 3状態（値/0/未取得）も、alert を出すか否かも呼び手が決める。
@@ -47,13 +47,13 @@ class WeatherService {
 
   /// GET /tools/weather?lat=&lon=
   ///
-  /// ★認証必須（routes/tools_weather.js:49 の authenticateToken）。
+  /// ★認証必須（routes/tools_weather.js の authenticateToken）。
   ///   未認証・トークン失効は 401 で返る＝呼び手は「天気だけ静かに出さない」に倒す
   ///   （天気の失敗でログイン画面へ飛ばさない）。
-  /// ★lat/lon が無いと BE は 400（tools_weather.js:51）。測位できていないときに
+  /// ★lat/lon が無いと BE は 400（tools_weather.js の「lat, lon が必要です」）。測位できていないときに
   ///   呼ばないガードは呼び手側に残す（ここでは判断しない）。
   /// ★上流の気象API2種が両方落ちたときだけ BE が 502 を返す
-  ///   （tools_weather.js:56-61）。フォールバックは BE 内で完結しており、
+  ///   （tools_weather.js の 502 WEATHER_UPSTREAM_FAILED）。フォールバックは BE 内で完結しており、
   ///   端末側に2経路を持つ必要はもう無い。
   Future<ApiResult<Map<String, dynamic>>> fetchWeather({
     required double lat,

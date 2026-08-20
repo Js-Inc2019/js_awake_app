@@ -7,24 +7,24 @@
 //   lib/screens/bundle_send_screen.dart）と同じものを、FIELD の流儀
 //   （ApiResult<T> + runApiCall / FieldTokens = Asphalt Dawn）で実装したもの。
 //   OFFICE との対応:
-//     ・フェーズ制（_showList）            … OFFICE :36
-//     ・条件カード3枚（現場/職人/期間）     … OFFICE :39-46
-//     ・活性条件 _canSearch（片側以上）     … OFFICE :100-102
-//     ・擬似行「現場未設定」= site_ids none … OFFICE :26 _kSiteNone
-//     ・条件要約バー＋「条件を変更」         … OFFICE :934-957
-//     ・truncated の注意文（文言同一）       … OFFICE :959-974
-//     ・全選択＝取得済み全件                … OFFICE :224-236
-//     ・送信設定（宛先/まとめ方/写真/題名）  … OFFICE :1378-1560
-//     ・確認画面 → sendBundle              … OFFICE :645-704
+//     ・フェーズ制（_showList）            … OFFICE の _showList
+//     ・条件カード3枚（現場/職人/期間）     … OFFICE の _conditionCard
+//     ・活性条件 _canSearch（片側以上）     … OFFICE の _canSearch
+//     ・擬似行「現場未設定」= site_ids none … OFFICE の _kSiteNone
+//     ・条件要約バー＋「条件を変更」         … OFFICE の _buildListPhase
+//     ・truncated の注意文（文言同一）       … OFFICE の _buildListPhase の _truncated 注意文
+//     ・全選択＝取得済み全件                … OFFICE の _toggleSelectAll
+//     ・送信設定（宛先/まとめ方/写真/題名）  … OFFICE の _SendSettingsSheet
+//     ・確認画面 → sendBundle              … OFFICE の _doSend
 //   OFFICE にあって FIELD で作らないもの:
-//     ・テキスト／PDF の出口（OFFICE :338- の出口3択）。裁定6により
+//     ・テキスト／PDF の出口（OFFICE の _openExitChoice の出口3択）。裁定6により
 //       FIELD の出口は「アプリで送る」一本＝帳票は OFFICE の資産。
 //
-// ★role 差（BE routes/reports.js:774-800 が最終権威）:
+// ★role 差（BE routes/reports.js の GET /reports の scopeClause が最終権威）:
 //   worker は GET /reports のスコープが `r.user_id = 自分` に固定されるため、
 //   職人セレクタを出しても効かない（他人を指定しても交差して0件）。
 //   さらに職人候補 API（GET /workers）は requireRole('boss','admin_office',
-//   'admin_exec')（routes/workers.js:551）で worker は 403。
+//   'admin_exec')（routes/workers.js の GET /workers）で worker は 403。
 //   よって【worker には職人カードを出さない】。出せない・効かない選択肢を
 //   置くのは嘘の記号になる。boss は会社軸なので出す。
 // ============================================================
@@ -42,8 +42,8 @@ import 'revision_inbox_screen.dart' show ReportDetailSheet;
 import 'share_send_confirm_screen.dart';
 
 /// 現場条件の擬似行「現場未設定」。BE の site_ids=none（r.site_id IS NULL・
-/// routes/reports.js:886-899）に対応する。sites マスタには無い値なので、
-/// ID 空間を汚さないようここ1箇所で定義する（OFFICE :26 と同じ扱い）。
+/// routes/reports.js の GET /reports の 'none' 判定）に対応する。sites マスタには無い値なので、
+/// ID 空間を汚さないようここ1箇所で定義する（OFFICE の _kSiteNone と同じ扱い）。
 const String kSiteNone = 'none';
 
 class ShareSendScreen extends StatefulWidget {
@@ -51,10 +51,10 @@ class ShareSendScreen extends StatefulWidget {
 
   /// GET /profile の role をそのまま受ける。判定を2つに分けるため文字列で持つ:
   ///   ・職人カードを出すか       … role != 'worker'
-  ///     （BE routes/reports.js:774-800＝worker は `r.user_id = 自分` に固定され、
+  ///     （BE routes/reports.js の GET /reports の scopeClause＝worker は `r.user_id = 自分` に固定され、
   ///       他の顔は `r.company_id = 自社`。worker に出しても効かない）
   ///   ・職人候補 API を叩くか     … boss / admin_office / admin_exec のみ
-  ///     （BE routes/workers.js:551 の requireRole がこの3値。master は 403）
+  ///     （BE routes/workers.js の GET /workers の requireRole がこの3値。master は 403）
   /// ★この2つは集合が違う（master は会社軸だが職人候補を取れない）ので
   ///   1つの bool にまとめない。
   final String role;
@@ -137,7 +137,7 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
 
   /// 「この条件で日報を表示」は開始日か終了日のどちらか一方を選ぶまで押せない。
   /// ★両方なしで叩くと BE は期間経路に入らず既定50件の一覧に落ちる
-  ///   （routes/reports.js:857-860）＝「期間指定したつもりで全然違う結果」になる。
+  ///   （routes/reports.js の GET /reports の limit 決定）＝「期間指定したつもりで全然違う結果」になる。
   bool get _canSearch => _startDate != null || _endDate != null;
 
   String get _siteSummary =>
@@ -177,7 +177,7 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
       }
     }
 
-    // 職人: 自社（is_own）の workers を平坦化（BE routes/workers.js:607-619 の形）。
+    // 職人: 自社（is_own）の workers を平坦化（BE routes/workers.js の GET /workers の companies 組み立ての形）。
     final workerOpts = <MapEntry<String, String>>[];
     if (wr != null && wr.ok) {
       for (final c in (wr.data ?? const [])) {
@@ -220,12 +220,12 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
 
   // ── 宛先候補（全社から自社を除く）──────────────────────────────
   //   ★自社の company_id はログイン時に prefs へ保存されている値を使う
-  //     （login_screen.dart:823 / recovery_screen.dart:129 / register_screen.dart:93
-  //       が書き、monthly_history_screen.dart:300 等が既に同じ読み方をしている）。
+  //     （login_screen.dart / recovery_screen.dart / register_screen.dart
+  //       が書き、monthly_history_screen.dart 等が既に同じ読み方をしている）。
   //     GET /profile は company_name しか返さないため、会社名の文字列一致で
   //     自社を外す形にはしない（同名会社を取り違える）。
   //   ★自社が混ざったまま送ると BE は 400 SELF_SHARE_NOT_ALLOWED で断る
-  //     （bundles.js:190-192）。押してから怒られる形にしない。
+  //     （bundles.js）。押してから怒られる形にしない。
   Future<void> _loadCompanies() async {
     final prefs = await SharedPreferences.getInstance();
     final myId = prefs.getString('company_id') ?? '';
@@ -359,8 +359,8 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
   }
 
   // ── 日報プレビュー（FIELD 既存の共通シートを使う）───────────────
-  //   ★home_screen.dart:5542-5551 / revision_inbox_screen.dart:130 /
-  //     approval_day_screen.dart:330 と同じ ReportDetailSheet。
+  //   ★home_screen.dart / revision_inbox_screen.dart /
+  //     approval_day_screen.dart と同じ ReportDetailSheet。
   //     プレビュー専用の別画面は作らない（同じものを2つ持たない）。
   void _preview(Map<String, dynamic> r) {
     showModalBottomSheet(
@@ -953,7 +953,7 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
         child: Row(children: [
           // ★Flexible + FittedBox で縮退させる（省略記号や切り落としは使わない＝
           //   件数は数えた事実であって、丸めたり消したりして良い値ではない）。
-          //   流儀は同ファイル :733-742（条件サマリ）と同一。
+          //   流儀は同ファイルの条件サマリと同一。
           Flexible(
             child: FittedBox(
               fit: BoxFit.scaleDown,
@@ -977,13 +977,13 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
                 foregroundColor: FieldTokens.onAccent,
                 disabledBackgroundColor: FieldTokens.outlineStrong,
                 disabledForegroundColor: FieldTokens.textFaint,
-                // ★横の最小幅をゼロ起点へ戻す。app_theme.dart:62(elevatedButtonTheme)が
+                // ★横の最小幅をゼロ起点へ戻す。app_theme.dart の elevatedButtonTheme が
                 //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子
                 //   として置くと「幅＝無限」を要求して BoxConstraints forces an infinite
                 //   width で落ちる（＝下部バーの Row ごとレイアウト不能。リリース版では
                 //   例外表示が出ないためボタンが消えたように見えた）。
-                //   同じ罠と対処は approval_day_screen.dart:399-404 / 同ファイル :666
-                //   :1112 :1127 に前例がある。高さ48・角丸10・色は現状のまま。
+                //   同じ罠と対処は approval_day_screen.dart / 同ファイルの他の OutlinedButton
+                //   に前例がある。高さ48・角丸10・色は現状のまま。
                 minimumSize: const Size(0, 48),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
@@ -998,7 +998,7 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
 
 // ─────────────────────────────────────────────────────────
 // 複数選択シート（現場／職人で共用＝中身が同じものを2つ作らない）
-//   OFFICE の _MultiPickSheet（bundle_send_screen.dart:1213）と同じ役割。
+//   OFFICE の _MultiPickSheet（bundle_send_screen.dart）と同じ役割。
 // ─────────────────────────────────────────────────────────
 class _MultiPickSheet extends StatefulWidget {
   const _MultiPickSheet({
@@ -1160,8 +1160,8 @@ class _MultiPickSheetState extends State<_MultiPickSheet> {
 
 // ─────────────────────────────────────────────────────────
 // 送信設定（宛先／まとめ方／写真／タイトル・メモ）
-//   OFFICE の _SendSettingsSheet（bundle_send_screen.dart:1378-1560）と同じ項目。
-//   ★写真の既定は false（BE bundles.js:173 の include_photos === true と同じ側）。
+//   OFFICE の _SendSettingsSheet（bundle_send_screen.dart）と同じ項目。
+//   ★写真の既定は false（BE bundles.js の include_photos === true と同じ側）。
 //     ここを省くと常に写真なしで送ることになり、受信側に
 //     「この束は写真を含めずに送られています」が出続ける＝送り手が選べない。
 // ─────────────────────────────────────────────────────────
@@ -1353,7 +1353,7 @@ class _SendConfigSheetState extends State<_SendConfigSheet> {
                   ),
               const Divider(height: 24, color: FieldTokens.outline),
 
-              // (b) まとめ方（BE bundles.js:29 VALID_AXES の3値）
+              // (b) まとめ方（BE bundles.js の VALID_AXES の3値）
               const Text('まとめ方',
                   style: TextStyle(
                       color: FieldTokens.textBody,

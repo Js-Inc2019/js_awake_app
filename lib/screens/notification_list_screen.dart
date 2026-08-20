@@ -18,8 +18,8 @@ import 'tamper_incident_detail_screen.dart';
 
 // ─────────────────────────────────────────────
 // NotificationListBody — Scaffold なし（シェルのタブとして使う実体）
-//   monthly_history_screen.dart の MonthlyHistoryBody(:17) / MonthlyHistoryScreen(:233) と同流儀。
-//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart:49 と同じ既存流儀）。
+//   monthly_history_screen.dart の MonthlyHistoryBody / MonthlyHistoryScreen と同流儀。
+//   State は公開する（RevisionInboxBodyState・revision_inbox_screen.dart と同じ既存流儀）。
 //   AppBar の「すべて既読」は表示側（Screen ラッパー / シェル）から
 //   GlobalKey<NotificationListBodyState> 経由で hasItems / markAllRead() を使う。
 //   ★中身（項目・並び・色）は1行も変更していない。Scaffold と AppBar を剥がしただけ。
@@ -36,10 +36,10 @@ class NotificationListBody extends StatefulWidget {
 }
 
 class NotificationListBodyState extends State<NotificationListBody> {
-  /// 「すべて既読」ボタンの活性判定（旧 :123 の `_items.isEmpty` と同一の値）。
+  /// 「すべて既読」ボタンの活性判定（旧 AppBar の `_items.isEmpty` と同一の値）。
   bool get hasItems => _items.isNotEmpty;
 
-  /// 「すべて既読」実行（旧 :123 の onPressed と同一の実体）。
+  /// 「すべて既読」実行（旧 AppBar の onPressed と同一の実体）。
   Future<void> markAllRead() => _markAllRead();
 
   final _svc = NotificationService();
@@ -141,7 +141,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
   // 展開部アクション: 改ざんの詳細を開く（tamper_detected / tamper_status_changed）
   //   ★事件の識別子は ref_id（BE services/notify.js が refId: incident_id で積む）。
   //     欠落していれば遷移先が決まらないので、推測せずここで止めて理由を出す
-  //     （_openPunchRemind:154-159 と同じ流儀）。
+  //     （_openPunchRemind と同じ流儀）。
   void _openTamperIncident(Map<String, dynamic> item) {
     final incidentId = (item['ref_id'] ?? '').toString();
     if (incidentId.isEmpty) {
@@ -209,7 +209,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
     final parsed = _parsePunchRemindRefId(refId, type);
 
     // 解析失敗＝対象日が特定できない。推測で埋めずにここで止める。
-    // 文言は punch_remind_dialog.dart:51 と同一（同じ事象は同じ言葉で言う）。
+    // 文言は punch_remind_dialog.dart の同文言と同一（同じ事象は同じ言葉で言う）。
     if (parsed == null) {
       debugPrint('punch_remind: ref_id を解析できません ref_id=$refId type=$type');
       showJsSnackbar(context, '対象日を特定できませんでした。事務へご連絡ください。',
@@ -306,9 +306,9 @@ class NotificationListBodyState extends State<NotificationListBody> {
 // ─── 通知1行 ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
 // NotificationListScreen — 単体プッシュ用（Scaffold ラッパー）
-//   monthly_history_screen.dart:233 の MonthlyHistoryScreen と同流儀。
+//   monthly_history_screen.dart の MonthlyHistoryScreen と同流儀。
 //   AppBar（背景色・タイトル・すべて既読ボタンの文言/色/太さ/サイズ）は
-//   切り出し前（旧 :116-136）と同一。1文字も変えていない。
+//   切り出し前と同一。1文字も変えていない。
 // ─────────────────────────────────────────────
 class NotificationListScreen extends StatefulWidget {
   const NotificationListScreen({super.key});
@@ -506,7 +506,7 @@ class _NotificationRow extends StatelessWidget {
                         ),
                       ),
                     ],
-                    // 会社間共有のお知らせ（BE services/notify.js:77-78）。
+                    // 会社間共有のお知らせ（BE services/notify.js の SHARE_RECEIVED / SHARE_SENT）。
                     //   share_received（他社→自社）→ 受信トレイ
                     //   share_sent（自社→他社・事務の事後把握）→ 送信済み
                     // 上と同じく独立した if で足す（type は互いに排他）。
@@ -577,7 +577,7 @@ class _ActionButton extends StatelessWidget {
 }
 
 // ─── 打刻のお知らせ ref_id の解析 ────────────────────────────────────────
-// BE services/punchRemind.js:217 が作る形:
+// BE services/punchRemind.js の refId が作る形:
 //     punch_remind:{業務日}:{シフト}:{側}
 //   実例: punch_remind:2026-07-21:day:in
 //   業務日 'YYYY-MM-DD' にコロンは含まれないため ':' 区切りで必ず4要素になる。
@@ -587,7 +587,7 @@ class _ActionButton extends StatelessWidget {
 //   bizDate と shiftType は絶対に補完しない（黙って別の日・別のシフトへ
 //   申告してしまうため）。side だけは ref_id が壊れていたときに限り
 //   通知の type から導く（BE は type と side を同じ判定から作るので一致する。
-//   fcm_service.dart:126-131 と同じ流儀）。
+//   fcm_service.dart の _awaitApnsToken と同じ流儀）。
 ({String bizDate, String shiftType, String side})? _parsePunchRemindRefId(
     String refId, String type) {
   final parts = refId.split(':');

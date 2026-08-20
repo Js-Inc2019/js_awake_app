@@ -138,7 +138,7 @@ class FieldTokens {
   static const Color wbgtDanger = Color(0xFFE05252);
 
   // ─── 経験カラー（経験年数別・ラベルと同じ4段階）──────────────
-  // ★ラベル（profile_screen.dart:35-42 experienceTier）の境界 1/3/10/20 に
+  // ★ラベル（profile_screen.dart の experienceTier）の境界 1/3/10/20 に
   //   色の境界を一致させた4本。移行前は8本（worker0〜worker7）で色の境界が
   //   1/3/5/10/15/20 だったため、同じラベルの中で色が変わる区分が2つあった
   //   （3-4年と5-9年＝共に「中堅」／10-14年と15-19年＝共に「ベテラン」）。
@@ -154,7 +154,7 @@ class FieldTokens {
   static const Color workerMaster = Color(0xFF7D8A94);
 
   // ─── 職種カラー ─────────────────────────────────────────────
-  /// 職長。membership_select_screen.dart:62 が boss ロールの識別色に使い、
+  /// 職長。membership_select_screen.dart の _roleColor が boss ロールの識別色に使い、
   /// profile_screen.dart の役割バッジ・プレビューバッジも boss のとき本色を使う。
   /// ★値は #7C4DFF（旧 worker6 と同値の紫）から朱丹へ差し替えた。経験色に紫系
   ///   （workerVeteran #7B6FD4）が入るため、役割色と経験色が近似しないようにする。
@@ -166,10 +166,10 @@ class FieldTokens {
 
   // ─── 経験年数 → 経験カラー ──────────────────────────────────
   /// 経験年数から経験カラーを引く。分岐の境界は experienceTier
-  /// （profile_screen.dart:35-42）と同一で、同じラベルの中で色は変わらない。
-  /// 参照元は profile_screen.dart:33 の experienceColor()。
+  /// （profile_screen.dart の experienceTier）と同一で、同じラベルの中で色は変わらない。
+  /// 参照元は profile_screen.dart の experienceColor()。
   /// ★0年（years < 1）はラベルが空文字になる区分なので、色でも意味を主張しない
-  ///   textSupport（ラベル・補助の温グレー :58）を返す。
+  ///   textSupport（ラベル・補助の温グレー）を返す。
   ///   ※本トークン群に textMid は無く、補助文字色の意味名は textSupport。
   static Color getWorkerAccent(int years) {
     if (years < 1)  return textSupport;

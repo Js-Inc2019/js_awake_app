@@ -4,7 +4,7 @@
 //
 // ★数字の出所は BE の GET /attendance/monthly-summary ただ一つ。
 //   クライアント側で合計・平均・判定を作らない（＝二重真実を作らない）。
-//   表示する4項目・単位・計算は home_screen.dart の _StaffMonthlySheet(:5952-5987) と同一:
+//   表示する4項目・単位・計算は home_screen.dart の _StaffMonthlySheet と同一:
 //     出勤日数 = days_worked                          （日）
 //     実働     = total_net_minutes / 60 を小数1桁      （h）
 //     残業     = overtime.total_min                    （分）
@@ -14,7 +14,7 @@
 // ★36協定アラート（GET /attendance/compliance-alerts）は呼ばない。
 //   法令判断は会社の責任であり、職人に法令判断をさせないため（法務設計と整合）。
 //
-// ★数字部品は既存の JsStatChip(monthly_history_screen.dart:255) を再利用する。新部品は作らない。
+// ★数字部品は既存の JsStatChip(monthly_history_screen.dart) を再利用する。新部品は作らない。
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -60,7 +60,7 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
     _load();
   }
 
-  // ★当月で止める。式は既存5箇所と同一（代表: home_screen.dart:6341-6353）。
+  // ★当月で止める。式は既存5箇所と同一（代表: home_screen.dart の _nextMonth）。
   void _nextMonth() {
     final now = DateTime.now();
     if (_selectedMonth.year == now.year &&
@@ -87,9 +87,9 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      // ★自分の person_id。login_screen.dart:926 が BE の user_id をこのキーへ保存しており、
-      //   その user_id は routes/auth.js:726/844/1239 のとおり person.person_id そのもの。
-      //   home_screen.dart:5726 が職人カードから取り出す worker['user_id'] と同じ意味の値。
+      // ★自分の person_id。login_screen.dart の _saveAndNavigate が BE の user_id をこのキーへ保存しており、
+      //   その user_id は routes/auth.js が返す user_id: person.person_id そのもの。
+      //   home_screen.dart が職人カードから取り出す worker['user_id'] と同じ意味の値。
       final personId = prefs.getString('user_id') ?? '';
       if (personId.isEmpty) {
         if (!mounted) return;

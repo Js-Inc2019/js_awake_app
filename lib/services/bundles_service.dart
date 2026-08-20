@@ -17,29 +17,29 @@
 //   呼び手が statusCode + errorCode の組で決める。
 //
 // ★このクラスは通信の運び屋。prefs も画面遷移も持たない
-//   （profile_service.dart:12-14 と同じ方針）。
+//   （profile_service.dart と同じ方針）。
 //
 // ── BE 側の門番（js-office-api HEAD=05e9afe「段階3第2歩=門番統一」で実測）─────
 //   門番は2本に統一されている。判定順はどちらも
-//     (1) cooperation は無条件 403 COOPERATION_NOT_ALLOWED（bundles.js:388-398）
-//     (2) role=='master' は 403（:405-416・信頼設計＝運営はテナント業務を見ない）
+//     (1) cooperation は無条件 403 COOPERATION_NOT_ALLOWED（bundles.js の blockCooperation）
+//     (2) role=='master' は 403（blockMaster・信頼設計＝運営はテナント業務を見ない）
 //     (3) admin_exec / admin_office は鍵なしで通過
 //     (4) boss / worker は鍵で判定
 //     (5) それ以外の role（null・未知）は 403（fail-close）
-//   ・見る門番 blockShareViewer（:458-481）… can_share_view
-//       → GET /inbox（:530）/ GET /outbox（:619）/ GET /receipts（:729）/
-//         GET /:bundle_id（:969）
-//   ・処理門番 blockShareManager（:483-508）… can_share_view AND can_share_manage
-//       → PATCH /receipts/:id/site（:843）/ PATCH /receipts/:id/read（:928）/
-//         POST /:bundle_id/confirm（:1179）
-//   ・送る … requirePermission('can_share_send')（:149・門番統一の対象外＝据え置き）
-//   ★403 応答には required（'can_share_view' / 'can_share_manage'）が載る（:472 / :497）。
+//   ・見る門番 blockShareViewer … can_share_view
+//       → GET /inbox / GET /outbox / GET /receipts /
+//         GET /:bundle_id
+//   ・処理門番 blockShareManager … can_share_view AND can_share_manage
+//       → PATCH /receipts/:id/site / PATCH /receipts/:id/read /
+//         POST /:bundle_id/confirm
+//   ・送る … requirePermission('can_share_send')（門番統一の対象外＝据え置き）
+//   ★403 応答には required（'can_share_view' / 'can_share_manage'）が載る（両門番の 403 応答）。
 //     両方欠けている場合は先に要る方（見る鍵）が返る＝人が1つずつ埋められる順序。
 //   ★鍵は JWT に載っていないため BE が membership_id 起点で毎回 DB 直読みする
-//     （fetchShareKeys :422-448・status='active' 限定・DB エラー時は拒否側へ倒す）。
+//     （fetchShareKeys・status='active' 限定・DB エラー時は拒否側へ倒す）。
 //     ＝FE 側で鍵をキャッシュしても最終判定はここ。FE の鍵は「入口を出すかどうか」だけに使う。
 //   ★段階3より前は「worker は無条件 403（旧裁定Q17a）」だった。鍵を配れば職長・職人も
-//     開ける形に変わっている（:537-540 のコメントが根拠）。
+//     開ける形に変わっている（GET /inbox 直上のコメントが根拠）。
 // ============================================================
 
 import 'dart:convert';
@@ -64,17 +64,17 @@ class BundlesService {
   // ============================================================
 
   /// 自社の複数日報を1束にまとめ、1社以上へ送る。
-  /// BE: routes/bundles.js:149-385（成功は 201・門番 requirePermission('can_share_send')）
+  /// BE: routes/bundles.js の POST /bundles/send（成功は 201・門番 requirePermission('can_share_send')）
   ///
-  /// ★呼び手は share_send_screen.dart:422（確認画面で「送信する」を押した後）の1箇所のみ。
-  ///   共有タブの送信タイル（share_hub_screen.dart:323-）はその画面への導線で、
+  /// ★呼び手は share_send_screen.dart（確認画面で「送信する」を押した後）の1箇所のみ。
+  ///   共有タブの送信タイル（share_hub_screen.dart）はその画面への導線で、
   ///   ここを直接は叩かない。受信側の2枚（受信トレイ／送信済み）と同じ1本の
   ///   サービスで /bundles 系を閉じている。
   ///
-  /// ★[initialAxis] は date / site / worker のみ（bundles.js:29 VALID_AXES）。
-  ///   null を送ると BE が 'date' を既定にする（:170）。3値以外は 400 INVALID_AXIS。
+  /// ★[initialAxis] は date / site / worker のみ（bundles.js の VALID_AXES）。
+  ///   null を送ると BE が 'date' を既定にする（POST /bundles/send の initial_axis 既定）。3値以外は 400 INVALID_AXIS。
   /// ★[reportIds] / [receiverCompanyIds] は非空。空だと 400
-  ///   REPORT_IDS_REQUIRED / RECEIVERS_REQUIRED。重複は BE が除去する（:163-164）。
+  ///   REPORT_IDS_REQUIRED / RECEIVERS_REQUIRED。重複は BE が除去する（同ハンドラの [...new Set(...)]）。
   /// ★自社宛の混入は 400 SELF_SHARE_NOT_ALLOWED、他社/不在の日報混入は
   ///   403 REPORT_NOT_OWNED、送信先不在は 404 RECEIVER_NOT_FOUND。
   ///   どれも「1件でも駄目なら全体を通さない」＝部分送信は起きない。
@@ -113,7 +113,7 @@ class BundlesService {
   // ============================================================
 
   /// 自社宛の束一覧（封筒ごと・受信側）。
-  /// BE: routes/bundles.js:530-604（門番 blockShareViewer・応答 {success, bundles:[...]}）
+  /// BE: routes/bundles.js の GET /bundles/inbox（門番 blockShareViewer・応答 {success, bundles:[...]}）
   ///
   /// ★既読の数字は全て【枚数】（裁定Q5）。read_count は「読了した日報の件数」で
   ///   分母は my_report_count（＝その束のうち自社宛の日報総数）。report_count は
@@ -170,9 +170,9 @@ class BundlesService {
   }
 
   /// 受信箱（日報1枚ごとに1行）。自社が受信社の受信明細だけが返る。
-  /// BE: routes/bundles.js:729-819（門番 blockShareViewer・応答 {success, receipts:[...]}）
+  /// BE: routes/bundles.js の GET /bundles/receipts（門番 blockShareViewer・応答 {success, receipts:[...]}）
   ///
-  /// ★応答キーは18個の白リスト射影（bundles.js:793-812 の map が唯一の真実）:
+  /// ★応答キーは18個の白リスト射影（bundles.js の GET /bundles/receipts の map が唯一の真実）:
   ///   receipt_id / bundle_id / report_id / receipt_status / sent_at / read_at /
   ///   sender_company_id / sender_company_name / sender_name / worker_name /
   ///   report_date / site_name / work_content / gps_address / report_created_at /
@@ -183,7 +183,7 @@ class BundlesService {
   /// ★site_name（送信社が書いた現場名）と link_site_name（受信社が自社台帳へ
   ///   紐付けた名前）は別物。片方だけでは「うちのどの現場の話か」が決まらない。
   /// ★report_created_at は日報の提出時刻（reports.created_at）。
-  /// ★並びは BE が sent_at DESC → report_date DESC → worker_name ASC（:790-791）。
+  /// ★並びは BE が sent_at DESC → report_date DESC → worker_name ASC（同ハンドラの ORDER BY）。
   ///   FE で並べ替え直さない（時系列の根拠を2箇所に持たない）。
   Future<ApiResult<List<Map<String, dynamic>>>> getReceipts() async {
     final headers = await _auth.getAuthHeaders();
@@ -205,7 +205,7 @@ class BundlesService {
   // ============================================================
 
   /// 受信した日報に自社の現場を紐付ける／解除する。
-  /// BE: routes/bundles.js:843-926（応答 {success, message, receipt, site_name}）
+  /// BE: routes/bundles.js の PATCH /bundles/receipts/:receipt_id/site（応答 {success, message, receipt, site_name}）
   ///
   /// ★[siteId] に null を渡すと解除（BE は site_id / linked_by / linked_at の3列を
   ///   まとめて null に戻す）。キーごと未送信は 400 なので、この実装は null でも
@@ -215,7 +215,7 @@ class BundlesService {
   /// ★原本 reports は書き換わらない。紐付けは受信明細側だけの事実で、原本へ書くと
   ///   content_hash が動いて改ざん扱いになる。
   /// ★data は応答全体。receipt は7キー（receipt_id / receipt_status / site_id /
-  ///   linked_by / linked_at / read_at / read_by＝config/responseFields.js:268-276）。
+  ///   linked_by / linked_at / read_at / read_by＝config/responseFields.js の RECEIPT_FIELDS）。
   ///   紐付けた現場名は receipt ではなく応答直下の site_name に入る。
   Future<ApiResult<Map<String, dynamic>>> linkReceiptSite({
     required String receiptId,
@@ -234,7 +234,7 @@ class BundlesService {
   }
 
   /// 受信した日報を既読にする（日報を開いた時に1枚ずつ呼ぶ）。
-  /// BE: routes/bundles.js:928-951（応答 {success, receipt}）
+  /// BE: routes/bundles.js の PATCH /bundles/receipts/:receipt_id/read（応答 {success, receipt}）
   ///
   /// ★冪等。read_at / read_by は COALESCE で【初回】を保ち、2回目以降は何も動かない。
   ///   よって呼び手は「既読かどうか」を先に判定しなくてよい。
@@ -260,18 +260,18 @@ class BundlesService {
   // ============================================================
 
   /// 束詳細。送信社でも受信社でもなければ 404。
-  /// BE: routes/bundles.js:969-1177（門番 blockShareViewer）
+  /// BE: routes/bundles.js の GET /bundles/:bundle_id（門番 blockShareViewer）
   ///
   /// ★data は応答全体 {success, viewer_role, bundle, receivers, items,
-  ///   bundle_integrity}（:1141-1158）。viewer_role は 'sender' / 'receiver' で、
+  ///   bundle_integrity}（同ハンドラの応答組み立て）。viewer_role は 'sender' / 'receiver' で、
   ///   同じ画面がどちら側として開いているかを BE が言い切る＝FE で推測しない。
   /// ★items[] は {report_id, report_date, worker_name, site_name, work_content,
   ///   gps_address, original_hash, sort_order, item_status}。item_status は
-  ///   'tampered' / 'updated' / 'ok' の三値で BE が算出済み（:1039-1041）。
-  ///   bundle_integrity は 'ok' / 'broken'（:1073）。FE でハッシュを再計算しない。
+  ///   'tampered' / 'updated' / 'ok' の三値で BE が算出済み（同ハンドラの item_status 算出）。
+  ///   bundle_integrity は 'ok' / 'broken'（同ハンドラの bundle_integrity 算出）。FE でハッシュを再計算しない。
   /// ★★副作用あり: 受信側が開くと封筒に received_at が入り、原本の書き換えが
   ///   見つかった場合は【この GET の中で】改ざん事件が台帳化されて通知が飛ぶ
-  ///   （:1160 / :1076-1114・fail-open）。つまり「一覧の見た目を整えるために
+  ///   （同ハンドラの received_at 刻印と改ざん事件の台帳化・fail-open）。つまり「一覧の見た目を整えるために
   ///   先読みで全件叩く」ことは絶対にしない。開いた1件だけを叩く。
   /// ★写真は含まれない。include_photos=true の束は呼び手が別途 GET /reports/:id。
   Future<ApiResult<Map<String, dynamic>>> getBundle(String bundleId) async {
@@ -287,7 +287,7 @@ class BundlesService {
   }
 
   /// 束を「確認済み」にする。自社が受信社の場合のみ（送信社は 404）。
-  /// BE: routes/bundles.js:1179-1243（応答 {success, confirmed_at}）
+  /// BE: routes/bundles.js の POST /bundles/:bundle_id/confirm（応答 {success, confirmed_at}）
   ///
   /// ★確認は【束単位・人単位】（share_bundle_acks.confirmed_at）。日報1枚ごとの
   ///   既読（markReceiptRead）とは別の事実で、どちらか一方が他方を代替しない。

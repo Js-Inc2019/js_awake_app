@@ -128,7 +128,7 @@ class WorkModeService {
   // ★checkIn() は撤去した（呼び手ゼロ）。
   //   併せて撤去した sendAttendance() が組んでいた POST /attendance/checkin は
   //   BE の全ルート（server.js のマウント解決後177本）に存在せず、呼ばれれば 404 になる
-  //   死んだ呼び出しだった。実打刻は POST /attendance/punch（punch() :285）ただ一つ。
+  //   死んだ呼び出しだった。実打刻は POST /attendance/punch（punch()）ただ一つ。
 
   Future<void> resetCheckIn() async {
     final prefs = await SharedPreferences.getInstance();
@@ -191,7 +191,7 @@ class WorkModeService {
 
   // ── 会社休日カレンダー（/attendance 系のためこのサービスに置く）─────────
   // GET /attendance/holidays/my
-  // BE: routes/attendance.js:533（employee 限定・cooperation は 403 COOPERATION_FORBIDDEN）。
+  // BE: routes/attendance.js の GET /attendance/holidays/my（employee 限定・cooperation は 403 COOPERATION_FORBIDDEN）。
   // ★data が null かどうかで「取れなかった」と「休日ゼロ」を区別できる。
   Future<ApiResult<CompanyHolidays>> fetchCompanyHolidays() async {
     final guard = await _requireToken<CompanyHolidays>();
@@ -214,7 +214,7 @@ class WorkModeService {
   }
 
   // GET /attendance/holidays/jp?year=YYYY → { dates: {"YYYY-MM-DD": 祝日名}, year, count }
-  // BE: routes/attendance.js:636。★/holidays/my の dates は値が 'legal'|'scheduled' だが、
+  // BE: routes/attendance.js の GET /attendance/holidays/jp。★/holidays/my の dates は値が 'legal'|'scheduled' だが、
   //     こちらの dates は値が【祝日名の文字列】。用途が違うので混同しないこと
   //     （こちらは文字色＝朱の判定にのみ使い、会社の休業設定とは無関係）。
   // 取得は年単位（月ではない）。失敗時は呼び出し側が祝日色なしで描画を続行できる。
@@ -326,14 +326,14 @@ class WorkModeService {
 
   // ─── 休憩申告の確認・修正側（職長・事務/boss が使う）────────────────────
   //   BE は承認制から申告制へ転換済み:
-  //     GET  /attendance/break-requests?month=YYYY-MM  (routes/attendance.js:1733)
-  //     POST /attendance/break-request/:id/amend       (routes/attendance.js:1787)
+  //     GET  /attendance/break-requests?month=YYYY-MM  (routes/attendance.js)
+  //     POST /attendance/break-request/:id/amend       (routes/attendance.js)
   //   ★旧 /break-requests/pending・/approve・/reject は BE から撤去済み。
   //     呼べない道を「嘘の記号」として残さないため、当メソッド群も削除済み。
-  //   権限は MONTHLY_ROLES(admin_office/admin_exec/boss・:1459) で、権限不足は 403。
+  //   権限は MONTHLY_ROLES(admin_office/admin_exec/boss) で、権限不足は 403。
 
   /// GET /attendance/break-requests?month=YYYY-MM
-  /// 応答 {month, requests:[…]} の各行は BE の SELECT 列（routes/attendance.js:1760-1765）そのまま:
+  /// 応答 {month, requests:[…]} の各行は BE の SELECT 列（routes/attendance.js の GET /attendance/break-requests）そのまま:
   ///   id / person_id / membership_id / work_date('YYYY-MM-DD') / break_override_min /
   ///   break_override_reason / break_override_status / break_override_req_at / person_name
   Future<ApiResult<List<Map<String, dynamic>>>> fetchBreakRequests({required String month}) async {
@@ -354,7 +354,7 @@ class WorkModeService {
 
   /// POST /attendance/break-request/:id/amend   body:{ break_minutes }
   /// 申告された休憩の分数を管理側が修正する。理由・申告時刻は BE 側で保持される
-  /// （routes/attendance.js:1825-1832）。
+  /// （routes/attendance.js の POST /attendance/break-request/:id/amend）。
   Future<ApiResult<Map<String, dynamic>>> amendBreakRequest(String id, int breakMinutes) async {
     final guard = await _requireToken<Map<String, dynamic>>();
     if (guard != null) return guard;
@@ -408,14 +408,14 @@ class WorkModeService {
 
   // ── 月次集計（GET /attendance/monthly-summary）───────────────────────────
   //   ★段6で2画面の重複を1本へ畳んだ:
-  //       home_screen.dart:5876-5882（_StaffMonthlySheet・person_id = widget.personId）
-  //       monthly_stats_screen.dart:107-113（自分の集計・person_id = prefs 'user_id'）
+  //       home_screen.dart（_StaffMonthlySheet・person_id = widget.personId）
+  //       monthly_stats_screen.dart（自分の集計・person_id = prefs 'user_id'）
   //     URL・クエリ2キー・15秒・応答をそのまま Map で使う点まで完全一致。
   //     違うのは person_id の出所だけ＝呼び手が引数で渡す形にして吸収する。
   //   ★他メソッドと違い _requireToken ガードを付けていない。移設元の2画面は
   //     どちらもガードを持たず、token が空でも送って BE の 401 を受け、
   //     「認証の有効期限が切れました」を出す作りだったため
-  //     （monthly_stats_screen.dart:129）。ここでガードを足すと同じ状況が
+  //     （monthly_stats_screen.dart）。ここでガードを足すと同じ状況が
   //     statusCode:0＝「ネットワークエラー」に化ける＝現行の文言が変わる。
   //   ★集計値の計算・判定は一切しない（数字の出所は BE ただ一つ）。
   Future<ApiResult<Map<String, dynamic>>> fetchMonthlySummary({

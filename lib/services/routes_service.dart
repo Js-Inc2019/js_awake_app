@@ -9,7 +9,7 @@
 //
 //   ① 「HTTP 200 だが失敗」を表現する必要がある。
 //      BE は経路計算に失敗しても 200 + routes:{} を返す
-//      （js-office-api routes/routes-calc.js:186）。ApiResult は 200系＝ok:true
+//      （js-office-api routes/routes-calc.js の POST /routes/compare）。ApiResult は 200系＝ok:true
 //      なので、置き換えると RouteFailure.empty が ok:true に反転し、
 //      呼び手（home_screen.dart の _routeFailed）が「空の結果」を成功として
 //      描いてしまう＝金額欄が空のまま「取得できた」ことになる。
@@ -247,7 +247,7 @@ class RoutesService {
       return const RouteCompareResult.failed(RouteFailure.badResponse);
     }
 
-    // ★BE は取得に失敗しても 200 + routes:{} を返す（js-office-api routes/routes-calc.js:186）。
+    // ★BE は取得に失敗しても 200 + routes:{} を返す（js-office-api routes/routes-calc.js の POST /routes/compare）。
     //   200 だから成功、とは判定しない。中身が空なら失敗として扱う。
     if (result.isEmpty) {
       return const RouteCompareResult.failed(RouteFailure.empty);

@@ -2,11 +2,11 @@
 // lib/widgets/punch_remind_dialog.dart
 //   打刻のお知らせ（punch_remind_in / punch_remind_out）からの2択ダイアログ。
 //
-//   ★型とトークンは home_screen.dart:2564-2608 の _openExtraDeclarationPicker と
-//     :2666-2719 の _DeclarationChoiceRow を踏襲した「同型・別実装」。
+//   ★型とトークンは home_screen.dart の _openExtraDeclarationPicker と
+//     _DeclarationChoiceRow を踏襲した「同型・別実装」。
 //     home_screen.dart 側は1バイトも変更していない。_DeclarationChoiceRow は
 //     同ファイル内 private のため他所からは使えないが、共通化のためのリネームは
-//     6800行ファイルの呼出2箇所（:2577 / :2584）にも波及するため持ち込まない。
+//     6800行ファイルの _openExtraDeclarationPicker の呼出2箇所にも波及するため持ち込まない。
 //
 //   ★FCM経路（画面外＝context を持たない fcm_service）から呼ばれるため、
 //     context は PunchRemindDialogNavigator（home_screen.dart）経由で
@@ -39,7 +39,7 @@ Future<void> showPunchRemindFlow(
   required String bizDate,
 }) async {
   // 不正値はここで倒す（BE へ想定外の値を投げない＝work_mode_service の流儀。
-  // punch(:285) / breakRequest(:333) / fetchToday(:251) と同じ扱い）。
+  // punch() / breakRequest() / fetchToday() と同じ扱い）。
   final s     = side      == 'out'   ? 'out'   : 'in';
   final shift = shiftType == 'night' ? 'night' : 'day';
 
@@ -82,7 +82,7 @@ Future<void> showPunchRemindFlow(
       workDate:     bizDate,
       unknownState: unknownState,
       // 通知は「背後の画面」の context で出す。ダイアログ自身の context は
-      // pop 後に無効になるため使わない（home_screen.dart:2625-2628 と同流儀）。
+      // pop 後に無効になるため使わない（home_screen.dart の _openExtraDeclarationPicker と同流儀）。
       onNotify: (message, isError) {
         if (!context.mounted) return;
         showJsSnackbar(context, message, isError: isError);
@@ -111,7 +111,7 @@ class _PunchRemindDialog extends StatefulWidget {
 }
 
 class _PunchRemindDialogState extends State<_PunchRemindDialog> {
-  // 多重送信ガード。home_screen.dart:2745 / :2754 の _ShortBreakSheetState と同型。
+  // 多重送信ガード。home_screen.dart の _ShortBreakSheetState と同型。
   bool _submitting = false;
   String? _error;   // ダイアログ内エラー（snackbar だけだと最前面に隠れるため両方に出す）
 
@@ -170,7 +170,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   //   ★rest_date は通知が持っている業務日（widget.workDate）をそのまま渡す。
   //     サーバ確定に任せると、深夜0時を跨いでタップしたときに「サーバの今日」が
   //     通知の対象業務日と別の日になり、黙って違う日を休みにしてしまう（Q10(a)）。
-  //     打刻漏れ側（_declare:126-130）が work_date を明示するのと同じ理由・同じ値。
+  //     打刻漏れ側（_declare）が work_date を明示するのと同じ理由・同じ値。
   //     BE の許容は当日/前日のみ。範囲外は 400 INVALID_REST_DATE で返る。
   Future<void> _restDay() async {
     if (_submitting) return;
@@ -190,7 +190,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     }
     // 400 INVALID_REST_DATE は rest_date を送るようになって初めて起こりうる。
     // ベル一覧に残った古いお知らせ（当日/前日より前）を開いた場合がこれ。
-    // 打刻漏れ側の INVALID_WORK_DATE（_declareMessage:160-163）と同じ言い方に揃える。
+    // 打刻漏れ側の INVALID_WORK_DATE（_declareMessage）と同じ言い方に揃える。
     if (res.statusCode == 400 && res.errorCode == 'INVALID_REST_DATE') {
       _fail('登録できる期間を過ぎています。事務へご連絡ください。');
       return;
@@ -211,14 +211,14 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   // ── 閉じる（何もしない・何も表示しない）──────────────────────────
   //   本人が閉じた操作に結果表示は不要（ダイアログが消えること自体が返事）。
   //   「無言で閉じる経路ゼロ」は失敗を隠さないための条項であり、本人の取消には
-  //   適用しない。あとから申告できることは下部の※注記(:274-276)で示している。
+  //   適用しない。あとから申告できることは下部の※注記で示している。
   void _close() {
     if (_submitting) return;
     Navigator.of(context).pop();
   }
 
   // 失敗は非ブロック: ダイアログは開いたまま残し、理由をその場と snackbar の
-  // 両方に出す（home_screen.dart:2775-2779 と同流儀）。
+  // 両方に出す（home_screen.dart の _ShortBreakSheetState と同流儀）。
   void _fail(String msg) {
     setState(() { _submitting = false; _error = msg; });
     widget.onNotify(msg, true);
@@ -229,7 +229,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     return AlertDialog(
       backgroundColor: FieldTokens.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      // タイトルは FCM通知の title（BE services/punchRemind.js:32,39）と同一文言。
+      // タイトルは FCM通知の title（BE services/punchRemind.js の PUNCH_REMIND_IN / PUNCH_REMIND_OUT の title）と同一文言。
       // 同じ事実を2つの言い方で持たない（二重真実の禁止）。
       title: Text(
         _isOut ? '退勤の打刻が確認できません' : '出勤の打刻が確認できません',
@@ -315,7 +315,7 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
 }
 
 // 2択の選択肢1行。暗枠1px・塗りなし。
-// home_screen.dart:2666-2719 の _DeclarationChoiceRow と同型（トークン・寸法とも同じ）。
+// home_screen.dart の _DeclarationChoiceRow と同型（トークン・寸法とも同じ）。
 // 唯一の差: onTap を nullable にして送信中は押せなくしている（多重送信ガード）。
 class _PunchRemindChoiceRow extends StatelessWidget {
   const _PunchRemindChoiceRow({

@@ -322,7 +322,7 @@ class ReportStore {
         // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
         if (item.siteId != null) body['site_id'] = item.siteId;
         // 提出座標：測位できているときだけ送る（site_id と同じ流儀）。
-        // BE 受け口は routes/reports.js:320-321（appendEvent の gps_lat / gps_lon）。
+        // BE 受け口は routes/reports.js の appendEvent（gps_lat / gps_lon）。
         // ★reports 表の列でも content_hash の対象でもない＝既存ハッシュに影響しない。
         if (item.gpsLat != null) body['gps_lat'] = item.gpsLat;
         if (item.gpsLon != null) body['gps_lon'] = item.gpsLon;

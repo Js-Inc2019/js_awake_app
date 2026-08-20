@@ -6,12 +6,12 @@
 //
 // BE: GET /bundles/:bundle_id（BundlesService.getBundle）。
 //   ・自分がどちら側かは応答の viewer_role（'sender' / 'receiver'）を信じる
-//     ＝FE で会社IDを見比べて推測しない（routes/bundles.js:1143）。
+//     ＝FE で会社IDを見比べて推測しない（routes/bundles.js の viewer_role 算出）。
 //   ・item_status（'tampered' / 'updated' / 'ok'）と bundle_integrity
 //     （'ok' / 'broken'）は BE が算出済み。FE でハッシュを再計算しない。
 //   ・★★この GET には副作用がある: 受信側が開くと封筒に received_at が入り、
 //     原本の書き換えが見つかれば改ざん事件が台帳化されて通知が飛ぶ
-//     （routes/bundles.js:1076-1114・fail-open）。だから【開いた1件だけ】を叩く。
+//     （routes/bundles.js の GET /bundles/:bundle_id・fail-open）。だから【開いた1件だけ】を叩く。
 //     一覧の見た目を整えるための先読みは絶対にしない。
 //
 // 「確認済みにする」: POST /bundles/:bundle_id/confirm（受信社のみ・送信社は404）。

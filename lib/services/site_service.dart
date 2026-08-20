@@ -92,7 +92,7 @@ class SiteService {
 
   // ============================================================
   // GPS照合（半径500m以内・近い順最大5件の登録現場）。GET /sites/match?lat=&lon=。
-  //   ・★ BE の query param は 'lon'（routes/sites.js:111 の { lat, lon }）。
+  //   ・★ BE の query param は 'lon'（routes/sites.js の GET /sites/match の { lat, lon }）。
   //   ・0件（sites: []）は ok:true・data 空リスト。「取れなかった」は ok:false。
   // ============================================================
   Future<ApiResult<List<Map<String, dynamic>>>> matchSites(double lat, double lng) async {
@@ -112,7 +112,7 @@ class SiteService {
   // ============================================================
   // 住所→座標（GET /sites/geocode?address=）。
   // BE: 200→{success,lat,lng} / 404 GEOCODE_NOT_FOUND / 502 GEOCODE_FAILED /
-  //     400 ADDRESS_REQUIRED（routes/sites.js:171-208）。
+  //     400 ADDRESS_REQUIRED（routes/sites.js）。
   //   ★統一前の 'not_found' / 'error' / 'offline' は ApiResult で表せる:
   //       住所不明    → ok:false・statusCode:404
   //       その他非200 → ok:false・statusCode:実値

@@ -29,7 +29,7 @@ class ReportDetail {
 ///
 /// ★[truncated] を一緒に運ぶために型を作った。List だけ返す形にすると
 ///   「上限で切れた」という事実の置き場が無くなり、呼び手が全件だと誤解する。
-///   BE は常に返す（routes/reports.js:919 の `{success, reports, truncated}`）。
+///   BE は常に返す（routes/reports.js の `{success, reports, truncated}`）。
 class ReportsRange {
   const ReportsRange({required this.reports, required this.truncated});
 
@@ -37,7 +37,7 @@ class ReportsRange {
   final List<Map<String, dynamic>> reports;
 
   /// 上限で切れたか。BE は「上限+1件」取れたかで判定する
-  /// （routes/reports.js:903-909）。期間指定経路の上限は 1000。
+  /// （routes/reports.js の GET /reports の limit 決定）。期間指定経路の上限は 1000。
   final bool truncated;
 }
 
@@ -129,7 +129,7 @@ class ReportsService {
   // ============================================================
   // 現場の紐づけ（後付け）。PATCH /reports/:id/site。
   // siteId=null は「対象なし」（現状維持相当）。BE側は content_hash 再計算＋
-  // 'edited' イベント追記で改ざん検知に抵触させない実装（reports.js:1287-）。
+  // 'edited' イベント追記で改ざん検知に抵触させない実装（reports.js の event_type: 'edited' 追記）。
   // ============================================================
 
   Future<ApiResult<Map<String, dynamic>>> linkReportToSite(
@@ -217,16 +217,16 @@ class ReportsService {
 
   /// 期間（片側可）＋現場＋職人で日報を引く。共有の送信画面が使う。
   ///
-  /// ★BE のスコープが最終権威。role 分岐（routes/reports.js:774-800）で
+  /// ★BE のスコープが最終権威。role 分岐（routes/reports.js の GET /reports の scopeClause）で
   ///   worker は `r.user_id = 自分`、boss / admin_office / admin_exec は
   ///   `r.company_id = 自社` に固定され、下の絞り込みはその【内側】に AND で足される。
   ///   つまり worker が他人の [userIds] を渡しても交差して0件になるだけで、
-  ///   見える範囲は1ミリも広がらない（同 :877-879 のコメントが根拠）。
+  ///   見える範囲は1ミリも広がらない（同 GET /reports の scopeClause は必ず残る旨のコメントが根拠）。
   ///   ★よって画面側は「worker に職人セレクタを出さない」ことで揃える。
   ///     出しても効かない選択肢は嘘の記号になる。
   ///
   /// ★[siteIds] のトークン 'none' は「現場未設定（r.site_id IS NULL）」を意味する
-  ///   BE の予約語（同 :886-899）。sites マスタには無い擬似 ID。
+  ///   BE の予約語（同 GET /reports の 'none' 判定）。sites マスタには無い擬似 ID。
   /// ★[startDate] / [endDate] は 'YYYY-MM-DD' のみ。両端を含む。
   ///   両方 null で呼ぶと BE は期間経路にならず既定50件の一覧に落ちるため、
   ///   呼び手は片側以上を必ず入れる（画面のボタン活性でそれを保証する）。
@@ -274,8 +274,8 @@ class ReportsService {
   // ============================================================
   // 差戻し中の日報一覧（GET /reports?revision_requested=true）
   //   ★段6で2画面の重複を1本へ畳んだ:
-  //       revision_inbox_screen.dart:90-93（10秒・一覧描画用）
-  //       home_screen.dart:1363-1369（_withRetry で包んで件数バッジ用）
+  //       revision_inbox_screen.dart（10秒・一覧描画用）
+  //       home_screen.dart（_withRetry で包んで件数バッジ用）
   //     URL・応答の読み方（reports[]）は完全一致。違うのは秒数と、
   //     home 側が3回リトライで包んでいることの2点だけ。
   //   ★秒数は引数で受ける（丸めると片方の挙動が消える）。
@@ -299,7 +299,7 @@ class ReportsService {
 
   // ============================================================
   // 会社別の月次日報（GET /reports/by-company?month=YYYY-MM）
-  //   移設元: home_screen.dart:6139-6144（15秒）
+  //   移設元: home_screen.dart の getReportsByCompany 呼び出し（15秒）
   //   応答 {"companies":[...]} の companies を返す。
   // ============================================================
 
@@ -320,7 +320,7 @@ class ReportsService {
 
   // ============================================================
   // 日報の新規提出（POST /reports）
-  //   移設元: main.dart:349-353（10秒）
+  //   移設元: main.dart の日報送信（10秒）
   //   ★body は ReportStore が組み立てたものをそのまま送る。写真の base64 化・
   //     業務日の算出・条件付きキー（site_id / gps_lat / gps_lon / photos）の
   //     有無判定はすべて呼び手の領分なので、ここでは組み替えない。
@@ -344,7 +344,7 @@ class ReportsService {
 
   // ============================================================
   // 差戻し対応の保存・再提出（PUT /reports/:id → POST /reports/:id/resubmit）
-  //   移設元: revision_edit_screen.dart:342-345 / :354-358（どちらも30秒）
+  //   移設元: revision_edit_screen.dart の _submit（updateReport → resubmitReport・どちらも30秒）
   //   ★30秒は移設元のまま。写真の base64 を載せるため他より長い（丸めない）。
   //   ★2段（保存 → 再提出）であることは呼び手の手順。片方だけ成功した時の
   //     文言（「保存はできましたが再提出に失敗しました」）も呼び手が決める。
@@ -390,7 +390,7 @@ class ReportsService {
   // ============================================================
 
   // GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
-  // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js:276）。
+  // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js の GET /rest-days/my）。
   // 取消済(cancelled_at)は BE 側で除外済み＝返るのは「いま有効な休み」だけ。
   Future<ApiResult<List<Map<String, dynamic>>>> getRestDaysMy(String month) async {
     final headers = await _auth.getAuthHeaders();
@@ -430,7 +430,7 @@ class ReportsService {
   // portion（full/am_half/pm_half）は BE 並行実装中＝未対応の間は無視されるだけで害なし。
   //   ★409 の code は errorCode に載る（呼び手が「すでに休みで登録されています」を出す根拠）。
   //   ★restDate は任意。BE は未指定なら JST 業務日で確定するため、通常の休み申告
-  //     （rest_day_screen.dart:74）は従来どおり渡さない＝送信内容は1バイトも変わらない。
+  //     （rest_day_screen.dart の createRestDay / updateRestDay）は従来どおり渡さない＝送信内容は1バイトも変わらない。
   //     渡すのは打刻のお知らせ経由（punch_remind_dialog.dart）だけ。深夜0時を跨いで
   //     タップすると「サーバの今日」が通知の対象業務日とズレるため、通知が持っている
   //     業務日をそのまま送る。BE の許容は当日/前日のみで、範囲外・不正形式は

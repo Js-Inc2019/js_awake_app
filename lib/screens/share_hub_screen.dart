@@ -8,8 +8,8 @@
 //
 // 中身: タイル3枚（受信トレイ / 送信済み / 日報を送る）。
 //   ★送信タイルは解禁済み（段階3-FIELD第2弾）。見る鍵があればタイルは必ず出し、
-//     送る鍵が無い人はタップした時に案内を出す（袋小路にしない・下の :316- 参照）。
-//     窓口は BundlesService.sendBundle（bundles_service.dart:78-）。
+//     送る鍵が無い人はタップした時に案内を出す（袋小路にしない・下の送信タイルのタップ処理を参照）。
+//     窓口は BundlesService.sendBundle（bundles_service.dart）。
 //
 // 権限: ProfileService.getProfile() の応答から共有2鍵を読む（専用メソッドは作らない
 //   ＝二重取得口を作らないためのボス裁定）。★prefs へ長期キャッシュしない＝
@@ -30,10 +30,10 @@ import 'share_send_screen.dart';
 /// 共有2鍵の判定結果。
 ///
 /// ★FE の役割は「入口を出すかどうか」だけ。BE の門番
-/// （bundles.js:458-508）を FE で完全再現はしない。再現できない理由を明記する:
+/// （bundles.js の blockShareViewer / blockShareManager）を FE で完全再現はしない。再現できない理由を明記する:
 ///   ・cooperation（協力業者）の遮断は membership_type を見るが、FIELD は
 ///     この値をどこにも持っていない（lib 全体の grep で membership_type は
-///     worker_service.dart:126 のクエリ引数のみ＝自分の所属種別ではない）。
+///     worker_service.dart の getWorkers のクエリ引数のみ＝自分の所属種別ではない）。
 ///   ・master の遮断は role で表現できるが、FIELD に master でログインする経路が無い。
 ///  よって FE の式は「事務・社長は鍵なしで通す／それ以外は鍵で判定」に留め、
 ///  漏れた場合は BE の 403 を画面に言い切って出す（袋小路にしない）。
@@ -55,17 +55,17 @@ class ShareKeys {
 
   /// GET /profile の応答から組む。
   ///
-  /// ★見る／処理する（BE bundles.js:458-508 の門番）
-  ///   ・admin_exec / admin_office は鍵なしで通過（:475 / :500）。
+  /// ★見る／処理する（BE bundles.js の blockShareViewer / blockShareManager）
+  ///   ・admin_exec / admin_office は鍵なしで通過（両者の admin_exec / admin_office 分岐）。
   ///   ・boss / worker は can_share_view、処理はさらに can_share_manage も要る
-  ///     （:477-479 / :502-504＝処理に見る鍵も要求する形をそのまま写す）。
+  ///     （両者の boss / worker 分岐＝処理に見る鍵も要求する形をそのまま写す）。
   ///
-  /// ★送る（BE bundles.js:149 の requirePermission('can_share_send')）は
-  ///   【条件が違う】。middleware/auth.js:167-215 を実測した結果:
-  ///   ・全権バイパスは admin_exec ただ一つ（:187-189）。
+  /// ★送る（BE bundles.js の requirePermission('can_share_send')）は
+  ///   【条件が違う】。middleware/auth.js の requirePermission を実測した結果:
+  ///   ・全権バイパスは admin_exec ただ一つ（requirePermission (c)）。
   ///     admin_office は見る／処理では鍵なしで通るが、送るときは
   ///     can_share_send の列を実際に持っていないと 403 になる。
-  ///   ・cooperation は無条件 403（:179-185）。
+  ///   ・cooperation は無条件 403（requirePermission (b)）。
   ///   ここを「事務も鍵なしで送れる」と書くと、事務のタイルが押せるのに
   ///   BE で 403 になる＝嘘の入口になる。よって officeSide でまとめない。
   ///
@@ -347,7 +347,7 @@ class ShareHubBodyState extends State<ShareHubBody> {
 }
 
 // ─── タイル1枚 ────────────────────────────────────────────
-// 未読バッジの見た目は home_screen.dart:3388-3400 の _badgeDot と同型
+// 未読バッジの見た目は home_screen.dart の _badgeDot と同型
 // （丸・statusError 地・textBody 文字・bold）。同じ意味の記号を2つの形で出さない。
 class _ShareTile extends StatelessWidget {
   const _ShareTile({

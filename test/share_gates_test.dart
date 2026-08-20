@@ -20,7 +20,7 @@ import 'package:js_awake_app/screens/share_send_screen.dart'
 
 void main() {
   // ──────────────────────────────────────────────────────────
-  // ① 共有2鍵の判定（BE routes/bundles.js:458-508 の門番を FE 側で写したもの）
+  // ① 共有2鍵の判定（BE routes/bundles.js の blockShareViewer / blockShareManager を FE 側で写したもの）
   //    見る   = admin_exec / admin_office は鍵なし可、他は can_share_view
   //    処理する= 同上、他は can_share_view AND can_share_manage
   // ──────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ void main() {
 
   // ──────────────────────────────────────────────────────────
   // ①' 送る鍵。★見る／処理とは条件が違う。
-  //    BE middleware/auth.js:167-215 の requirePermission('can_share_send'):
+  //    BE middleware/auth.js の requirePermission('can_share_send'):
   //      全権バイパスは admin_exec ただ一つ（:187-189）。admin_office は
   //      見る／処理では鍵なしで通るが、送るときは列を持っていないと 403。
   //    ここを取り違えると「事務のタイルが押せるのに BE で 403」＝嘘の入口になる。
@@ -181,8 +181,8 @@ void main() {
 
   // ──────────────────────────────────────────────────────────
   // ①'' 送信画面の role 判定。2つの集合が違うことを固定する。
-  //    ・職人カードを出すか   … role != 'worker'（BE reports.js:774-800）
-  //    ・職人候補APIを叩けるか … boss/admin_office/admin_exec（BE workers.js:551）
+  //    ・職人カードを出すか   … role != 'worker'（BE reports.js の GET /reports の scopeClause）
+  //    ・職人候補APIを叩けるか … boss/admin_office/admin_exec（BE workers.js の GET /workers の requireRole）
   //    master は「会社軸だが職人候補は取れない」＝この2つが食い違う唯一の顔。
   // ──────────────────────────────────────────────────────────
   group('ShareSendScreen の role 判定', () {
@@ -208,7 +208,7 @@ void main() {
 
     test('空・未知の role は会社軸扱いになる（BEが403で断る）', () {
       // ★FE は role で入口を作らない。GET /reports の想定外role は
-      //   BE が 403 ROLE_SCOPE_FORBIDDEN で断る（reports.js:799-801）。
+      //   BE が 403 ROLE_SCOPE_FORBIDDEN で断る（reports.js）。
       const w = ShareSendScreen(role: '');
       expect(w.isCompanyScope, isTrue);
       expect(w.canListWorkers, isFalse);

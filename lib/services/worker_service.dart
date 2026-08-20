@@ -33,12 +33,12 @@ class WorkerService {
   // 招待コードによる有効化（未認証）
   // ============================================================
 
-  /// 移設元: register_screen.dart:75-84（POST /workers/activate・60秒）
+  /// 移設元: register_screen.dart（POST /workers/activate・60秒）
   ///
   /// ★60秒は移設元のまま。他の未認証系（30秒/10秒）より長いのは、この経路が
   ///   コールドスタート直後に叩かれることがあるため（丸めない）。
   /// ★invite_code の trim/toUpperCase は移設元が画面側で行っている
-  ///   （register_screen.dart:79）。入力の正規化は画面の責任なので
+  ///   （register_screen.dart の _inviteCtrl.text.trim().toUpperCase()）。入力の正規化は画面の責任なので
   ///   ここでは受け取った文字列をそのまま送る。
   /// ★deviceName は移設元で `Platform.isAndroid ? 'Android' : 'iPhone'` を
   ///   画面が組み立てている。ここで再実装すると判定が二重になるため引数で受ける。
@@ -70,13 +70,13 @@ class WorkerService {
   // 自己登録（仮登録申請・未認証）
   // ============================================================
 
-  /// 移設元: login_screen.dart:637-648（POST /workers/self-register・30秒）
+  /// 移設元: login_screen.dart（POST /workers/self-register・30秒）
   ///
   /// ★partnerCompanyName / companyCode は移設元が
-  ///   「空文字なら null を送る」形にしている（login_screen.dart:643-644）。
+  ///   「空文字なら null を送る」形にしている（login_screen.dart の _selfRegister）。
   ///   空文字と null は BE にとって別の意味なので、その判定は画面側に残し、
   ///   ここは受け取った null / 非 null をそのまま載せる。
-  /// ★成功は 200 と 201 の両方があり得る（移設元 :653）。ApiResult は
+  /// ★成功は 200 と 201 の両方があり得る（移設元の成功判定）。ApiResult は
   ///   200系を成功とするため自然に吸収される。
   Future<ApiResult<Map<String, dynamic>>> selfRegister({
     required String name,
@@ -108,12 +108,12 @@ class WorkerService {
   // 作業員一覧（会社スコープ・認証必須）
   // ============================================================
 
-  /// 移設元: home_screen.dart:5714-5719（GET /workers?membership_type=employee・15秒）
+  /// 移設元: home_screen.dart（GET /workers?membership_type=employee・15秒）
   ///
   /// ★BE は {"companies":[{is_own, workers:[...]}, ...]} を返す。
   ///   「is_own の会社の workers だけを表示する」のは画面の絞り込み方針なので
   ///   ここでは companies をそのまま返し、選別は呼び手に残す
-  ///   （移設元 home_screen.dart:5723-5731 の firstWhere がそれ）。
+  ///   （移設元 home_screen.dart の firstWhere がそれ）。
   /// ★取得できなかった（ok:false）と 0 件（ok:true・空リスト）は
   ///   ApiResult が区別する。空リストへ潰さない。
   Future<ApiResult<List<Map<String, dynamic>>>> getWorkers({

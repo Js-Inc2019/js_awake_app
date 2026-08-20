@@ -34,7 +34,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
 
   /// requires_selection（複数所属）応答の pre_auth_token。
   /// ★login_screen.dart の _preAuthToken と同じ扱い＝メモリのみ・prefs には保存しない
-  ///   （BE 側の有効期限は5分＝js-office-api routes/auth.js:1005-1008）。
+  ///   （BE 側の有効期限は5分＝js-office-api routes/auth.js の recover-by-code が発行する pre_auth_token の expiresIn: '5m'）。
   String? _preAuthToken;
 
   @override
@@ -81,7 +81,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         //   この画面も /gate まで進む【ログイン経路】であり、単一所属の login 経路と
         //   同じ穴（role を一度も見ずに保存する）を持っていたので同じ形で塞ぐ。
         //   ・判定は同意画面より【前】に置く。ConsentScreen の onAgreed は
-        //     consent_agreed 等を prefs へ書く（下の :87-91）ため、弾く相手に
+        //     consent_agreed 等を prefs へ書く（下の prefs 書き込み）ため、弾く相手に
         //     規約同意をさせてから断る形にしないため。
         //   ・保存・遷移をするのは _saveAndNavigate ただ一つなので、その手前で
         //     return すれば端末には何も残らない。
@@ -91,7 +91,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         //     （login_screen と同一の文言・見た目）。
         //   ★判定するのは full-login 応答のときだけ。recover-by-code は複数所属だと
         //     requires_selection:true ＋ pre_auth_token を返し、role も token も載せない
-        //     （js-office-api routes/auth.js:1011-1020）。そちらは下の
+        //     （js-office-api routes/auth.js の recover-by-code の requires_selection 応答）。そちらは下の
         //     _handleMembershipSelection が memberships[] の側で役職を絞る。
         if (data['requires_selection'] != true
             && !isFieldRole(data['role'] as String?)) {
@@ -130,7 +130,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         }
         // ★複数所属（requires_selection）→ 所属選択フローへ委譲する。
         //   これを入れる前は、この応答がそのまま _saveAndNavigate へ流れていた。
-        //   requires_selection の応答は token を含まない（上記 BE :1011-1020）ため、
+        //   requires_selection の応答は token を含まない（上記 BE の requires_selection 応答）ため、
         //   `data['token'] as String? ?? ''` が空文字を auth_token に保存し、
         //   そのまま /gate へ進んでいた＝失敗が誰にも見えないまま壊れる沈黙障害だった。
         if (data['requires_selection'] == true) {
@@ -266,7 +266,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
   // ★保存前の再検査。ここへ来る membership_id は上で worker/boss に絞った中から
   //   選ばれているが、絞ったのは recover-by-code 応答の memberships[] という
   //   スナップショットで、select-membership が返す role がサーバの最終真実
-  //   （js-office-api routes/auth.js:318 が m.role を返す）。ずれた場合に備えて
+  //   （js-office-api routes/auth.js の POST /auth/select-membership が m.role を返す）。ずれた場合に備えて
   //   保存の直前でもう一度見る（login_screen.dart の _finishMembershipLogin と同型）。
   Future<void> _finishMembershipLogin(
       Map<String, dynamic> data, String deviceId) async {
@@ -290,7 +290,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     return '通信エラーが発生しました';
   }
 
-  // login_screen.dart:523-545 _saveAndNavigate と同一キーで保存
+  // login_screen.dart の _saveAndNavigate と同一キーで保存
   Future<void> _saveAndNavigate(Map<String, dynamic> data, String deviceId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token',   data['token']        as String? ?? '');
@@ -336,7 +336,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
         if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
       }
     }
-    // recover-by-code は単一membership時に worker_id を返す（BE auth.js:908）→ prefs へ保存
+    // recover-by-code は単一membership時に worker_id を返す（BE auth.js）→ prefs へ保存
     final wid = data['worker_id'] as String?;
     if (wid != null && wid.isNotEmpty) {
       await prefs.setString('worker_id', wid);
@@ -390,7 +390,7 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     );
   }
 
-  // login_screen.dart:940-973 の PIN 入力スタイル流用
+  // login_screen.dart の _loginPinCtrl の TextField スタイル流用
   Widget _pinField() {
     return TextField(
       controller: _pinCtrl,

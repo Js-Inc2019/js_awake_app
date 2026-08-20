@@ -250,7 +250,7 @@ class FcmService {
     }
 
     // ── 会社間共有のお知らせ（share_received / share_sent）──
-    // BE services/notify.js:77-78 の SHARE_RECEIVED / SHARE_SENT。
+    // BE services/notify.js の SHARE_RECEIVED / SHARE_SENT。
     //   ・share_received（他社→自社）→ 受信トレイ
     //   ・share_sent（自社→他社・事務の事後把握）→ 送信済み
     // 打刻・改ざんと同じく、下の既存2type の分岐に手を入れずここで処理して return する。
@@ -258,7 +258,7 @@ class FcmService {
     // ★fcmData は { bundle_id } だが、どちらの画面も一覧なので使わない
     //   （束詳細へ直接飛ばさない理由: GET /bundles/:bundle_id は受信側が開くと
     //     received_at 確定と改ざん事件の台帳化という副作用を持つ
-    //     ・routes/bundles.js:1076-1114。通知タップという受動的な操作で
+    //     ・routes/bundles.js の GET /bundles/:bundle_id。通知タップという受動的な操作で
     //     いきなり副作用を起こさない）。
     if (type == 'share_received' || type == 'share_sent') {
       if (type == 'share_sent') {
@@ -302,8 +302,8 @@ class FcmService {
 
   // ★段③: 新API へ切替。URL から user_id が消え、BE は JWT の membership_id を
   //   基準に保存する。旧 /workers/:user_id/fcm-token は踏まない。
-  //   getUserId() はここでは不要になったため撤去（approval_day_screen.dart:68 /
-  //   revision_inbox_screen.dart:71 で使うため AuthService 側のメソッドは残す）。
+  //   getUserId() はここでは不要になったため撤去（approval_day_screen.dart の _loadMyUserId /
+  //   revision_inbox_screen.dart の _loadMyUserId で使うため AuthService 側のメソッドは残す）。
   //   ただし「未ログインなら送らない」ガードは旧実装の性質なので isLoggedIn() で維持する
   //   （空 Bearer を BE に投げないため）。headers/timeout/fail-soft は不変。
   /// ★段4: 戻り値を ApiResult へ統一（規約は api_result.dart 冒頭）。

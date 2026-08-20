@@ -105,7 +105,7 @@ class CompanyService {
   // ============================================================
 
   /// 自分の協力申請一覧。
-  /// 移設元: company_link_screen.dart:37-40（GET /company-links/my・15秒）
+  /// 移設元: company_link_screen.dart（GET /company-links/my・15秒）
   ///
   /// ★応答 {"links":[...]} の links を返す。取得失敗（ok:false）と
   ///   0件（ok:true・空リスト）は ApiResult が区別する。空リストへ潰さない。
@@ -124,9 +124,9 @@ class CompanyService {
   }
 
   /// 協力申請の送信。
-  /// 移設元: company_link_screen.dart:74-78（POST /company-links/request・15秒）
+  /// 移設元: company_link_screen.dart（POST /company-links/request・15秒）
   ///
-  /// ★移設元は成功を 201 に限っていた（:80）。200 等を成功へ広げると
+  /// ★移設元は成功を 201 に限っていた。200 等を成功へ広げると
   ///   「申請を送信しました」の条件が変わるため、その判定は呼び手が
   ///   statusCode で行う（ここでは丸めない）。
   Future<ApiResult<Map<String, dynamic>>> requestCompanyLink(

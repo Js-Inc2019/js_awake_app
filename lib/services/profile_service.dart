@@ -53,14 +53,14 @@ class ProfileService {
   // ============================================================
 
   /// プロフィール取得。
-  /// 移設元: profile_screen.dart:206-212（GET /profile・8秒）
+  /// 移設元: profile_screen.dart（GET /profile・8秒）
   ///
   /// ★8秒は移設元のまま（他の GET 系 15秒より短い）。この画面はローカル値で
   ///   先に描いてからサーバ値で上書きする作りで、待たせない方が正しいため。
   /// ★data は応答全体。name / role / company_name / home_address / phone /
   ///   blood_type / experience_years / health_check_date / worker_id /
   ///   postal_code / emergency_* / profile_image_url を含む。
-  ///   どれを prefs へ書き戻すかは呼び手の判断（移設元 :236-251）。
+  ///   どれを prefs へ書き戻すかは呼び手の判断（移設元 profile_screen.dart の prefs 書き戻し）。
   Future<ApiResult<Map<String, dynamic>>> getProfile() async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<Map<String, dynamic>>(
@@ -74,12 +74,12 @@ class ProfileService {
   }
 
   /// プロフィール更新。
-  /// 移設元: profile_screen.dart:1236-1243（PUT /profile・15秒）
+  /// 移設元: profile_screen.dart（PUT /profile・15秒）
   ///
   /// ★body は画面が組み立てたものをそのまま送る。条件付きキー
   ///   （experience_years / health_check_date / profile_image_base64）の
   ///   有無判定は画面側の入力状態そのものなので、ここでは組み替えない。
-  /// ★移設元は成功を statusCode 200 または 204 に限っていた（:1262）。
+  /// ★移設元は成功を statusCode 200 または 204 に限っていた（移設元 profile_screen.dart の PUT /profile 呼び出し）。
   ///   201 等を成功に広げると「サーバ保存失敗」の警告が出なくなるため、
   ///   その判定は呼び手が statusCode で行う（ここでは丸めない）。
   Future<ApiResult<Map<String, dynamic>>> updateProfile(
@@ -100,7 +100,7 @@ class ProfileService {
   // 郵便番号 → 住所（zipcloud・外部API・認証なし）
   // ============================================================
 
-  /// 移設元: profile_screen.dart:1120-1122（GET zipcloud・8秒・ヘッダ無し）
+  /// 移設元: profile_screen.dart（GET zipcloud・8秒・ヘッダ無し）
   ///
   /// ★自社 BE ではない外部 API。kApiBaseUrl は使わず、認証ヘッダも付けない
   ///   （移設元も headers を渡していない）。

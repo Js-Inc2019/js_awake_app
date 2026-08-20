@@ -234,20 +234,20 @@ class _LoginScreenState extends State<LoginScreen> {
             // ★fail-close（他の経路と同じ）。role が FIELD の名簿に無ければ弾く。
             //   欠落・空・未知の値も弾く＝isFieldRole が false を返す側に倒す。
             //   ★fail-close にできる根拠（BE 実測）:
-            //     js-office-api routes/auth.js:445-455 が
+            //     js-office-api routes/auth.js の POST /auth/verify-token が
             //       user = { ...user, role: row.role, ... };
             //       return res.status(200).json({ success: true, user });
-            //     の形で【必ず】 user.role を載せる。row.role は同 :384 の
+            //     の形で【必ず】 user.role を載せる。row.role は同ハンドラの
             //     `SELECT ... m.role ...` で引いた membership の値で、
             //     memberships.role は NOT NULL DEFAULT 'worker'
-            //     （db/prod_schema_v72.sql:1114）。さらに同 :408 が
+            //     （db/prod_schema_v72.sql）。さらに同ハンドラが
             //     `!row.membership_id` を 401 で先に弾くため、200 に到達した時点で
             //     membership 行は必ず存在する＝role が空になる経路が無い。
             //     よって正規の FIELD 利用者（worker/boss）がここで弾かれることはない。
             //   ★この穴が実際に踏まれる筋道（fail-open で残せない理由）:
-            //     役職変更は force_reauth を立てる（js-office-api routes/workers.js:1285 /
-            //     :1436）ので、通常は verify-token が 401 ROLE_CHANGED を返す（同 auth.js:398-402）。
-            //     しかし force_reauth は PIN 照合成功で解除される（同 auth.js:109-115）。
+            //     役職変更は force_reauth を立てる（js-office-api routes/workers.js の force_reauth=true 更新）
+            //     ので、通常は verify-token が 401 ROLE_CHANGED を返す（同 auth.js）。
+            //     しかし force_reauth は PIN 照合成功で解除される（同 auth.js の verify-pin の force_reauth 解除）。
             //     verify-pin は OFFICE アプリと共用なので、OFFICE で PIN ログインした時点で
             //     解除され、その後 FIELD を開くと 200＋role='admin_office' が返る。
             //     ＝BE の force_reauth だけでは塞がらない。
@@ -423,7 +423,7 @@ class _LoginScreenState extends State<LoginScreen> {
             }
             // ★role ガード（単一所属＝full-login 応答）。
             //   BE は verify-device の full-login 応答に role を必ず載せる
-            //   （js-office-api routes/auth.js:667 の res.json に role: chosen.role）。
+            //   （js-office-api routes/auth.js の verify-device の res.json に role: chosen.role）。
             //   FIELD で扱えない役職なら保存も遷移もせず案内して留まる。
             if (!isFieldRole(recoverData['role'] as String?)) {
               await _rejectNonFieldRole();
@@ -498,7 +498,7 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
         // ★role ガード（単一所属＝full-login 応答）。応答の role は
-        //   js-office-api routes/auth.js:667（verify-device）が必ず載せる。
+        //   js-office-api routes/auth.js の verify-device が必ず載せる。
         if (!isFieldRole(data['role'] as String?)) {
           await _rejectNonFieldRole();
           return;
@@ -541,9 +541,9 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
         // ★role ガード（単一所属＝full-login 応答）。応答の role は
-        //   js-office-api routes/auth.js:194（verify-pin）が必ず載せる。
+        //   js-office-api routes/auth.js の verify-pin が必ず載せる。
         //   ★bossPinOk を立てるより【前】に置く。あちらはグローバル変数
-        //     （main.dart:43）で prefs ではないが、弾いた回に副作用を1つも
+        //     （main.dart の bossPinOk）で prefs ではないが、弾いた回に副作用を1つも
         //     残さないため、判定の前に何も書かない順序にする。
         if (!isFieldRole(data['role'] as String?)) {
           await _rejectNonFieldRole();
@@ -641,7 +641,7 @@ class _LoginScreenState extends State<LoginScreen> {
           await prefs.setString('user_role',  'worker');
           await prefs.setString('device_id',  deviceId);
           await prefs.setBool('is_registered', true);
-          // self-register（主経路）は token と共に worker_id を返す（BE workers.js:353）→ prefs へ保存
+          // self-register（主経路）は token と共に worker_id を返す（BE workers.js の self-register 応答）→ prefs へ保存
           final wid = body['worker_id'] as String?;
           if (wid != null && wid.isNotEmpty) {
             await prefs.setString('worker_id', wid);
@@ -780,7 +780,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       _preAuthToken = null; // 失敗時は失効扱いで破棄
       if (res.statusCode == 401) {
-        // pre_auth 失効（TOKEN_EXPIRED / BE auth.js:255）→ 時間切れ案内 → ログインへ戻す。
+        // pre_auth 失効（TOKEN_EXPIRED / BE auth.js）→ 時間切れ案内 → ログインへ戻す。
         if (!mounted) return;
         setState(() { _isLoading = false; _showPinLogin = false; });
         await _showMembershipTimeoutDialog();
@@ -813,10 +813,10 @@ class _LoginScreenState extends State<LoginScreen> {
     // ★保存前の再検査。ここへ来る membership_id は _handleMembershipSelection が
     //   worker/boss で絞った中から選ばれているが、絞ったのは【verify 応答に載っていた
     //   memberships[] のスナップショット】であって、select-membership が返す role が
-    //   サーバの最終真実である（js-office-api routes/auth.js:318 が m.role を返す）。
+    //   サーバの最終真実である（js-office-api routes/auth.js の POST /auth/select-membership が m.role を返す）。
     //   その2つがずれた場合（選択中に役職が変わった等）に備え、保存の直前でもう一度見る。
     //   OFFICE 側も同じ位置に同じ再検査を置いている
-    //   （js_office_app .../login_screen.dart:520 の「門番A（保存前）」）。
+    //   （js_office_app .../login_screen.dart の「門番A（保存前）」）。
     if (!isFieldRole(data['role'] as String?)) {
       await _rejectNonFieldRole();
       return;
@@ -927,8 +927,8 @@ class _LoginScreenState extends State<LoginScreen> {
         if (cVer != null && cVer.isNotEmpty) await prefs.setString('consent_version', cVer);
       }
     }
-    // 呼び出し元により worker_id 有無が異なる: verify-pin(BE auth.js:184)/select-membership(:297)は返す、
-    // verify-device(:592)は BE 未返却。含む経路のみ保存されるよう null/空はスキップする。
+    // 呼び出し元により worker_id 有無が異なる: verify-pin(BE auth.js)/select-membership は返す、
+    // verify-device は BE 未返却。含む経路のみ保存されるよう null/空はスキップする。
     final wid = data['worker_id'] as String?;
     if (wid != null && wid.isNotEmpty) {
       await prefs.setString('worker_id', wid);

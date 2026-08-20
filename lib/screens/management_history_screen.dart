@@ -3,15 +3,15 @@
 //
 // ★この画面は「既存Widgetを呼ぶだけ」の器であり、独自のロジック・独自の配色を一切持たない。
 //   各セグメントの中身は既存実体をそのまま呼ぶ（中身は1行も変更していない）:
-//     カレンダー = CalendarTab            (home_screen.dart:6271)
-//     履歴       = MonthlyHistoryBody     (monthly_history_screen.dart:17)
-//     集計       = MonthlyStatsBody       (monthly_stats_screen.dart:32・全員)
-//     承認       = ReviewTab              (home_screen.dart:5121・職長のみ)
-//     管理       = ForemanManagementBody  (home_screen.dart:5079・職長のみ)
+//     カレンダー = CalendarTab            (home_screen.dart)
+//     履歴       = MonthlyHistoryBody     (monthly_history_screen.dart)
+//     集計       = MonthlyStatsBody       (monthly_stats_screen.dart・全員)
+//     承認       = ReviewTab              (home_screen.dart・職長のみ)
+//     管理       = ForemanManagementBody  (home_screen.dart・職長のみ)
 //   ★上4行の行番号は「集計」追加に合わせて実ファイルで数え直した値（旧値は陳腐化していた）。
 //
 // TabBar の見た目（Container(color: FieldTokens.surfaceCard) + 既定 TabBar）は
-// home_screen.dart:4264-4273（_ForemanManagementBody）および :4341-4350（_ReviewTab）と同一。
+// home_screen.dart の _ForemanManagementBody および _ReviewTab と同一。
 // 新しい色・余白・フォントは一切導入していない。
 import 'package:flutter/material.dart';
 
@@ -28,21 +28,21 @@ class ManagementHistoryScreen extends StatefulWidget {
     this.segmentRequestId = 0,
   });
 
-  /// 職長かどうか。JsMainShell.isForeman(home_screen.dart:359) をそのまま下ろす。
+  /// 職長かどうか。JsMainShell.isForeman(home_screen.dart) をそのまま下ろす。
   final bool isForeman;
 
   /// 開きたいセグメントを「ラベル」で指定する（'カレンダー'|'履歴'|'承認'|'管理'）。
   /// 未指定・および存在しないラベルのときは先頭＝カレンダー（従来と同じ）。
   ///
   /// ★index の直指定にしない理由（実コード上の事実）: セグメントの枚数と並びが
-  ///   職人＝2枚（カレンダー/履歴）・職長＝4枚（+承認/管理）で異なる(:76-80)。
+  ///   職人＝2枚（カレンダー/履歴）・職長＝4枚（+承認/管理）で異なる（本ファイルのタブ枚数の分岐）。
   ///   index を直に渡すと職人側で意図しないタブが開く。ラベルで引き当て、
   ///   引き当たらなければ 0 へフォールバックする＝安全側に倒す。
   final String? initialSegment;
 
   /// 「今もう一度 initialSegment を開いてほしい」という要求の通し番号。
   ///
-  /// ★この画面は IndexedStack(home_screen.dart:1561) の子として生かされ続けるため、
+  /// ★この画面は IndexedStack(home_screen.dart) の子として生かされ続けるため、
   ///   同じ initialSegment を渡し直しても State は作り直されず切り替わらない。
   ///   呼び出し側が要求のたびに +1 することで2回目以降のタップにも追従させる。
   ///   既定 0 のまま渡さなければ、この画面は従来どおり一切自動切替をしない。

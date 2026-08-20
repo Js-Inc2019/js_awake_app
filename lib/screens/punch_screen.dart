@@ -28,7 +28,7 @@ String _hhmm(String? iso) {
 
 // みなし時刻の表示整形【表示のみ・値は一切変えない】。
 // BE の /work_settings/my は TIME 列をそのまま返すため 'HH:MM:SS' で届く
-//（js-office-api/routes/work_settings.js:27-28。既定値リテラルも '08:00:00'）。
+//（js-office-api/routes/work_settings.js の GET /work-settings/my の deemed_start。既定値リテラルも '08:00:00'）。
 // 'HH:MM:SS' / 'HH:MM' を受けて 'H:MM'（秒なし・先頭ゼロなし）にする。
 // パースできない値は握り潰さず生値をそのまま返す（fail-soft）。null は '--:--'。
 String _fmtTime(String? raw) {
@@ -72,10 +72,10 @@ class PunchScreen extends StatefulWidget {
   //   _initTodayReportDone / _reevaluateReportDone / _onCloseToday が唯一の書き手）。
   //   ★ここでは判定を作らず受けた真偽だけを見る。
   //   ★素の値で下ろす（bool Function() にしない）: この値は build 中に読むため。
-  //     isReportDone(:107) は既存のコールバックのままだが N8 で build 中にも読んでいる。
+  //     isReportDone は既存のコールバックのままだが N8 で build 中にも読んでいる。
   //     書き換えが必ず親の setState 経由なので再評価はされる＝動作は正しいが、意図は素の値の方が明快。
   //     親所有かつ build で読む値は shiftType / revisionCount と同じ素の prop に揃える。
-  //   ★onPunchStateChanged(:88) には載せない: あちらは子→親（fetchToday で得た値を上げる口）で
+  //   ★onPunchStateChanged には載せない: あちらは子→親（fetchToday で得た値を上げる口）で
   //     向きが逆。親所有の値を子の通知チャネルに相乗りさせない。
   final bool todayClosed;
   // 「⏰ 追加の申告」の押下先。親の既存ハンドラ home_screen:_openExtraDeclarationPicker を
@@ -86,7 +86,7 @@ class PunchScreen extends StatefulWidget {
   //   true=このまま進む / false=中止。null=素通し（＝従来の挙動）。
   //   「もう報告済みか」「締め済みか」の判定と2件目の確認ダイアログは親が持つ。
   //   この画面には判定式を複製しない（home_screen.dart:_confirmSecondReportIfNeeded）。
-  //   ★休みゲート(_onReportTap:147) を通過した後にだけ呼ばれる＝ゲートの前後関係は不変。
+  //   ★休みゲート(_onReportTap) を通過した後にだけ呼ばれる＝ゲートの前後関係は不変。
   final Future<bool> Function()? onBeforeOpenReport;
   // N5: 「現場移動」から日報フォームへ入る直前の親側前処理。
   //   確認は現場移動ダイアログ側で済んでいるため、親は報告済みならリセットするだけ
@@ -97,18 +97,18 @@ class PunchScreen extends StatefulWidget {
   //   initState で1回だけ通知する（値を渡すだけ・親側で setState はしない）。
   final void Function(Future<void> Function() punchOut)? onPunchOutHandlerReady;
   final Widget? weatherPanel;
-  // K1: 打刻状態を親(JsMainShell)へ上げる唯一の口。真実源は fetchToday(work_mode_service.dart:205)
+  // K1: 打刻状態を親(JsMainShell)へ上げる唯一の口。真実源は fetchToday(work_mode_service.dart)
   //   ＝この画面が受け取った値をそのまま流すだけで、判定式は親に複製しない。
   //   isActual も同じ便に載せる（完了ビューの出し分けが実打刻/みなしで違うため・_isActual:_設定由来）。
   final void Function(bool isActual, bool punchedIn, bool punchedOut)? onPunchStateChanged;
   // K5(Q9): 当日ぶんの報告が済んでいるか。親が持つ真実を読むだけ
-  //   （home_screen:1516 `isDone: () => _todayReportDone` と同じ流儀。prefs 直読みはしない）。
+  //   （home_screen.dart の `isDone: () => _todayReportDone` と同じ流儀。prefs 直読みはしない）。
   final bool Function()? isReportDone;
   // ── 要対応の件数と遷移（値も遷移先も親 JsMainShell の既存資産をそのまま下ろす）──
-  //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart:1535-1560 を参照）。
+  //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart の PunchScreen 生成箇所を参照）。
   //   0件のときは行そのものを描画しない＝「無いものは見せない」。
-  final int revisionCount;          // 差し戻し（home_screen.dart:382 _revisionCount）
-  final int pendingApprovalCount;   // 承認待ち（同 :383・職長のときのみ非0が渡る）
+  final int revisionCount;          // 差し戻し（home_screen.dart の _revisionCount）
+  final int pendingApprovalCount;   // 承認待ち（同 _pendingApprovalCount・職長のときのみ非0が渡る）
   final VoidCallback? onOpenRevisions;
   final VoidCallback? onOpenPendingApprovals;
   // 勤務区分（日勤/夜勤）は親(JsMainShell)が真実を保持し、値+変更通知を下ろす。
@@ -246,8 +246,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   BE 上は打刻済みの行に対して出勤ボタンが出る（＝退勤済み行への出勤上書きが起きる）。
   // shiftType は親(JsMainShell)が真実を持ち props で下ろすため、値が変わると
   // didUpdateWidget が呼ばれる（親の setState → PunchScreen の widget 更新）。
-  //   発火元: _ShiftTypeSelector(:648) → widget.onShiftTypeChanged
-  //          → home_screen.dart:1835-1839 setState(_shiftType) → ここ。
+  //   発火元: _ShiftTypeSelector → widget.onShiftTypeChanged
+  //          → home_screen.dart の setState(_shiftType) → ここ。
   //   起動時の勤務区分復元（home_screen.dart:_restoreShiftType）で値が変わる場合も同じ経路で通る。
   @override
   void didUpdateWidget(covariant PunchScreen oldWidget) {
@@ -255,15 +255,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (widget.shiftType != oldWidget.shiftType) _reloadForShiftChange();
   }
 
-  // 再取得そのものは既存の取得経路 _init(:241) をそのまま呼ぶ。
+  // 再取得そのものは既存の取得経路 _init をそのまま呼ぶ。
   //   ＝fetchToday(shiftType: widget.shiftType) と、その戻り値を
   //     _record/_punchedIn/_punchedOut へ入れる処理は1箇所のまま（状態のコピーを作らない）。
   //   didUpdateWidget の時点で widget.shiftType は既に切替後の値。
   // 競合防御: 取得が終わるまで既存の _busy を立てる。_busy は打刻の入口
-  //   （_confirmPunch:376 / _doPunch:295）と打刻ボタンの disabled(:777,:791) が
+  //   （_confirmPunch / _doPunch）と打刻ボタンの disabled 判定が
   //   既に見ている単一のフラグなので、新しい排他機構は作らない。
   Future<void> _reloadForShiftChange() async {
-    if (_busy) return;   // 打刻処理中は触らない（_doPunch が完了時に :318 で取り直す）
+    if (_busy) return;   // 打刻処理中は触らない（_doPunch が完了時に取り直す）
     setState(() => _busy = true);
     try {
       await _init();
@@ -331,8 +331,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     setState(() => _busy = true);
     // 裁定(b): 退勤スライド確定直後は日報へ直行する（ホームに戻さない）。
     // 遷移先の出し分け（未提出=日報フォーム / 提出済=完了ビュー）は既存資産に委ねる:
-    //   _onReportTap(:106) → widget.onNavigateToReport → home_screen:1506 `_setTab(1)`
-    //   → home_screen:1760 `if (_todayReportDone) AfterReportBody`（提出済判定は
+    //   _onReportTap → widget.onNavigateToReport → home_screen.dart の `_setTab(1)`
+    //   → home_screen.dart の `if (_todayReportDone) AfterReportBody`（提出済判定は
     //     home_screen:_readReportDone が単一の真実源）。判定式はここに複製しない。
     // _busy 解除後に呼ぶため finally の外へ出す（ゲート内のダイアログ中も操作可）。
     bool goReport = false;
@@ -386,7 +386,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   ・lat/lng は非nullのときだけ
   //   ・住所は status=='ok'（住所の構築に成功）のときだけ
   //     ＝'GPS取得失敗' / '位置情報の権限がありません' / 座標フォールバックを住所として焼かない
-  //       （キャッシュ焼き付きの停止。理由は home_screen.dart:978-981 のコメントと同じ）。
+  //       （キャッシュ焼き付きの停止。理由は home_screen.dart の _readWorkStatusToday のコメントと同じ）。
   // 失敗しても打刻の成立は覆さない（例外は握って握り潰さずログのみ・秘匿値は出さない）。
   Future<void> _persistPunchGps(
       ({String address, double? lat, double? lon, String status}) gps) async {
@@ -497,7 +497,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (status == 'approved' && min != null) return '休憩 $min分（申告受理済み）';
     if (status == 'pending')                return '休憩変更を申告中（${min ?? '--'}分）';
     // 却下の可視化。ここが無いと rejected は下の「会社設定」／「自動」へ黙って落ち、
-    // 却下された事実がどこにも出なかった（BE: attendanceCalculator.js:83-84 で
+    // 却下された事実がどこにも出なかった（BE: attendanceCalculator.js の computeBreakAndNet の break_override_status === 'approved' 判定で
     // approved 以外は会社設定/法定値にフォールバックする＝計算からも静かに消える）。
     if (status == 'rejected') {
       return _standardBreakMin != null
@@ -628,7 +628,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       record:        _record,
                       breakLabel:    _breakLabel(),
                       // みなしモードの表示に使う値。WorkModeService の取得ロジックは
-                      // 一切変えず、既に _settings(:58) が持っている値を下ろすだけ。
+                      // 一切変えず、既に _settings が持っている値を下ろすだけ。
                       deemedStart:   _settings.deemedStart,
                       deemedEnd:     _settings.deemedEnd,
                       breakMinutes:  _settings.breakMinutes,
@@ -638,9 +638,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     // N2: 旧 K4 の表示条件 `if (!isActual || !_punchedIn)` を撤去し無条件表示へ戻す。
                     //   打刻済みシフトの記録は切替で変わらない＝状態はシフト別に独立管理されている:
                     //     ・勤怠行  … (person, work_date, shift_type) で1行（BE の UNIQUE）。
-                    //                 この画面が見る行も fetchToday(shiftType:) でシフト指定（:200,:271）。
+                    //                 この画面が見る行も fetchToday(shiftType:) でシフト指定。
                     //     ・報告済み … report_done_day / report_done_night の2キー
-                    //                 （home_screen.dart:602 reportDoneKey）。
+                    //                 （home_screen.dart の reportDoneKey）。
                     //   よって切替は「見るシフトを変える」だけで、既に打刻した側の記録には触れない。
                     //   値の真実源も onChanged 先も親のまま＝_shiftType 機構は1文字も変えていない
                     //   （onShiftTypeChanged → _saveShiftType + _reevaluateReportDone）。
@@ -694,11 +694,11 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     // N8: 報告が済んでいる日は「日報を報告」を出さない（1日の主行動が終わっているため）。
     //   ★未報告なら日報は絶対必須なので必ず出す＝隠すのは reportDone のときだけ。
     //   報告済みの真実は親(JsMainShell)の _todayReportDone。既存 props の
-    //   isReportDone(:107) 経由で受ける（home_screen.dart:1817 `isReportDone: () => _todayReportDone`）。
-    //   その中身は home_screen.dart:628 `_isReportDoneStatus(s) => s == 'done' || s == 'closed'`
+    //   isReportDone 経由で受ける（home_screen.dart の `isReportDone: () => _todayReportDone`）。
+    //   その中身は home_screen.dart の `_isReportDoneStatus(s) => s == 'done' || s == 'closed'`
     //   ＝送信済み or みなしの締め。判定式はこの画面に複製しない。
     //   ★このコールバックは build 中にも読む。_todayReportDone の書き換えは全て親の setState
-    //     経由（home_screen.dart:641 / 658 / 672 / 692 / 718 / 1598）なので、値が変われば
+    //     経由（home_screen.dart の _todayReportDone を書く全ての setState）なので、値が変われば
     //     親が rebuild し、ここも読み直される。
     final reportDone = widget.isReportDone?.call() == true;
 
@@ -727,7 +727,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         ),
         const SizedBox(height: 4),
         // 何を申告できるのかをボタンの直下で言う。スタイルは同一ファイル内の既存注記
-        //   （:855 の「業務日 …」補足行と同じ FieldTokens.textSupport / fontSize 11）を流用。
+        //   （「業務日 …」補足行と同じ FieldTokens.textSupport / fontSize 11）を流用。
         //   新しい色・独自トークンは定義しない。
         const Text(
           '※残業や休憩の短縮を、あとから申告できます',
@@ -752,7 +752,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     // みなしモード（案Z）: 下部は横2分割［日報を報告=主］［本日休み=二次］
     // N7: 締め済みのときだけ、その下に「⏰ 追加の申告」を縦積み（gap 8）。
     // N8: 締め後かつ報告済み（hideReportButton）なら［日報を報告］を落とし［本日休み］だけ残す。
-    //   ★showRestDay(:717) は `!isActual || !_punchedIn` なので、この分岐では常に true
+    //   ★showRestDay は `!isActual || !_punchedIn` なので、この分岐では常に true
     //     ＝日報を落としても行が空にならない。
     if (!isActual) {
       final deemedRow = Row(
@@ -901,7 +901,7 @@ class _ShiftTypeSelector extends StatelessWidget {
           style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11),
         ),
         // 夜勤を選んでいるときだけ、業務日の切替時刻を注記する。
-        //   判定は上の chip(:803) と同じ形（selected == 'night'）＝新しい判定は作らない。
+        //   判定は上の chip と同じ形（selected == 'night'）＝新しい判定は作らない。
         //   ★表示だけ。業務日の算出（businessDateForShift）には一切触れていない。
         //   スタイルは直上の補足行をそのまま流用（FieldTokens.textSupport / fontSize 11）＝
         //   新しい色・独自トークンは定義しない。
@@ -962,8 +962,8 @@ class _StatusSection extends StatelessWidget {
   final bool punchedOut;
   final Map<String, dynamic>? record;
   final String breakLabel;
-  // みなし表示用。WorkModeSettings(work_mode_service.dart:16-18) の値をそのまま受け取る。
-  final String deemedStart;   // BE の生値 'HH:MM:SS'（表示は _fmtTime(:29) で整形）
+  // みなし表示用。WorkModeSettings(work_mode_service.dart) の値をそのまま受け取る。
+  final String deemedStart;   // BE の生値 'HH:MM:SS'（表示は _fmtTime で整形）
   final String deemedEnd;     // 同上
   final int    breakMinutes;
 

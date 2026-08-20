@@ -2,8 +2,8 @@
 // 承認タブ ▸ 日付一覧の行タップで開く「その日の報告」画面。
 //
 // ★この画面は器であり、カードの中身は既存実体をそのまま呼ぶ:
-//     承認待ち = PendingApprovalCard   (home_screen.dart:4407)
-//     差し戻し = RevisionCard          (revision_inbox_screen.dart:213)
+//     承認待ち = PendingApprovalCard   (home_screen.dart)
+//     差し戻し = RevisionCard          (revision_inbox_screen.dart)
 //   承認/修正依頼の判定式・API 呼び出し・確認ダイアログは一切ここに持たない
 //   （すべて PendingApprovalCard の内部にあり、1文字も変更していない）。
 //
@@ -35,7 +35,7 @@ class ApprovalDayScreen extends StatefulWidget {
   final List<Map<String, dynamic>> reports;
 
   /// その日の休憩申告。空なら休憩セクションは見出しごと出さない。
-  /// 1件の形は BE の SELECT 列（routes/attendance.js:1760-1765）そのまま。
+  /// 1件の形は BE の SELECT 列（routes/attendance.js の GET /attendance/break-requests）そのまま。
   final List<Map<String, dynamic>> breakRequests;
 
   @override
@@ -55,7 +55,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
   /// 休憩の修正中フラグ（多重タップ防止）。日報側のカードは自前で sending を持つため独立。
   bool _breakBusy = false;
 
-  /// 本人判定用（RevisionCard の編集/閲覧分岐は revision_inbox_screen.dart:131-135 と同じ流儀）。
+  /// 本人判定用（RevisionCard の編集/閲覧分岐は revision_inbox_screen.dart の RevisionEditScreen / ReportDetailSheet 分岐と同じ流儀）。
   String? _myUserId;
 
   @override
@@ -89,11 +89,11 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     }
   }
 
-  // 休憩申告の修正。API は WorkModeService.amendBreakRequest（work_mode_service.dart:353）。
+  // 休憩申告の修正。API は WorkModeService.amendBreakRequest（work_mode_service.dart）。
   // 申告制では「承認/却下」は無く、事実と違う申告を管理側が直す＝行は消えない。
   // 成功したら詳細ダイアログを閉じ → 手元の行の分数を更新して表示へ即反映する。
   // ★順序が重要: 先にダイアログを閉じないと、後続の pop がダイアログを閉じるだけになる。
-  // ★一覧の再取得は呼び出し元が行う。この画面は戻り時に必ず PopScope(:295-300) が
+  // ★一覧の再取得は呼び出し元が行う。この画面は戻り時に必ず PopScope が
   //   Navigator.pop(context, true) を投げ、ReviewTab がそれを受けて _load() し直す。
   Future<void> _amendBreak(Map<String, dynamic> req, int minutes,
       {BuildContext? dialogCtx}) async {
@@ -195,9 +195,9 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     ];
   }
 
-  // 氏名。日報は worker_name（home_screen.dart:3353 / monthly_history_screen.dart:315 と同じキー）、
-  // 休憩は person_name（BE routes/attendance.js:1643 の `p.name AS person_name`）。
-  // 空・欠落時の文言は既存の home_screen.dart:3353 に合わせる。
+  // 氏名。日報は worker_name（home_screen.dart / monthly_history_screen.dart と同じキー）、
+  // 休憩は person_name（BE routes/attendance.js の GET /attendance/break-requests の `p.name AS person_name`）。
+  // 空・欠落時の文言は既存の home_screen.dart の値なし表示（'—'）に合わせる。
   static String _nameOf(String kind, Map<String, dynamic> m) {
     final raw = kind == 'break'
         ? (m['person_name'] as String? ?? '')
@@ -311,7 +311,7 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
   }
 
   // 差し戻しカード。本人判定・再提出/閲覧の分岐は
-  // revision_inbox_screen.dart:134-135 と同一の式で、旧実装から1文字も変えていない。
+  // revision_inbox_screen.dart の本人判定と同一の式で、旧実装から1文字も変えていない。
   Widget _revisionCardIn(BuildContext dctx, Map<String, dynamic> rev) {
     final isMine = _myUserId != null && rev['user_id'] == _myUserId;
     return RevisionCard(
@@ -397,10 +397,10 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
 // 操作は「修正」1個だけ（承認・却下は BE から撤去済み＝出さない）。
 // 様式は二次＝OutlinedButton（塗らない・枠と文字で示す）。
 // ★minimumSize: Size(0, 44) を明示する。
-//   app_theme.dart:62(elevatedButtonTheme) / :72(outlinedButtonTheme) が
+//   app_theme.dart の elevatedButtonTheme / outlinedButtonTheme が
 //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子は
 //   「幅＝無限」を要求して画面外へ逃げる（OFFICE 側で実際に発生した罠）。
-//   PendingApprovalCard は Expanded(:4987/:5077) で包んで回避しているが、
+//   PendingApprovalCard は Expanded で包んで回避しているが、
 //   ここでは内容幅のボタンにしたいので明示的に戻す。
 class _BreakDeclarationCard extends StatelessWidget {
   const _BreakDeclarationCard({
@@ -472,5 +472,5 @@ class _BreakDeclarationCard extends StatelessWidget {
 }
 
 // ★ 旧 _SectionLabel（区分の小見出し）は撤去した。
-//   種別の表示は各行の右側テキスト（承認待ち / 差戻し / 休憩◯分・_row:216-241）が担うため、
+//   種別の表示は各行の右側テキスト（承認待ち / 差戻し / 休憩◯分・_row）が担うため、
 //   見出しは二重の記号になる。0件の種別は行が出ないので空セクションも生じない。

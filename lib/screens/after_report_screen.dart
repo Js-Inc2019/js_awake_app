@@ -181,7 +181,7 @@ class _PrimaryOutlineButton extends StatelessWidget {
 
 // 次の行動の1行。A案で塗り面（旧: 背景α0.08 + 枠α0.4 + 行ごとの色）を撤去した。
 //   ・面は透明。枠は暗枠1px = FieldTokens.outline(= FieldTokens.outline #2E333A)
-//     ＝ home_screen.dart の二次様式 _StepBackButton:2555 と同一トークン
+//     ＝ home_screen.dart の二次様式 _StepBackButton と同一トークン
 //   ・アイコン/サブ/シェブロンは単色 FieldTokens.textSupport、タイトルのみ FieldTokens.textBody
 //   ・accent は「未送信の再送行」だけが渡す意味色。null のときは単色に落ちる。
 class _ActionCard extends StatelessWidget {
