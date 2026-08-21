@@ -52,9 +52,25 @@ class _CompanyLinkScreenState extends State<CompanyLinkScreen> {
     setState(() => _submitting = true);
     final r = await CompanyService().requestCompanyLink(companyId);
     if (!mounted) { return; }
-    // 成功は 201 限定（移設前と同じ）。statusCode:0 は通信不成立＝従来の catch 相当。
-    if (r.statusCode == 201) {
-      showJsSnackbar(context, '$companyName に申請を送信しました');
+    // 成功は 2xx（r.ok）。BE の POST /company-links/request は
+    //   201 = 新規に申請した / 200 = 却下された申請を承認待ちへ戻した（再申請）
+    //   を返し分ける（routes/company_links.js）。どちらも「申請は成立した」。
+    //   ★旧実装は 201 限定で、200 が else に落ちて errorMessage を出していた。
+    //     成功応答に error キーは無いので、応答本文の先頭がそのまま画面に出ていた。
+    //   ★r.ok（2xx 全般）で受けるのは lib/services/api_result.dart の
+    //     「呼び手側の読み方」に載っている形。201/200 を名指しで並べると、
+    //     BE が別の 2xx を足したときにまた失敗側へ落ちる。
+    //   ★文言は画面側で持つ。同ファイルの成功表示はここ1箇所だけで、
+    //     会社名を差し込む形（'$companyName に…'）になっている。
+    //     BE の message（'申請しました' / '再申請しました'）は会社名を含まないため、
+    //     そのまま出すと「どの会社に対してか」が画面から消える。
+    if (r.ok) {
+      showJsSnackbar(
+        context,
+        r.statusCode == 200
+            ? '$companyName に再申請を送信しました'
+            : '$companyName に申請を送信しました',
+      );
       _load();
     } else if (r.statusCode == 0) {
       showJsSnackbar(context, '通信エラーが発生しました', isError: true);
