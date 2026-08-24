@@ -8,9 +8,11 @@ import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/notification_service.dart';
 import '../services/profile_service.dart';
+import '../services/reports_service.dart';
 import '../widgets/punch_remind_dialog.dart';
 import 'home_screen.dart' show ReportTabNavigator;
-import 'monthly_history_screen.dart' show MonthlyHistoryScreen;
+import 'monthly_history_screen.dart'
+    show MonthlyHistoryScreen, JsReportDetailSheet;
 import 'revision_inbox_screen.dart';
 import 'share_hub_screen.dart' show ShareKeys;
 import 'share_inbox_screen.dart';
@@ -140,13 +142,63 @@ class NotificationListBodyState extends State<NotificationListBody> {
   }
 
   // 展開部アクション: 日報を見る（report_approved＝自分の日報が承認された）
-  //   遷移先は月間履歴（monthly_history_screen.dart の MonthlyHistoryScreen）。
-  //   ★自前 AppBar と戻るを持つ push 用のラッパー（同ファイルの MonthlyHistoryBody は
-  //     Scaffold を持たずタブの中身として使われる実体なので push には使わない）。
-  //   ★承認された1件へ直接飛ばさない: BE services/notify.js の refId は
-  //     'report_approved:<report_id>' だが、report_id 単体で開ける画面が
-  //     FIELD には無い（月間履歴は月の一覧・DayReportsScreen は日付が要る）。
-  //     推測で組み立てず、既存の「日報を見る」画面へ倒す（_openRevision と同じ流儀）。
+  //   ★承認された【その1件】を開く。ref_id から report_id を取り出し、
+  //     GET /reports/:id（ReportsService.getReportDetail）で1件だけ取って
+  //     JsReportDetailSheet（monthly_history_screen.dart）へ渡す。
+  //     ＝月間履歴の行タップと同じ見せ方（同 :332 の showModalBottomSheet）を使う。
+  //     1件を表示する画面を新しく作らない。
+  //   ★fail-close: ref_id が形式不一致・空・取得失敗のいずれでも、
+  //     月間履歴（MonthlyHistoryScreen）へ倒して袋小路にしない。
+  //     取得失敗のときは BE の文言（ApiResult.errorMessage）を必ず出してから倒す
+  //     （黙って別の画面が開くと「なぜここに来たか」が読み手に分からない）。
+  //   ★MonthlyHistoryScreen は自前 AppBar と戻るを持つ push 用のラッパー
+  //     （同ファイルの MonthlyHistoryBody は Scaffold を持たないタブの中身なので使わない）。
+  bool _reportBusy = false; // 取得中の連打防止（_shareBusy と同型）
+
+  Future<void> _openApprovedReport(Map<String, dynamic> item) async {
+    if (_reportBusy) return;
+
+    final reportId = _parseReportApprovedRefId(
+        (item['ref_id'] ?? '').toString());
+    if (reportId == null) {
+      // 形式が違う＝どの日報かを推測しない。月間履歴へ倒す（無言で倒さない）。
+      debugPrint('report_approved: ref_id を解析できません ref_id=${item['ref_id']}');
+      _openMonthlyHistory();
+      return;
+    }
+
+    setState(() => _reportBusy = true);
+    final res = await ReportsService().getReportDetail(reportId);
+    if (!mounted) return;
+    setState(() => _reportBusy = false);
+
+    final report = res.ok ? res.data?.report : null;
+    if (!res.ok || report is! Map) {
+      // BE の文言をそのまま出す（握り潰さない）。文言が無いときだけ既定文。
+      final msg = res.errorMessage?.trim();
+      showJsSnackbar(
+          context,
+          (msg != null && msg.isNotEmpty)
+              ? msg
+              : '日報を取得できませんでした。月間履歴から探してください。',
+          isError: true);
+      _openMonthlyHistory(); // 袋小路にしない
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: FieldTokens.surfaceCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => JsReportDetailSheet(
+        report: Map<String, dynamic>.from(report),
+      ),
+    );
+  }
+
+  // 上の fail-close 先（従来の「日報を見る」の着地＝月間履歴の先頭）。
   void _openMonthlyHistory() {
     Navigator.push(
       context,
@@ -307,7 +359,8 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onTap: () => _onTapItem(_items[i]),
                 onReport: _goReport,
                 onRevision: _openRevision,
-                onReportApproved: _openMonthlyHistory,
+                onReportApproved: () => _openApprovedReport(_items[i]),
+                reportBusy: _reportBusy,
                 onPunchRemind: () => _openPunchRemind(_items[i]),
                 punchRemindBusy: _punchRemindBusy,
                 onTamper: () => _openTamperIncident(_items[i]),
@@ -375,6 +428,7 @@ class _NotificationRow extends StatelessWidget {
     required this.onReport,
     required this.onRevision,
     required this.onReportApproved,
+    required this.reportBusy,
     required this.onPunchRemind,
     required this.punchRemindBusy,
     required this.onTamper,
@@ -389,6 +443,7 @@ class _NotificationRow extends StatelessWidget {
   final VoidCallback onReport;   // 'report_remind' 展開時「日報を書く」
   final VoidCallback onRevision; // 'revision_request' 展開時「修正依頼を開く」
   final VoidCallback onReportApproved; // 'report_approved' 展開時「日報を見る」
+  final bool reportBusy;               // 上のボタンの連打防止（取得中は押せない）
   final VoidCallback onPunchRemind; // 'punch_remind_*' 展開時「打刻を申告する」
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
   final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
@@ -505,7 +560,8 @@ class _NotificationRow extends StatelessWidget {
                         child: _ActionButton(
                           icon: Icons.history,
                           label: '日報を見る',
-                          onPressed: onReportApproved,
+                          // 取得中は押せない（実体側にも早期returnガードがある）。
+                          onPressed: reportBusy ? null : onReportApproved,
                         ),
                       ),
                     ],
@@ -607,6 +663,22 @@ class _ActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── 日報の承認お知らせ ref_id の解析 ──────────────────────────────────
+// BE routes/reports.js の承認処理が sendNotice へ渡す形:
+//     refId: 'report_approved:{report_id}'
+// 取り出せたら report_id、形式が違う・空なら null（＝呼び手は月間履歴へ倒す）。
+//   ★接頭辞は完全一致で見る。前方一致だけだと 'report_approved_xxx:...' のような
+//     別の記号まで拾ってしまう。
+//   ★report_id 側は空でないことだけを見る（UUID の形は BE の採番に委ねる＝
+//     ここで形を決め打ちすると採番が変わった日に無言で開かなくなる）。
+//   ★_parsePunchRemindRefId と同じ流儀: 補完も推測もしない・不明は null。
+String? _parseReportApprovedRefId(String refId) {
+  const prefix = 'report_approved:';
+  if (!refId.startsWith(prefix)) return null;
+  final id = refId.substring(prefix.length).trim();
+  return id.isEmpty ? null : id;
 }
 
 // ─── 打刻のお知らせ ref_id の解析 ────────────────────────────────────────
