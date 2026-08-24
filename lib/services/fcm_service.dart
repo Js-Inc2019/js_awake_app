@@ -72,11 +72,36 @@ class FcmService {
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(channel);
 
+      // ─── iOS: 前面でも OS に通知を出させる ────────────────────────
+      // 呼ばないと iOS 前面では UNNotificationPresentationOptionNone になり、
+      // 届いた通知が画面に一切出ない（onMessage は発火するが OS は何も描かない）。
+      //   根拠: firebase_messaging の FLTFirebaseMessagingPlugin.m の
+      //   willPresentNotification は、この API が保存した値を読めなければ
+      //   presentationOptions を None のまま completionHandler へ返す。
+      // ★onMessage の登録より前に呼ぶ。設定が入る前に前面受信が起きると
+      //   その1通だけ None のまま扱われるため。
+      // ★Android では何もしない（プラグインの method_channel_messaging.dart が
+      //   iOS/macOS 以外は即 return する）。分岐を書かずに呼んでよい。
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      // 経路1: フォアグラウンド受信。
+      //   ・iOS … 直上の設定により【OS が通知を描く】。ここで _showLocal を呼ぶと
+      //     同じ内容が2つ並ぶので呼ばない（表示は OS に委譲）。
+      //   ・Android … OS は前面の通知を描かないので、従来どおり
+      //     _showLocal でローカル通知（チャンネル js_fcm）に変換して出す。
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         final notification = message.notification;
         if (notification == null) {
           // data-only メッセージ。表示するものが無いので何も出ない（＝仕様）。
           debugPrint('FCM onMessage: notification block is null (data-only) — nothing shown');
+          return;
+        }
+        if (Platform.isIOS) {
+          debugPrint('FCM onMessage: iOS前面はOS表示に委譲（ローカル通知は出さない＝二重表示の防止）');
           return;
         }
         _showLocal(
