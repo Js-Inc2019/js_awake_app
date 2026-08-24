@@ -213,7 +213,13 @@ class FcmService {
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
     final type = data['type'];
     if (type != 'revision_request' &&
-        type != 'report_reminder' &&
+        // ★旧名 'report_reminder' から是正。BE は services/notify.js の
+        //   NOTICE_TYPES.REPORT_REMIND('report_remind') 一本に統一済みで、
+        //   FCM の data.type にも 'report_remind' しか載らない
+        //   （BE test/test_notify_unified.js が「FCM に report_reminder が0件」を
+        //     機械固定している）。旧名のままでは日報催促のプッシュをタップしても
+        //   直下の白リストに掛からず「unknown type — ignored」で無反応だった。
+        type != 'report_remind' &&
         type != 'punch_remind_in' &&
         type != 'punch_remind_out' &&
         type != 'tamper_detected' &&
@@ -243,7 +249,7 @@ class FcmService {
       final shiftType = data['shift_type']?.toString() == 'night' ? 'night' : 'day';
       final bizDate   = data['biz_date']?.toString() ?? '';
       // シェル未生成＝ダイアログを出せる画面が無いときは通知一覧へ。
-      // 直下の report_reminder のフォールバックと同型。
+      // 直下の report_remind のフォールバックと同型。
       if (!PunchRemindDialogNavigator.go(side, shiftType, bizDate)) {
         navigatorKey.currentState?.push(
           MaterialPageRoute(builder: (_) => const NotificationListScreen()),
@@ -315,7 +321,7 @@ class FcmService {
         MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
       );
     } else {
-      // report_reminder → 日報作成画面（JsMainShell 日報タブ index0）へ。
+      // report_remind → 日報作成画面（JsMainShell 日報タブ index0）へ。
       // ■2 と同一ルート（ReportTabNavigator）。シェル未生成時は通知一覧へフォールバック。
       if (!ReportTabNavigator.go()) {
         navigatorKey.currentState?.push(

@@ -10,6 +10,7 @@ import '../services/notification_service.dart';
 import '../services/profile_service.dart';
 import '../widgets/punch_remind_dialog.dart';
 import 'home_screen.dart' show ReportTabNavigator;
+import 'monthly_history_screen.dart' show MonthlyHistoryScreen;
 import 'revision_inbox_screen.dart';
 import 'share_hub_screen.dart' show ShareKeys;
 import 'share_inbox_screen.dart';
@@ -135,6 +136,21 @@ class NotificationListBodyState extends State<NotificationListBody> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
+    );
+  }
+
+  // 展開部アクション: 日報を見る（report_approved＝自分の日報が承認された）
+  //   遷移先は月間履歴（monthly_history_screen.dart の MonthlyHistoryScreen）。
+  //   ★自前 AppBar と戻るを持つ push 用のラッパー（同ファイルの MonthlyHistoryBody は
+  //     Scaffold を持たずタブの中身として使われる実体なので push には使わない）。
+  //   ★承認された1件へ直接飛ばさない: BE services/notify.js の refId は
+  //     'report_approved:<report_id>' だが、report_id 単体で開ける画面が
+  //     FIELD には無い（月間履歴は月の一覧・DayReportsScreen は日付が要る）。
+  //     推測で組み立てず、既存の「日報を見る」画面へ倒す（_openRevision と同じ流儀）。
+  void _openMonthlyHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MonthlyHistoryScreen()),
     );
   }
 
@@ -291,6 +307,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onTap: () => _onTapItem(_items[i]),
                 onReport: _goReport,
                 onRevision: _openRevision,
+                onReportApproved: _openMonthlyHistory,
                 onPunchRemind: () => _openPunchRemind(_items[i]),
                 punchRemindBusy: _punchRemindBusy,
                 onTamper: () => _openTamperIncident(_items[i]),
@@ -357,6 +374,7 @@ class _NotificationRow extends StatelessWidget {
     required this.onTap,
     required this.onReport,
     required this.onRevision,
+    required this.onReportApproved,
     required this.onPunchRemind,
     required this.punchRemindBusy,
     required this.onTamper,
@@ -370,6 +388,7 @@ class _NotificationRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onReport;   // 'report_remind' 展開時「日報を書く」
   final VoidCallback onRevision; // 'revision_request' 展開時「修正依頼を開く」
+  final VoidCallback onReportApproved; // 'report_approved' 展開時「日報を見る」
   final VoidCallback onPunchRemind; // 'punch_remind_*' 展開時「打刻を申告する」
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
   final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
@@ -473,6 +492,20 @@ class _NotificationRow extends StatelessWidget {
                           icon: Icons.fact_check_outlined,
                           label: '修正依頼を開く',
                           onPressed: onRevision,
+                        ),
+                      ),
+                    ],
+                    // 日報が承認されたお知らせ（BE services/notify.js の REPORT_APPROVED）。
+                    // 下の打刻・改ざん・共有と同じく、上の if/else if 連鎖には
+                    // 手を入れず独立した if で足す（type は互いに排他）。
+                    if (type == 'report_approved') ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _ActionButton(
+                          icon: Icons.history,
+                          label: '日報を見る',
+                          onPressed: onReportApproved,
                         ),
                       ),
                     ],
