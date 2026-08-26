@@ -17,6 +17,11 @@
 //   ・data         成功時の本体。失敗時は必ず null。
 //   ・errorMessage 失敗時の説明。成功時は必ず null。
 //   ・errorCode    失敗時の BE 側エラーコード（応答の code フィールド）。無ければ null。
+//
+// ★非200 は utils/session_lockout.dart を必ず通す（締め出しの受け皿）。
+//   サーバが「退職済み」「無効化済み」と答えているのに黙ってログイン画面へ
+//   戻していたのは、非200 の分岐が code を見ずに素通ししていたため。
+//   通し忘れは test/session_lockout_wiring_test.dart が機械で検出する。
 // ============================================================
 //
 // ── 規約（Service 実装側が必ず守ること）──────────────────────
@@ -65,6 +70,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import '../utils/session_lockout.dart';
 
 /// Service層の標準戻り値。詳細な規約は本ファイル冒頭のコメントを参照。
 typedef ApiResult<T> = ({
@@ -135,6 +141,12 @@ Future<ApiResult<T>> runApiCall<T>(
     }
     debugPrint('[$label] 非200 (status=${res.statusCode}): ${apiClipBody(res.body)}');
     final err = _decodeError(res.body);
+    // 締め出し（退職・無効化・役割変更など、サーバが「もう入れない」と言った応答）。
+    // ★どの code で戻すか・どのURLは戻さないか・何と表示するかの判定は
+    //   utils/session_lockout.dart ただ一つが持つ。ここは通すだけで判断しない。
+    // ★戻り値は使わない。締め出しの有無で ApiResult の中身は変えない
+    //   （呼び手が受け取る errorMessage / errorCode はサーバの言い分のまま）。
+    await applyLockoutForResponse(request: res.request, errorCode: err.code);
     return apiFailure<T>(
       statusCode: res.statusCode,
       errorMessage: err.message ?? apiClipBody(res.body),

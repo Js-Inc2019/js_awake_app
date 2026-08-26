@@ -34,6 +34,7 @@ import 'firebase_options.dart';
 import 'services/fcm_service.dart';
 import 'services/reports_service.dart';
 import 'utils/business_date.dart';
+import 'utils/session_lockout.dart';
 
 // ★API のベースURLは config/constants.dart の kApiBaseUrl 一本。
 //   別名 `API_URL` は段6で退役した（同じ値に2つの名前があると、
@@ -60,6 +61,11 @@ void main() async {
   if (!kIsWeb) {
     await NotificationManager.instance.initialize();
   }
+  // 締め出し（退職・無効化など）でログイン画面へ戻すための Navigator を差す。
+  // ★キーの置き場は FcmService（MaterialApp の navigatorKey と同一）。
+  //   utils/session_lockout.dart 側から services を import すると依存が逆流するため、
+  //   参照だけをここで渡す。差し忘れは test/session_lockout_wiring_test.dart が検出する。
+  lockoutNavigatorLookup = () => FcmService.navigatorKey.currentState;
   runApp(const JsAwakeApp());
 }
 

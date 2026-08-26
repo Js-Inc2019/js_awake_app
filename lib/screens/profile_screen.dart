@@ -18,6 +18,7 @@ import '../core/theme/field_tokens.dart';
 import '../services/auth_service.dart';
 import '../services/profile_service.dart';
 import '../config/constants.dart';
+import '../utils/session_lockout.dart';
 import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'notification_settings_screen.dart';
@@ -370,6 +371,9 @@ class ProfileBodyState extends State<ProfileBody> {
       await AuthService().logout(deviceId);
     }
     await prefs.setBool('logged_out', true);
+    // 前回の締め出し理由を持ち越さない（自分で降りたのに「退職しました」が出る事故を防ぐ）。
+    // 消し方は utils/session_lockout.dart ただ一つ（画面が prefs のキー名を持たない）。
+    await clearLockoutReason();
     await prefs.remove('auth_token');
     await prefs.remove('user_id');
     await prefs.remove('user_name');

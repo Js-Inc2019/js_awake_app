@@ -16,6 +16,7 @@ import '../services/auth_service.dart';
 import '../services/worker_service.dart';
 import '../utils/device_id.dart';
 import '../utils/field_role_gate.dart';
+import '../utils/session_lockout.dart';
 import '../main.dart' show bossPinOk;
 import '../core/theme/field_tokens.dart';
 
@@ -32,9 +33,14 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with WidgetsBindingObserver {
   bool _isLoading    = true;
   String? _errorMessage;
+
+  // サーバに締め出された理由（退職・無効化・役割変更など）。
+  // 出所は端末に保存された1件だけ（utils/session_lockout.dart）。読んだら消える。
+  String? _lockoutBanner;
   final _nameCtrl           = TextEditingController();
   final _companyCodeCtrl    = TextEditingController();
   final _partnerCompanyCtrl = TextEditingController();
@@ -64,7 +70,26 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // ★_init() を待たない。_init は warmUp（最大3回・失敗時2秒待ち）から始まるため、
+    //   待つと理由の帯が数秒出ない。読み出しは prefs 1回だけなので先に走らせる。
+    _refreshLockoutBanner();
     _init();
+  }
+
+  // 起動時の自動チェックで締め出された場合、この画面は既に開いていて initState は
+  // 二度と走らない。前面に戻ってきた合図でも読み直す。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) _refreshLockoutBanner();
+  }
+
+  /// 保存された締め出し理由を読み、あれば帯に出す（読んだ時点で端末からは消える）。
+  Future<void> _refreshLockoutBanner() async {
+    final reason = await takeLockoutReason();
+    if (reason == null || !mounted) return;
+    setState(() => _lockoutBanner = reason);
   }
 
   @override
@@ -101,6 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _nameCtrl.dispose();
     _companyCodeCtrl.dispose();
     _partnerCompanyCtrl.dispose();
@@ -309,6 +335,12 @@ class _LoginScreenState extends State<LoginScreen> {
           //   errorCode が BE の code、errorMessage が BE の error を運ぶ（同じ出所）。
           final errCode = response.errorCode ?? response.errorMessage;
           await prefs.remove('auth_token');
+          // ★理由を必ず本人へ見せる。verify-token は /auth/ 配下＝締め出し部品の
+          //   対象外URL（戻る先が今いる画面になるため）なので、部品には
+          //   「理由を残す」ことだけを頼み、帯の表示はこの画面で行う。
+          //   文言の正は utils/session_lockout.dart の名簿ただ一つ（写しを作らない）。
+          await recordLockoutReason(response.errorCode);
+          await _refreshLockoutBanner();
           // 協業承認待ちのみ承認待ち画面へ（既存導線を流用）
           if (errCode == 'COOPERATION_PENDING') {
             if (mounted) {
@@ -945,8 +977,66 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ─── build ───────────────────────────────────────────────
+  //
+  // ★締め出しの理由は画面の状態（読込中／PIN／生体失敗／ランディング）に関わらず
+  //   必ず見えるところに出す。_init は warmUp から始まり読込中が数秒続くため、
+  //   分岐の中に置くと理由が隠れる。分岐の外に1枚重ねる形にする。
   @override
   Widget build(BuildContext context) {
+    final screen = _buildScreen(context);
+    if (_lockoutBanner == null) return screen;
+    return Stack(
+      // 帯は上に重ねるだけ。下の画面（Scaffold）は画面いっぱいのまま描かせる。
+      fit: StackFit.expand,
+      children: [
+        screen,
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Material(
+              color: Colors.transparent,
+              child: _buildLockoutBanner(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 締め出しの理由を出す赤い帯。触ると閉じる（端末からは読んだ時点で消えている）。
+  Widget _buildLockoutBanner() {
+    return GestureDetector(
+      onTap: () => setState(() => _lockoutBanner = null),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        color: FieldTokens.statusError,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _lockoutBanner!,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    height: 1.6,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.close, color: Colors.white, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: FieldTokens.bgBase,
