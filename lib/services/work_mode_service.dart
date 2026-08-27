@@ -433,4 +433,40 @@ class WorkModeService {
       apiJsonMap,
     );
   }
+
+  // ── 勤怠の確認事項（GET /attendance/confirmations?status=pending）─────────
+  //   BE: routes/attendance.js の GET /attendance/confirmations。
+  //   ★職長も開ける。見えるのは主体が職人・職長の行だけで、事務・社長の分は
+  //     BE 側で落ちる（FE では絞らない＝同じ事実を2系統で持たない）。
+  //   応答 {confirmations:[…]} の各行は BE の SELECT 列そのまま。使う主なキー:
+  //     id / confirm_type / person_name / work_date('YYYY-MM-DD') / created_at /
+  //     raw_value / status / punch_in / punch_out /
+  //     can_resolve(真偽) / cannot_resolve_reason(英字コード or null)
+  //   ★どのキーも「必ずある」とは思わずに読むこと（BE の列が増減しても画面が落ちない）。
+  //     職長が受け取る行は全て can_resolve=false・
+  //     cannot_resolve_reason='BOSS_CONFIRMATION_FORBIDDEN' になる。
+  //   confirm_type は forgot_punch / comp_off / overtime_or_forgot の3種。
+  //   返り得る code:
+  //     403 FORBIDDEN … 一覧を開けない役割（職人）。errorCode にそのまま載る。
+  //     401 系        … 締め出しの受け皿（runApiCall が session_lockout へ通す）。
+  //   ★status は既定 'pending'。決着済みを見る画面は無いので呼び手は既定のまま使う。
+  //   ★このアプリは【見るだけ】。決着（POST .../resolve）は事務と社長の仕事なので
+  //     対応するメソッドを置かない（置くと呼べてしまう＝嘘の記号になる）。
+  Future<ApiResult<List<Map<String, dynamic>>>> fetchAttendanceConfirmations({
+    String status = 'pending',
+  }) async {
+    final guard = await _requireToken<List<Map<String, dynamic>>>();
+    if (guard != null) return guard;
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<List<Map<String, dynamic>>>(
+      'WorkModeService.fetchAttendanceConfirmations',
+      () => http.get(
+        Uri.parse('$_apiBase/attendance/confirmations?status=$status'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 10)),
+      (body) => ((apiJsonMap(body)?['confirmations'] as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
+  }
 }

@@ -278,6 +278,16 @@ void main() {
       'lib/services/routes_service.dart': 1, // POST /routes/compare
     };
 
+    // ファイルの道の区切りを「/」に揃える。
+    // ★Directory.listSync が返す path の区切りは OS で違う（Windows は円記号、
+    //   macOS/Linux はスラッシュ）。名簿 knownOutside はスラッシュで書いてあるため、
+    //   生の path で引くと Windows でだけ名簿に当たらず、対象外と承知している
+    //   ファイルが違反として数えられていた＝同じコードが Mac では緑・Windows では赤に
+    //   なる検査になっていた。環境で結果が変わる検査は検査として信用できないので、
+    //   引く前に区切りを1つへ揃える。
+    // ★揃えるのは【名簿の引き方と表示】だけ。何を違反とみなすかの式は変えていない。
+    String slashPath(File f) => f.path.replaceAll(r'\', '/');
+
     test('直 http 呼び出しは全て runApiCall を通っている', () {
       final verb = RegExp(
           r'\bhttp\.(get|post|put|patch|delete|head|read|readBytes)\s*\(');
@@ -293,10 +303,11 @@ void main() {
         final calls = verb.allMatches(src).length;
         if (calls == 0) continue;
 
-        final expectedOutside = knownOutside[f.path] ?? 0;
+        final expectedOutside = knownOutside[slashPath(f)] ?? 0;
         final gates = gate.allMatches(src).length;
         if (calls - expectedOutside > gates) {
-          offenders.add('${f.path}: http $calls本 / runApiCall $gates本'
+          // 出す名前も揃える（どの OS で走らせても同じ文字列で報告される）。
+          offenders.add('${slashPath(f)}: http $calls本 / runApiCall $gates本'
               '（対象外として承知しているのは $expectedOutside本）');
         }
       }

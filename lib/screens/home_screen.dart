@@ -5166,8 +5166,10 @@ class ForemanManagementBody extends StatelessWidget {
     // 「📅 カレンダー」は撤去した（管理・履歴タブの1つ目が同じ CalendarTab を持つため二重表示だった）。
     // CalendarTab クラス本体は削除していない（management_history_screen.dart で使用中）。
     // 「👥 社員」「🏢 協力」の中身（_StaffTab / _CooperationTab）は1行も変更していない。
+    // ★3つ目の節「⏱ 勤怠」を足した。tabs と children は同じ並び・同じ数で持つ
+    //   （片方だけ足すと index がずれて別の節が開く）。length も一緒に動かす。
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Column(
         children: [
           Container(
@@ -5176,6 +5178,7 @@ class ForemanManagementBody extends StatelessWidget {
               tabs: [
                 Tab(text: '👥 社員'),
                 Tab(text: '🏢 協力'),
+                Tab(text: '⏱ 勤怠'),
               ],
             ),
           ),
@@ -5184,6 +5187,7 @@ class ForemanManagementBody extends StatelessWidget {
               children: [
                 _StaffTab(),
                 _CooperationTab(),
+                _AttendanceConfirmTab(),
               ],
             ),
           ),
@@ -5193,6 +5197,223 @@ class ForemanManagementBody extends StatelessWidget {
   }
 }
 
+
+// ─────────────────────────────────────────────
+// 勤怠の確認事項（職長は【見るだけ】）
+// ─────────────────────────────────────────────
+// ★この節は決着（承認・却下）の口を1つも持たない。確定は事務と社長の仕事で、
+//   BE も職長には can_resolve=false / cannot_resolve_reason='BOSS_CONFIRMATION_FORBIDDEN'
+//   しか返さない。押せないボタンを置くと「不具合で押せない」と読まれるため、
+//   ボタンを置かずに『確定は事務または社長が行います』と先に書く。
+// ★1行＝1日。日付・合計件数・種別ごとの内訳を出し、0の内訳は描かない
+//   （同ファイルの ReviewTab の日付行と同じ掟）。
+// ★見た目は ReviewTab の日付行をそのまま写す（surfaceCard / 角丸12 / margin bottom 8 /
+//   padding 14 / 文字サイズと色）。新しい色・余白・フォントは足していない。
+//   唯一の違いは行末の chevron を置かないこと＝開く先が無いため（嘘の記号を作らない）。
+class _AttendanceConfirmTab extends StatefulWidget {
+  const _AttendanceConfirmTab();
+  @override
+  State<_AttendanceConfirmTab> createState() => _AttendanceConfirmTabState();
+}
+
+class _AttendanceConfirmTabState extends State<_AttendanceConfirmTab> {
+  List<Map<String, dynamic>> _rows = [];
+  bool    _loading = false;
+  bool    _failed  = false;
+  String? _failMessage;   // BE が理由を言っているならそのまま出す（丸めない）
+
+  // confirm_type → 内訳の見出し語。BE の3種以外が来たら内訳に出さない
+  //   （知らない種別を勝手に名付けると嘘になる。合計件数には数える）。
+  static const Map<String, String> _kTypeLabel = {
+    'forgot_punch':       '打刻漏れ',
+    'comp_off':           '休日の打刻',
+    'overtime_or_forgot': '残業',
+  };
+  // 内訳の並びは固定（日によって順が入れ替わらないようにする）。
+  static const List<String> _kTypeOrder = [
+    'forgot_punch', 'comp_off', 'overtime_or_forgot',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _failed = false; _failMessage = null; });
+    final res = await WorkModeService().fetchAttendanceConfirmations();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (res.ok) {
+        _rows = res.data ?? const <Map<String, dynamic>>[];
+      } else {
+        _failed      = true;
+        _failMessage = res.errorMessage;
+      }
+    });
+  }
+
+  // 業務日。列の work_date が無い行は raw_value の work_date へ落ちる
+  //   （BE は勤怠行が無い申告でも raw_value に日付を持つ）。どちらも無ければ空。
+  static String _dateKey(Map<String, dynamic> r) {
+    final direct = r['work_date'];
+    if (direct is String && direct.length >= 10) return direct.substring(0, 10);
+    final raw = r['raw_value'];
+    if (raw is Map) {
+      final d = raw['work_date'];
+      if (d is String && d.length >= 10) return d.substring(0, 10);
+    }
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 日付グループ化。日付が読めない行は行にできないので飛ばす
+    //   （同ファイルの ReviewTab の日付グループ化と同じ扱い）。
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final r in _rows) {
+      final key = _dateKey(r);
+      if (key.isEmpty) continue;
+      grouped.putIfAbsent(key, () => []).add(r);
+    }
+    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return Column(
+      children: [
+        _noticeBar(),
+        Expanded(
+          child: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: FieldTokens.accent))
+              : _failed
+                  ? _failView()
+                  : sortedDates.isEmpty
+                      ? const Center(
+                          child: Text('確認事項はありません',
+                              style: TextStyle(
+                                  color: FieldTokens.textSupport, fontSize: 13)),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: sortedDates.length,
+                          itemBuilder: (_, i) {
+                            final ds = sortedDates[i];
+                            return _dayRow(ds, grouped[ds] ?? const []);
+                          },
+                        ),
+        ),
+      ],
+    );
+  }
+
+  // 裁定B の一文。読込中・0件・失敗のいずれでも常に見える位置（行より上）に置く。
+  // 器は同ファイルの ReviewTab の1行バナーと同じ形（surfaceCard・左アイコン・小さい文字）。
+  Widget _noticeBar() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: FieldTokens.surfaceCard,
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline, color: FieldTokens.textSupport, size: 14),
+            SizedBox(width: 6),
+            Expanded(
+              child: Text('確定は事務または社長が行います（ここでは内容の確認のみできます）',
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+
+  // 失敗は黙って空にしない。理由（BE の言い分）とやり直す手を必ず出す。
+  // 形は同ファイルの ReviewTab の失敗ビューをそのまま写す。
+  Widget _failView() => Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline,
+                  color: FieldTokens.statusWarning, size: 32),
+              const SizedBox(height: 8),
+              const Text('確認事項を取得できませんでした',
+                  style: TextStyle(
+                      color: FieldTokens.statusWarning, fontSize: 13)),
+              if (_failMessage != null && _failMessage!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(_failMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: FieldTokens.textSupport, fontSize: 12)),
+              ],
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('再試行'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: FieldTokens.textBody,
+                  side: const BorderSide(
+                      color: FieldTokens.textBody, width: 1.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // 1行 = 1日。合計 = その日の全件。内訳は0のものを出さない。
+  //   例: 7/27（月）　3件　打刻漏れ2 残業1
+  Widget _dayRow(String ds, List<Map<String, dynamic>> rows) {
+    final parts = ds.split('-').map(int.parse).toList();
+    final date  = DateTime(parts[0], parts[1], parts[2]);
+
+    final Map<String, int> byType = {};
+    for (final r in rows) {
+      final t = r['confirm_type'];
+      if (t is String && t.isNotEmpty) {
+        byType[t] = (byType[t] ?? 0) + 1;
+      }
+    }
+    // 内訳に出すのは名前の分かる3種だけ。並びは _kTypeOrder に固定する。
+    final breakdown = <String>[
+      for (final t in _kTypeOrder)
+        if ((byType[t] ?? 0) > 0) '${_kTypeLabel[t]}${byType[t]}',
+    ];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: FieldTokens.surfaceCard,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Text('${date.month}/${date.day}（${_kWeekLabels[date.weekday % 7]}）',
+              style: const TextStyle(
+                  color: FieldTokens.textBody,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(width: 12),
+          Text('${rows.length}件',
+              style: const TextStyle(
+                  color: FieldTokens.textSupport, fontSize: 13)),
+          const Spacer(),
+          for (int i = 0; i < breakdown.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Text(breakdown[i],
+                style: const TextStyle(
+                    color: FieldTokens.textSupport,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
+          ],
+        ],
+      ),
+    );
+  }
+}
 // ─────────────────────────────────────────────
 // 承認タブ: 対応が必要な報告を「日付ごとの1行」で並べる
 // ─────────────────────────────────────────────
