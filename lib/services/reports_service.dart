@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import 'api_result.dart';
 import 'auth_service.dart';
 import '../config/constants.dart';
+import '../core/closing_period_labels.dart';
 
 /// 日報詳細（report 本体＋active 写真）。
 class ReportDetail {
@@ -183,12 +184,17 @@ class ReportsService {
   // GET /reports?date=YYYY-MM&limit=300 — 月指定で取得する（承認タブの日付一覧用）。
   // 既存 getReports は limit のみで直近50件しか取れず、承認待ちが51件目以降に
   // あると見えなかった。月指定でその構造的な取りこぼしを解消する。
-  Future<ApiResult<List<dynamic>>> getReportsByMonth(String month, {int limit = 300}) async {
+  // ★closingDates: 締め日を変えた月は同名の期間が2つできる。どちらの期間かを
+  //   人に選ばせて送り直すのは widgets/closing_period_dialog.dart の受け皿ただ1つ。
+  //   ここは受け取った値を載せるだけで、選び方も理由の読み方も持たない。
+  Future<ApiResult<List<dynamic>>> getReportsByMonth(String month,
+      {int limit = 300, List<String> closingDates = const <String>[]}) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<List<dynamic>>(
       'ReportsService.getReportsByMonth',
       () => http.get(
-        Uri.parse('$kApiBaseUrl/reports?date=$month&limit=$limit'),
+        Uri.parse('$kApiBaseUrl/reports?date=$month&limit=$limit'
+            '${closingDatesQuery(closingDates)}'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
@@ -304,12 +310,13 @@ class ReportsService {
   // ============================================================
 
   Future<ApiResult<List<Map<String, dynamic>>>> getReportsByCompany(
-      String month) async {
+      String month, {List<String> closingDates = const <String>[]}) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<List<Map<String, dynamic>>>(
       'ReportsService.getReportsByCompany',
       () => http.get(
-        Uri.parse('$kApiBaseUrl/reports/by-company?month=$month'),
+        Uri.parse('$kApiBaseUrl/reports/by-company?month=$month'
+            '${closingDatesQuery(closingDates)}'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       (body) => ((apiJsonMap(body)?['companies'] as List?) ?? const [])
@@ -392,12 +399,14 @@ class ReportsService {
   // GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
   // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js の GET /rest-days/my）。
   // 取消済(cancelled_at)は BE 側で除外済み＝返るのは「いま有効な休み」だけ。
-  Future<ApiResult<List<Map<String, dynamic>>>> getRestDaysMy(String month) async {
+  Future<ApiResult<List<Map<String, dynamic>>>> getRestDaysMy(String month,
+      {List<String> closingDates = const <String>[]}) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<List<Map<String, dynamic>>>(
       'ReportsService.getRestDaysMy',
       () => http.get(
-        Uri.parse('$kApiBaseUrl/rest-days/my?month=$month'),
+        Uri.parse('$kApiBaseUrl/rest-days/my?month=$month'
+            '${closingDatesQuery(closingDates)}'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       (body) => ((apiJsonMap(body)?['days'] as List?) ?? [])

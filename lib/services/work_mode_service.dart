@@ -22,6 +22,7 @@ import 'package:http/http.dart' as http;
 import 'api_result.dart';
 import 'auth_service.dart';
 import '../config/constants.dart';
+import '../core/closing_period_labels.dart';
 
 const String _apiBase = kApiBaseUrl;
 
@@ -336,14 +337,20 @@ class WorkModeService {
   /// 応答 {month, requests:[…]} の各行は BE の SELECT 列（routes/attendance.js の GET /attendance/break-requests）そのまま:
   ///   id / person_id / membership_id / work_date('YYYY-MM-DD') / break_override_min /
   ///   break_override_reason / break_override_status / break_override_req_at / person_name
-  Future<ApiResult<List<Map<String, dynamic>>>> fetchBreakRequests({required String month}) async {
+  // ★closingDates: 締め日を変えた月は同名の期間が2つできる。どちらの期間かを
+  //   人に選ばせて送り直すのは widgets/closing_period_dialog.dart の受け皿ただ1つ。
+  //   ここは受け取った値を載せるだけで、選び方も理由の読み方も持たない。
+  Future<ApiResult<List<Map<String, dynamic>>>> fetchBreakRequests(
+      {required String month,
+      List<String> closingDates = const <String>[]}) async {
     final guard = await _requireToken<List<Map<String, dynamic>>>();
     if (guard != null) return guard;
     final headers = await _auth.getAuthHeaders();
     return runApiCall<List<Map<String, dynamic>>>(
       'WorkModeService.fetchBreakRequests',
       () => http.get(
-        Uri.parse('$_apiBase/attendance/break-requests?month=$month'),
+        Uri.parse('$_apiBase/attendance/break-requests?month=$month'
+            '${closingDatesQuery(closingDates)}'),
         headers: headers,
       ).timeout(const Duration(seconds: 10)),
       (body) => ((apiJsonMap(body)?['requests'] as List?) ?? [])
@@ -421,13 +428,15 @@ class WorkModeService {
   Future<ApiResult<Map<String, dynamic>>> fetchMonthlySummary({
     required String personId,
     required String month,
+    List<String> closingDates = const <String>[],
   }) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<Map<String, dynamic>>(
       'WorkModeService.fetchMonthlySummary',
       () => http.get(
         Uri.parse(
-            '$_apiBase/attendance/monthly-summary?person_id=$personId&month=$month'),
+            '$_apiBase/attendance/monthly-summary?person_id=$personId&month=$month'
+            '${closingDatesQuery(closingDates)}'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       apiJsonMap,

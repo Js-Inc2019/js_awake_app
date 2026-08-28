@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
+import '../widgets/closing_period_dialog.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 // 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
@@ -24,6 +25,12 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   List<Map<String, dynamic>> _reports = [];
   DateTime _selectedMonth = DateTime.now();
   String? _error;
+
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  //   ★_error とは別に持つ。_error は人が画面の中では直せない事情、
+  //     こちらは選べば直る事情＝混ぜると次の道が消える。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
+
   // null = 全件, 'approved' / 'rejected' / 'pending' = 絞り込み中
   String? _filterStatus;
 
@@ -34,11 +41,21 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   }
 
   Future<void> _load() async {
+    _closing.beginRound();
     setState(() { _loading = true; _error = null; });
     try {
       final m = '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
-      final res = await ReportsService().getReportsByMonth(m, limit: 200);
+      final res = await _closing.send(
+        months: [m],
+        run: (dates) => ReportsService()
+            .getReportsByMonth(m, limit: 200, closingDates: dates),
+      );
       if (!mounted) return;
+      // 締め日が決まっていない＝「この月の記録はありません」と嘘をつかず、理由と選ぶ道を出す。
+      if (_closing.isPending) {
+        setState(() { _loading = false; _reports = []; _error = null; });
+        return;
+      }
       if (res.ok) {
         final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
         // approved/revision_requested boolean → status 文字列に変換
@@ -176,6 +193,9 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
+              // 締め日の変更で期間が2つある月。理由を出し、押されたときだけ選ばせる。
+              : _closing.isPending
+                  ? ClosingPeriodNotice(gate: _closing, onResolved: _load)
               : _error != null
                   ? Center(child: Text(_error!, style: const TextStyle(color: FieldTokens.statusError)))
                   : _reports.isEmpty

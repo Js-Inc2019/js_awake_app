@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/theme/field_tokens.dart';
 import '../services/work_mode_service.dart';
+import '../widgets/closing_period_dialog.dart';
 import 'monthly_history_screen.dart' show JsStatChip;
 
 // ─────────────────────────────────────────────
@@ -41,6 +42,11 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
   //   ★「取得失敗」と「0件」を混ぜない。失敗時は数字を1つも描かない（嘘の 0 を出さない）。
   bool _loading = true;
   String? _error;
+
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  //   ★_error とは別に持つ。_error は「再ログイン」「電波」など人が直せない事情で、
+  //     こちらは画面の中で選べば直る事情＝混ぜると次の道が消える。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
   Map<String, dynamic>? _summary;
 
   String get _monthStr =>
@@ -79,6 +85,7 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
   //   握り潰して無言で空表示にする経路を作らない。
   //   ★debugPrint には token / Authorization / headers を一切渡さない（秘匿値の漏洩防止）。
   Future<void> _load() async {
+    _closing.beginRound();
     setState(() {
       _loading = true;
       _error   = null;
@@ -100,10 +107,19 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
         return;
       }
 
-      final res = await WorkModeService()
-          .fetchMonthlySummary(personId: personId, month: _monthStr);
+      final res = await _closing.send(
+        months: [_monthStr],
+        run: (dates) => WorkModeService().fetchMonthlySummary(
+            personId: personId, month: _monthStr, closingDates: dates),
+      );
 
       if (!mounted) return;
+
+      // 締め日が決まっていない＝0の集計で黙らず、理由と選ぶ道を出す。
+      if (_closing.isPending) {
+        setState(() { _loading = false; _summary = null; _error = null; });
+        return;
+      }
 
       // ★「必ず _summary か _error のどちらか一方で終わる」掟を守るため、
       //   ok でも本文が空（data == null）なら成功にしない。移設前は
@@ -214,6 +230,10 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
     if (_loading) {
       return const Center(
           child: CircularProgressIndicator(color: FieldTokens.accent));
+    }
+    // 締め日の変更で期間が2つある月。理由を出し、押されたときだけ選ばせる。
+    if (_closing.isPending) {
+      return ClosingPeriodNotice(gate: _closing, onResolved: _load);
     }
     if (_error != null) {
       return _errorView(_error!);

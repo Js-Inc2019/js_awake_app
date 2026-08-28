@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../widgets/photo_strip_field.dart';
 import '../widgets/punch_remind_dialog.dart';
 import '../widgets/search_suggest_field.dart';
+import '../widgets/closing_period_dialog.dart';
 import '../utils/business_date.dart';
 
 import '../main.dart'
@@ -5433,6 +5434,10 @@ class _ReviewTabState extends State<ReviewTab> {
   bool _loading = false;
   bool _failed  = false;
 
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  //   ★日報と休憩の2本で共有する。どちらも同じ月を見るので、1度選べば両方に効く。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
+
   // ─── 休憩申請（pending のみ・月に依存せず全件が返る）───
   // 日報の取得とは独立に扱う＝fail-soft。休憩が取れなくても日報一覧は必ず出す。
   List<Map<String, dynamic>> _breaks = [];
@@ -5482,17 +5487,39 @@ class _ReviewTabState extends State<ReviewTab> {
       r['revision_requested'] == true;
 
   Future<void> _load() async {
+    _closing.beginRound();
     setState(() {
       _loading = true;
       _failed  = false;
       _targets = [];
     });
     // 日報と休憩を並行取得。休憩は fail-soft＝失敗しても日報一覧は出す。
-    final reportsF = ReportsService().getReportsByMonth(_monthStr);
-    final breaksF  = WorkModeService().fetchBreakRequests(month: _monthStr);
+    // ★2本とも同じ月を見るので受け皿は1つ。並行のままでよい（受け皿は先に見つかった
+    //   事情を後から来た結果で上書きしないため、結果が実行順で変わらない）。
+    final reportsF = _closing.send(
+      months: [_monthStr],
+      run: (dates) =>
+          ReportsService().getReportsByMonth(_monthStr, closingDates: dates),
+    );
+    final breaksF = _closing.send(
+      months: [_monthStr],
+      run: (dates) => WorkModeService()
+          .fetchBreakRequests(month: _monthStr, closingDates: dates),
+    );
     final result   = await reportsF;
     final breakRes = await breaksF;
     if (!mounted) return;
+    // 締め日が決まっていない＝「対応が必要な報告はありません」と嘘をつかず、
+    // 理由と選ぶ道を出す。
+    if (_closing.isPending) {
+      setState(() {
+        _loading     = false;
+        _targets     = [];
+        _breaks      = <Map<String, dynamic>>[];
+        _breakFailed = false;
+      });
+      return;
+    }
     // 休憩の結果を先に反映（沈黙禁止＝失敗は _breakFailed で1行バナーに出す）
     setState(() {
       _breaks       = (breakRes.ok ? breakRes.data : null) ?? <Map<String, dynamic>>[];
@@ -5589,6 +5616,9 @@ class _ReviewTabState extends State<ReviewTab> {
           child: _loading
               ? const Center(
                   child: CircularProgressIndicator(color: FieldTokens.accent))
+              // 締め日の変更で期間が2つある月。理由を出し、押されたときだけ選ばせる。
+              : _closing.isPending
+                  ? ClosingPeriodNotice(gate: _closing, onResolved: _load)
               : _failed
                   ? _failView()
                   : sortedDates.isEmpty
@@ -6086,6 +6116,9 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
   Map<String, dynamic>? _summary;
   bool _loading = false;
 
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
+
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
 
@@ -6117,14 +6150,24 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
   }
 
   Future<void> _loadMonthly() async {
+    _closing.beginRound();
     setState(() => _loading = true);
     {
       // monthly_stats_screen と同じ1本（person_id の出所だけが違う）。
-      final res = await WorkModeService().fetchMonthlySummary(
-        personId: widget.personId,
-        month:    _monthStr,
+      final res = await _closing.send(
+        months: [_monthStr],
+        run: (dates) => WorkModeService().fetchMonthlySummary(
+          personId: widget.personId,
+          month:    _monthStr,
+          closingDates: dates,
+        ),
       );
       if (!mounted) return;
+      // 締め日が決まっていない＝0の集計で黙らず、理由と選ぶ道を出す。
+      if (_closing.isPending) {
+        setState(() { _summary = null; _loading = false; });
+        return;
+      }
       final summary = res.data;
       setState(() {
         // 非200・通信不成立はどちらも移設前と同じく _summary = null（未取得）。
@@ -6210,6 +6253,10 @@ class _StaffMonthlySheetState extends State<_StaffMonthlySheet> {
             child: _loading
                 ? const Center(
                     child: CircularProgressIndicator(color: FieldTokens.accent))
+                // 締め日の変更で期間が2つある月。「データなし」で黙らず理由を出す。
+                : _closing.isPending
+                    ? ClosingPeriodNotice(
+                        gate: _closing, onResolved: _loadMonthly)
                 : _summary == null
                     // 本文相当の状態表示。補助色(textSupport #7B7567)では地に沈むため textBody。
                     ? const Center(
@@ -6333,6 +6380,9 @@ class _CooperationTabState extends State<_CooperationTab> {
   List<Map<String, dynamic>> _companies = [];
   bool _loading = false;
 
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
+
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
 
@@ -6364,10 +6414,20 @@ class _CooperationTabState extends State<_CooperationTab> {
   }
 
   Future<void> _loadByCompany() async {
+    _closing.beginRound();
     setState(() => _loading = true);
     {
-      final res = await ReportsService().getReportsByCompany(_monthStr);
+      final res = await _closing.send(
+        months: [_monthStr],
+        run: (dates) =>
+            ReportsService().getReportsByCompany(_monthStr, closingDates: dates),
+      );
       if (!mounted) { return; }
+      // 締め日が決まっていない＝「実績はありません」と嘘をつかず、理由と選ぶ道を出す。
+      if (_closing.isPending) {
+        setState(() { _companies = []; _loading = false; });
+        return;
+      }
       if (res.ok) {
         setState(() {
           _companies = res.data ?? const [];
@@ -6425,6 +6485,10 @@ class _CooperationTabState extends State<_CooperationTab> {
               ? const Center(
                   child:
                       CircularProgressIndicator(color: FieldTokens.accent))
+              // 締め日の変更で期間が2つある月。理由を出し、押されたときだけ選ばせる。
+              : _closing.isPending
+                  ? ClosingPeriodNotice(
+                      gate: _closing, onResolved: _loadByCompany)
               : _companies.isEmpty
                   ? const Center(
                       child: Text(
@@ -6550,6 +6614,12 @@ class _CalendarTabState extends State<CalendarTab> {
   bool _monthLoading = false;
   String _myCompanyId = '';
 
+  // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
+  //   ★日報と自分の休みの2本で共有する（同じ月・同じ期間で切るため）。
+  //   ★カレンダーは他の情報（会社休日・祝日）と並ぶので、理由は全面ではなく
+  //     1行の帯で出す＝既存の _buildFailureBar と同じ並びに置く。
+  final ClosingPeriodGate _closing = ClosingPeriodGate();
+
   /// 選択中の日（'YYYY-MM-DD'）。null=未選択。
   /// 旧実装は _DayCell へ isSelected:false を固定で渡していて選択が機能していなかった。
   String? _selectedDate;
@@ -6626,6 +6696,7 @@ class _CalendarTabState extends State<CalendarTab> {
   //     画面上部の注意バー（_buildFailureBar）で必ず可視化する（黙って空にしない）。
   //   ・祝日は「年単位」なので月ではなく年が変わったときだけ追加取得する。
   Future<void> _loadMonth() async {
+    _closing.beginRound();
     setState(() {
       _monthLoading   = true;
       _monthReports   = [];
@@ -6651,8 +6722,18 @@ class _CalendarTabState extends State<CalendarTab> {
   Future<void> _loadReports() async {
     {
       // limit=300 は getReportsByMonth の既定値（monthly_history_screen は 200 を明示）。
-      final res = await ReportsService().getReportsByMonth(_monthStr);
+      final res = await _closing.send(
+        months: [_monthStr],
+        run: (dates) =>
+            ReportsService().getReportsByMonth(_monthStr, closingDates: dates),
+      );
       if (!mounted) return;
+      // 締め日が決まっていない＝提出済みの日が0件のカレンダーで黙らない。
+      // 理由は上部の帯（ClosingPeriodBar）が出す。
+      if (_closing.isPending) {
+        setState(() { _monthReports = []; _submittedDates = {}; });
+        return;
+      }
       if (res.ok) {
         final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
         final enriched = raw.map((r) {
@@ -6693,8 +6774,17 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // 自分の休み（GET /rest-days/my?month=）
   Future<void> _loadMyRestDays() async {
-    final res = await ReportsService().getRestDaysMy(_monthStr);
+    final res = await _closing.send(
+      months: [_monthStr],
+      run: (dates) =>
+          ReportsService().getRestDaysMy(_monthStr, closingDates: dates),
+    );
     if (!mounted) return;
+    // 締め日が決まっていない＝休みが0件のカレンダーで黙らない（理由は上部の帯）。
+    if (_closing.isPending) {
+      setState(() { _myRestDays = {}; _restFailed = false; });
+      return;
+    }
     if (res.ok) {
       final map = <String, Map<String, dynamic>>{};
       for (final d in (res.data ?? const <Map<String, dynamic>>[])) {
@@ -6773,6 +6863,9 @@ class _CalendarTabState extends State<CalendarTab> {
             ],
           ),
         ),
+        // ②-a 締め日の変更で期間が2つある月（理由＋押したら選べる。黙って空にしない）
+        if (_closing.isPending && !_monthLoading)
+          ClosingPeriodBar(gate: _closing, onResolved: _loadMonth),
         // ② 取得失敗の可視化（黙って空にしない）
         _buildFailureBar(),
         // ③ カレンダーグリッド

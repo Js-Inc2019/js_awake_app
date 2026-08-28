@@ -10,13 +10,21 @@
 //   常に揃えて返し、呼び手が推測しなくて済むようにする。
 //
 //   typedef ApiResult<T> =
-//     ({bool ok, int statusCode, T? data, String? errorMessage, String? errorCode});
+//     ({bool ok, int statusCode, T? data, String? errorMessage, String? errorCode,
+//       Map<String, dynamic>? errorDetails});
 //
 //   ・ok           成功したか。true のときだけ data を信じてよい。
 //   ・statusCode   実際の HTTP ステータス。通信そのものが成立しなかった場合のみ 0。
 //   ・data         成功時の本体。失敗時は必ず null。
 //   ・errorMessage 失敗時の説明。成功時は必ず null。
 //   ・errorCode    失敗時の BE 側エラーコード（応答の code フィールド）。無ければ null。
+//   ・errorDetails 失敗時の応答本文そのもの（JSON オブジェクトのときだけ）。
+//                  ★error / code の他に BE が添えている材料を捨てないための口。
+//                    例: 締め日の変更で期間が2つある月の 400 は、どちらを選べば
+//                    通るかの候補一覧（periods / unresolved）を本文に載せてくる。
+//                    従来は error と code しか拾っておらず、候補が丸ごと捨てられて
+//                    いたため、画面には「決められません」だけが残り次の道が無かった。
+//                  ★読み方は運ぶ側では決めない（規約6と同じ＝FE で意味を作らない）。
 //
 // ★非200 は utils/session_lockout.dart を必ず通す（締め出しの受け皿）。
 //   サーバが「退職済み」「無効化済み」と答えているのに黙ってログイン画面へ
@@ -79,6 +87,7 @@ typedef ApiResult<T> = ({
   T? data,
   String? errorMessage,
   String? errorCode,
+  Map<String, dynamic>? errorDetails,
 });
 
 /// 応答本文の先頭200文字（規約2・4のログとエラー文言用）。
@@ -91,6 +100,7 @@ ApiResult<T> apiFailure<T>({
   required int statusCode,
   String? errorMessage,
   String? errorCode,
+  Map<String, dynamic>? errorDetails,
 }) =>
     (
       ok: false,
@@ -98,6 +108,7 @@ ApiResult<T> apiFailure<T>({
       data: null,
       errorMessage: errorMessage,
       errorCode: errorCode,
+      errorDetails: errorDetails,
     );
 
 /// 成功の ApiResult を組む。
@@ -107,6 +118,7 @@ ApiResult<T> apiSuccess<T>({required int statusCode, T? data}) => (
       data: data,
       errorMessage: null,
       errorCode: null,
+      errorDetails: null,
     );
 
 /// 規約1-6 の唯一の実装。全 Service の HTTP メソッドはこれを通す。
@@ -151,6 +163,7 @@ Future<ApiResult<T>> runApiCall<T>(
       statusCode: res.statusCode,
       errorMessage: err.message ?? apiClipBody(res.body),
       errorCode: err.code,
+      errorDetails: err.details,
     );
   } catch (e) {
     debugPrint('[$label] 通信失敗: $e');
@@ -161,9 +174,13 @@ Future<ApiResult<T>> runApiCall<T>(
   }
 }
 
-/// 非200 本文から BE の error / code を取り出す。JSON でなければ両方 null。
-({String? message, String? code}) _decodeError(String body) {
-  if (body.isEmpty) return (message: '(応答本文なし)', code: null);
+/// 非200 本文から BE の error / code と、本文そのものを取り出す。
+/// JSON でなければすべて null。
+///   ★details は本文の写しをそのまま渡すだけ（意味付けはしない＝規約6）。
+///     error / code の他に BE が添えている材料（候補一覧など）を捨てないための口。
+({String? message, String? code, Map<String, dynamic>? details})
+    _decodeError(String body) {
+  if (body.isEmpty) return (message: '(応答本文なし)', code: null, details: null);
   try {
     final decoded = jsonDecode(body);
     if (decoded is Map) {
@@ -172,12 +189,13 @@ Future<ApiResult<T>> runApiCall<T>(
       return (
         message: (err is String && err.isNotEmpty) ? err : null,
         code:    (code is String && code.isNotEmpty) ? code : null,
+        details: Map<String, dynamic>.from(decoded),
       );
     }
   } catch (_) {
     // JSON でない（HTML のエラーページ等）→ 呼び出し元が本文先頭を使う
   }
-  return (message: null, code: null);
+  return (message: null, code: null, details: null);
 }
 
 /// JSON オブジェクトを返すエンドポイント用の parse。
