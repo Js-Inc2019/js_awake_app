@@ -56,6 +56,82 @@ class RestDayToday {
   final String portion;
 }
 
+/// 取れる代休の候補1件（GET /rest-days/comp-off/available の candidates[]）。
+///   ★BE が返す列をそのまま持つだけ。意味付けはしない（api_result.dart の規約6）。
+///     出どころは js-office-api の routes/rest_days.js の compOffCandidateView。
+class CompOffCandidate {
+  const CompOffCandidate({
+    required this.id,
+    required this.sourceWorkDate,
+    required this.remainingDays,
+    required this.expiresAt,
+  });
+
+  /// leave_ledger の行 id。
+  final String id;
+
+  /// 対になる出勤日（この代休の元になった休日出勤の日）。'YYYY-MM-DD'。
+  /// ★休みを作るとき source_work_date として送るのはこの値。
+  final String sourceWorkDate;
+
+  /// この代休の残り日数（1.0 / 0.5 など）。
+  final double remainingDays;
+
+  /// 期限。BE は期限切れを候補に出さないので、ここに来るものは全て期限内。
+  /// null もあり得る（期限なし）。
+  final String? expiresAt;
+}
+
+/// 今取れる代休（GET /rest-days/comp-off/available の応答）。
+class CompOffAvailable {
+  const CompOffAvailable({
+    required this.asOf,
+    required this.remainingDays,
+    required this.candidates,
+    required this.undecidedNotice,
+  });
+
+  /// どの日を基準に「取れる」を判定したか。'YYYY-MM-DD'。
+  final String? asOf;
+
+  /// 候補すべての残り日数の合計。
+  final double remainingDays;
+
+  /// 対になれる出勤日の候補。★空＝取れる代休が無い（期限切れは BE が既に外している）。
+  ///   順番は BE が返したまま（出勤日の古い順）。画面が並べ替えない。
+  final List<CompOffCandidate> candidates;
+
+  /// 「選ばない」を選んだ人へ出す注意。★BE が配る文言をそのまま使う。
+  ///   画面に書き写すと FIELD と OFFICE で別の文が出る（config/auditLabels.js の
+  ///   「FE にコピーを持たせない」と同じ理由）。
+  final String? undecidedNotice;
+}
+
+/// 代休を取った結果（POST /rest-days/comp-off の応答）。
+class CompOffTaken {
+  const CompOffTaken({
+    required this.restDate,
+    required this.pairedWorkDate,
+    required this.pairedUndecided,
+    required this.takenDays,
+    required this.notice,
+  });
+
+  final String? restDate;
+
+  /// 選んだ対の出勤日。「選ばない」で取ったときは null。
+  final String? pairedWorkDate;
+
+  /// 「選ばない」で取ったか。
+  final bool pairedUndecided;
+
+  /// 台帳から消化した日数。
+  final double takenDays;
+
+  /// 「選ばない」で取ったときだけ BE が付ける注意。選んだときは null。
+  final String? notice;
+}
+
 /// 休み登録・更新・取消の結果（rest_date 等）。
 class RestDayMutation {
   const RestDayMutation({
@@ -478,6 +554,136 @@ class ReportsService {
       ).timeout(const Duration(seconds: 15)),
       _parseRestDayMutation,
     );
+  }
+
+  // ── 代休（comp_off）の2本 ────────────────────────────────
+  //
+  // ★なぜ「本日休み」の4本と別に置くか（後から読む人向け）:
+  //   ・休む日が今日とは限らない。BE の代休の口は当日・前日の制限を持たない
+  //     （js-office-api の routes/rest_days.js の POST /rest-days/comp-off は
+  //       rest_date の実在日だけを見る）。POST /rest-days の当日/前日制限は
+  //       「本日休み」ボタンのための制限なので、代休をそこへ通すと使えない。
+  //   ・理由が reason='comp_off' で、本日休みの4値（有給/欠勤/会社休業/私用）に無い。
+  //   ・対になる出勤日を選ぶ手順が要る（掟1: 候補が複数なら全部出す・順番で決めない）。
+  //
+  // ★取れる代休が0のときに「無い」で黙らないための材料は BE が分けて返す:
+  //   候補が空 → そもそも無い／期限切れで無い の別は、休みを作ろうとしたときの
+  //   code（NO_COMP_OFF / COMP_OFF_EXPIRED）で言い分ける。ここは運ぶだけ（規約6）。
+
+  // GET /rest-days/comp-off/available?as_of=YYYY-MM-DD
+  //   → { as_of, remaining_days, candidates:[{id,source_work_date,granted_days,
+  //        taken_days,remaining_days,expires_at}], undecided_notice }
+  //   ★期限切れは BE が候補から外して返す（取れないものを勧めない）。
+  //   ★as_of 省略時は BE が JST 業務日で確定する。休む日が決まっているなら
+  //     その日を渡す＝候補一覧と実際に取れる範囲がズレない。
+  Future<ApiResult<CompOffAvailable>> getCompOffAvailable({String? asOf}) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<CompOffAvailable>(
+      'ReportsService.getCompOffAvailable',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/comp-off/available'
+            '${asOf != null ? '?as_of=$asOf' : ''}'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      parseCompOffAvailable,
+    );
+  }
+
+  /// 応答 → CompOffAvailable。★_parseRestDayMutation と同じく名前付きの部品にする。
+  ///   通信を伴わずに解析だけを検査できる形にしておく（検査が実物を通る）。
+  static CompOffAvailable? parseCompOffAvailable(String body) {
+    final data = apiJsonMap(body);
+    final list = (data?['candidates'] as List?) ?? const [];
+    return CompOffAvailable(
+      asOf: data?['as_of'] as String?,
+      remainingDays: _toDouble(data?['remaining_days']),
+      // ★並べ替えない。BE が返した順（出勤日の古い順）のまま渡す。
+      //   画面側で並べ替えると「順番で勝手に決めない」の意味が薄れる。
+      candidates: list
+          .whereType<Map>()
+          .map((e) => CompOffCandidate(
+                id: '${e['id']}',
+                sourceWorkDate: '${e['source_work_date']}',
+                remainingDays: _toDouble(e['remaining_days']),
+                expiresAt: e['expires_at'] as String?,
+              ))
+          .toList(),
+      undecidedNotice: data?['undecided_notice'] as String?,
+    );
+  }
+
+  // POST /rest-days/comp-off body {rest_date, source_work_date|paired_undecided, portion?}
+  //   → 201 { rest_day:{...}, taken_days, allocations, notice? }
+  //   断り方（BE の code。文言は errorMessage にそのまま載る）:
+  //     400 COMP_OFF_PAIR_REQUIRED / COMP_OFF_PAIR_EXCLUSIVE / INVALID_REST_DATE
+  //         / INVALID_SOURCE_WORK_DATE / INVALID_PORTION
+  //     409 COMP_OFF_SOURCE_NOT_FOUND / COMP_OFF_EXPIRED / INSUFFICIENT_COMP_OFF
+  //         / NO_COMP_OFF / ALREADY_RESTED
+  //     404 MEMBERSHIP_NOT_FOUND ／ 403 FORBIDDEN
+  //   ★sourceWorkDate と undecided はどちらか一方だけ。両方・どちらも無しは
+  //     BE が 400 で断る。ここで先に潰さないのは、判定を2箇所に持たないため
+  //     （同じ掟を FE と BE の両方に書くと、片方だけ直したときに食い違う）。
+  Future<ApiResult<CompOffTaken>> takeCompOff({
+    required String restDate,
+    String? sourceWorkDate,
+    bool undecided = false,
+    String portion = 'full',
+  }) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<CompOffTaken>(
+      'ReportsService.takeCompOff',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/rest-days/comp-off'),
+        headers: headers,
+        body: jsonEncode(compOffBody(
+          restDate: restDate,
+          sourceWorkDate: sourceWorkDate,
+          undecided: undecided,
+          portion: portion,
+        )),
+      ).timeout(const Duration(seconds: 15)),
+      parseCompOffTaken,
+    );
+  }
+
+  /// 送る body を組む部品。
+  ///   ★指定しなかった側のキーは送らない。null を送ると BE 側の
+  ///     「どちらも指定なし」（COMP_OFF_PAIR_REQUIRED）の判定に紛れる。
+  ///   ★組み立てを名前付きにするのは、送る形そのものを検査で固定するため。
+  static Map<String, dynamic> compOffBody({
+    required String restDate,
+    String? sourceWorkDate,
+    bool undecided = false,
+    String portion = 'full',
+  }) =>
+      <String, dynamic>{
+        'rest_date': restDate,
+        'portion': portion,
+        if (sourceWorkDate != null) 'source_work_date': sourceWorkDate,
+        if (undecided) 'paired_undecided': true,
+      };
+
+  /// 応答 → CompOffTaken。
+  static CompOffTaken? parseCompOffTaken(String body) {
+    final data = apiJsonMap(body);
+    final rd = (data?['rest_day'] as Map?) ?? const {};
+    return CompOffTaken(
+      restDate: rd['rest_date'] as String?,
+      pairedWorkDate: rd['paired_work_date'] as String?,
+      pairedUndecided: rd['paired_undecided'] == true,
+      takenDays: _toDouble(data?['taken_days']),
+      // 選んだときは BE がキーごと出さない＝null のまま（空文字にしない）。
+      notice: data?['notice'] as String?,
+    );
+  }
+
+  /// numeric は BE が数でも文字列でも返しうる（pg の numeric は文字列）。
+  /// ★0 へ黙って倒さず、読めない値は 0 にしたうえで呼び手が残日数で判断できるよう
+  ///   合計と候補の両方を同じ関数で通す（読み方を2通りにしない）。
+  static double _toDouble(Object? v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0;
+    return 0;
   }
 
   // DELETE /rest-days/today → 200 成功 / 404 NOT_RESTED
