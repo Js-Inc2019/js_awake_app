@@ -13,6 +13,7 @@
 // ============================================================
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'api_result.dart';
 import 'auth_service.dart';
@@ -152,6 +153,16 @@ class ReportsService {
   }
 
   ReportsService._internal();
+
+  /// 検査が【継承して差し替える】ための入口。
+  ///   ★なぜ要るか: 本クラスは factory + 私設コンストラクタの単一実体で、
+  ///     このままでは継承できない。FIELD には provider のような注入の仕組みが無く、
+  ///     画面は Service を直接 new するため、検査で実 HTTP を避ける手が他に無い
+  ///     （test/share_send_confirm_test.dart 冒頭が書いている制約そのもの）。
+  ///   ★本番の道は1文字も変えていない。ReportsService() は今までどおり
+  ///     唯一の実体（_instance）を返す。この入口を通るのは検査だけ。
+  @visibleForTesting
+  ReportsService.forTest();
 
   final AuthService _auth = AuthService();
 

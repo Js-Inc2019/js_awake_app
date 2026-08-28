@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
 import '../main.dart' show showJsSnackbar;
+import '../widgets/comp_off_dialog.dart';
 import 'rest_day_done_screen.dart';
 
 // 理由4値（null=未選択）。表示ラベルと BE キーの対応。
@@ -103,6 +104,52 @@ class _RestDayScreenState extends State<RestDayScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  // ── 代休（入口①）が持つ「休む日」──────────────────────────
+  //  ★この画面が唯一の持ち主。部品（showCompOffFlow）は受け取るだけで、
+  //    自分では日を決めない（同じ日付を2箇所で決めない）。
+  //  ★既定は今日。上の「本日休み」と同じ日から始めるのが自然で、
+  //    別の日を取りたいときだけ人が選び直す。
+  DateTime _compOffDate = DateTime.now();
+
+  String _ymd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _compOffDateLabel() {
+    final w = _kWeekdayJa[_compOffDate.weekday - 1];
+    return '${_compOffDate.month}月${_compOffDate.day}日（$w）';
+  }
+
+  // 別の日を選ぶ。★showDatePicker は FIELD の既存3箇所（profile_screen /
+  //   share_send_screen ×2）と同じ使い方。新しい日付部品は作らない。
+  //   先の日を選べるのは、代休が「これから取る休み」だから
+  //   （BE の代休の口は当日・前日の制限を持たない）。
+  Future<void> _pickCompOffDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _compOffDate,
+      // 過去は前日まで（BE は実在日なら受けるが、遡って休みを作る運用は
+      // 「本日休み」と同じく事務の仕事なのでここでは開けない）。
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 1, now.month, now.day),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _compOffDate = picked);
+  }
+
+  // ★_busy は立てない。この画面の _busy は「この画面から通信を出している最中」の印で、
+  //   立てると本体の主ボタンが回るスピナーに変わる。代休の受け皿はモーダルで
+  //   画面全体を覆うため二度押しは起きず、立てる意味が無いうえに
+  //   「休みを登録する」を押したときと同じ見た目になって取り違える。
+  Future<void> _openCompOff() async {
+    final took = await showCompOffFlow(context, restDate: _ymd(_compOffDate));
+    if (!mounted || !took) return;
+    // 取れたらホームへ戻す（ホームが休みの状態を取り直す）。
+    // ★「本日休み」の登録が done 画面へ進むのとは道を分ける。代休は
+    //   今日とは限らないので、今日のねぎらい画面へ入れると嘘になる。
+    Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   Future<void> _cancelRest() async {
@@ -244,6 +291,45 @@ class _RestDayScreenState extends State<RestDayScreen> {
                 '※理由は任意です。有給は事務の確認後に休暇の記録へ反映されます。',
                 style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
               ),
+
+              // ── 代休で休む（入口①）────────────────────────────
+              //  ★この画面の本体（今日・理由4値・「休みを登録する」）には
+              //    1つも手を入れていない。下に増設しただけ＝従来の道はそのまま通る。
+              //  ★なぜ本体に混ぜないか: この画面は「本日」固定で、理由も
+              //    有給/欠勤/会社休業/私用 の4値に固定されている（_kReasons）。
+              //    代休は理由が comp_off で4値に無く、休む日も今日とは限らない。
+              //    同じチップの列に並べると「今日の私用」と同じ操作に見えるのに
+              //    送り先も規則も違う、という嘘になる。
+              //  ★日はこの入口が持つ（既定＝今日／別の日も選べる）。部品は受け取るだけ。
+              //  ★修正モード（既に休みが登録されている日を開いている）では出さない。
+              //    その日は既に休みなので、代休を足しても BE が ALREADY_RESTED で
+              //    断るだけ＝押せるのに必ず失敗するボタンを置かない。
+              if (!widget.editMode) ...[
+                const SizedBox(height: 24),
+                const Divider(color: FieldTokens.outline, height: 1),
+                const SizedBox(height: 16),
+                const Text('代休',
+                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _openCompOff,
+                    icon: const Icon(Icons.event_repeat, size: 16),
+                    label: Text('代休で休む（${_compOffDateLabel()}）'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: FieldTokens.textBody,
+                      side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _busy ? null : _pickCompOffDate,
+                  child: const Text('別の日にする',
+                      style: TextStyle(color: FieldTokens.textSupport)),
+                ),
+              ],
 
               const SizedBox(height: 32),
 

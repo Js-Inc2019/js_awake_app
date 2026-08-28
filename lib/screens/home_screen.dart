@@ -14,6 +14,9 @@ import '../widgets/photo_strip_field.dart';
 import '../widgets/punch_remind_dialog.dart';
 import '../widgets/search_suggest_field.dart';
 import '../widgets/closing_period_dialog.dart';
+// 代休を取る受け皿。★「本日休み」の画面（rest_day_screen.dart）と同じ1本を使う
+//   ＝入口は2つでも、選ばせる部品と書く口は1つ（同じ操作を2通りに書かない）。
+import '../widgets/comp_off_dialog.dart';
 import '../utils/business_date.dart';
 
 import '../main.dart'
@@ -7079,8 +7082,37 @@ class _CalendarTabState extends State<CalendarTab> {
             row(Icons.event_busy_outlined, FieldTokens.accent,
                 '自分の休み：${restLabel(rest['portion'] as String?)}'
                 '${(rest['reason'] as String?) != null ? '（${rest['reason']}）' : ''}')
-          else
+          else ...[
             row(Icons.event_available_outlined, FieldTokens.textSupport, '自分の休み：なし'),
+            // ── 代休で休む（入口②）────────────────────────────
+            //  ★日はここ（入口）が持つ。人がカレンダーでタップした ds を
+            //    そのまま部品へ渡すだけで、部品は自分では日を決めない
+            //    （画面に出ている日と送る日がずれない）。
+            //  ★選ばせる部品と書く口は「本日休み」の画面と同じ1本
+            //    （lib/widgets/comp_off_dialog.dart の showCompOffFlow）。
+            //    入口が2つでも操作は1通り。
+            //  ★既に休みが在る日には出さない（上の if の else 側）。
+            //    出しても BE が ALREADY_RESTED で断るだけで、押せるのに
+            //    必ず失敗するボタンになる。
+            //  ★形は同じパネルの「日報を確認」と同じ OutlinedButton.icon。
+            //    新しい見た目を作らない・タブも増やさない（増えたのは入口だけ）。
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final took = await showCompOffFlow(context, restDate: ds);
+                  if (took && mounted) _loadMonth();   // BE の真実へ追随
+                },
+                icon: const Icon(Icons.event_repeat, size: 16),
+                label: const Text('代休で休む'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: FieldTokens.textBody,
+                  side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
 
           // 日報の有無 ＋ DayReportsScreen への導線（既存遷移を維持）
           if (dayReps.isNotEmpty) ...[
