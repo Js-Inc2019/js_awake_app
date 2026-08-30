@@ -223,16 +223,25 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
                                   dateStr: dateStr,
                                   date:    date,
                                   reports: reps,
-                                  onTap:   () => Navigator.push(
-                                    ctx,
-                                    MaterialPageRoute(
-                                      builder: (_) => DayReportsScreen(
-                                        date:        date,
-                                        reports:     reps,
-                                        myCompanyId: '',
+                                  // ★戻り値を待つ。DayReportsScreen で日報を取り消すと
+                                  //   true が返る。手元の _reports は取消前のままなので、
+                                  //   既存の _load() をそのまま呼び直して取り直す
+                                  //   （新しい取得の口は作らない＝締め日の解決も
+                                  //     _load の中の _closing.send が今までどおり通る）。
+                                  //   true 以外（見ただけで戻った・null）では何もしない。
+                                  onTap:   () async {
+                                    final changed = await Navigator.push<bool>(
+                                      ctx,
+                                      MaterialPageRoute(
+                                        builder: (_) => DayReportsScreen(
+                                          date:        date,
+                                          reports:     reps,
+                                          myCompanyId: '',
+                                        ),
                                       ),
-                                    ),
-                                  ),
+                                    );
+                                    if (changed == true && mounted) _load();
+                                  },
                                 );
                               },
                             ),

@@ -478,6 +478,50 @@ class ReportsService {
     );
   }
 
+  // ── 日報の取消 ────────────────────────────────────────────────
+  // PATCH /reports/:report_id/cancel
+  //
+  // ★BE は断る理由を人の言葉で返す（js-office-api の routes/reports.js の
+  //   PATCH /:report_id/cancel）:
+  //     403 ALREADY_CANCELLED   「この日報は既に取消済みです」
+  //     403 BOSS_CANNOT_CANCEL  「職長は取消できません」
+  //     403 APPROVED_ADMIN_ONLY 「承認済みの日報は事務・経営者のみ取消できます」
+  //     403 FORBIDDEN           「取消する権限がありません」
+  //     404                     「日報が見つかりません」（不在と他社が同じ文言）
+  //   この文言は runApiCall（api_result.dart の規約2）が errorMessage へそのまま載せ、
+  //   code は errorCode へ載る。ここで丸めない・言い換えない＝呼び手が
+  //   r.errorMessage を出すだけで BE の言い分が人に届く。
+  //   ★このリポに lastError は無い（/usr/bin/grep -rn "lastError" lib → 0件）。
+  //     戻り値は ApiResult 一本＝他のメソッドと同じ家風。
+  //
+  // ★reason は任意。空・null なら body に載せない。BE は
+  //   `const { reason } = req.body;` で受けて `reason || null` として扱うため、
+  //   空文字を送ると「理由を書いた」と「書かなかった」の区別が消える。
+  //   ★body そのものは必ず送る（{} になる）。requestRevision / resubmitReport と
+  //     同じく jsonEncode したものを渡す形に揃える。
+  //
+  // ★timeout は 15 秒。書き込み系でも 30 秒を使っているのは写真を伴う
+  //   resubmitReport だけで、こちらは本文を持たないため既定（規約5）に従う。
+  Future<ApiResult<Map<String, dynamic>>> cancelReport(
+      String reportId, {String? reason}) async {
+    if (reportId.isEmpty) {
+      return apiFailure<Map<String, dynamic>>(statusCode: 0, errorMessage: 'report_id なし');
+    }
+    final trimmed = reason?.trim() ?? '';
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.cancelReport',
+      () => http.patch(
+        Uri.parse('$kApiBaseUrl/reports/$reportId/cancel'),
+        headers: headers,
+        body: jsonEncode({
+          if (trimmed.isNotEmpty) 'reason': trimmed,
+        }),
+      ).timeout(const Duration(seconds: 15)),
+      apiJsonMap,
+    );
+  }
+
   // ============================================================
   // 本日休み（rest_days）— GET/POST/PATCH/DELETE の4本。
   // 非200は握り潰さず statusCode + errorCode(BE の code) を載せて返す。

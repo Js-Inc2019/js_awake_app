@@ -7121,16 +7121,26 @@ class _CalendarTabState extends State<CalendarTab> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DayReportsScreen(
-                      date: date,
-                      reports: dayReps,
-                      myCompanyId: _myCompanyId,
+                // ★戻り値を待つ。DayReportsScreen で日報を取り消すと true が返る。
+                //   dayReps の元は _monthReports で、それを埋めるのは _loadReports()
+                //   ただ一つ。既存のそれをそのまま呼び直す（新しい取得の口は作らない
+                //   ＝締め日の解決 _closing.send も今までどおり通る）。
+                //   ★_loadMonth() ではなく _loadReports() を呼ぶ。取消で変わるのは
+                //     日報だけで、会社休日・自分の休みは変わらないため。
+                //   true 以外（見ただけで戻った・null）では何もしない。
+                onPressed: () async {
+                  final changed = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DayReportsScreen(
+                        date: date,
+                        reports: dayReps,
+                        myCompanyId: _myCompanyId,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (changed == true && mounted) await _loadReports();
+                },
                 icon: const Icon(Icons.open_in_new, size: 16),
                 label: const Text('日報を確認'),
                 style: OutlinedButton.styleFrom(
