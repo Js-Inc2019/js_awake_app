@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
 import 'monthly_history_screen.dart' show JsReportTile;
+// 取消済の判定は lib/utils/report_cancel_gate.dart の1本だけを使う。
+import '../utils/report_cancel_gate.dart' show isCancelledReport;
 
 class DayReportsScreen extends StatefulWidget {
   const DayReportsScreen({
@@ -22,18 +24,21 @@ class DayReportsScreen extends StatefulWidget {
 class _DayReportsScreenState extends State<DayReportsScreen> {
   bool _isWorkerView = false;
 
-  // ── 取消の状態 ────────────────────────────────────────────────
-  // ★取消済かどうかを report['status'] に書き戻さない。理由:
-  //   この画面へ届く行の status は BE の reports.status ではなく、親が承認状態から
-  //   作り直した3値（approved / rejected / pending）である
-  //   （monthly_history_screen.dart の _load、home_screen.dart の _loadReports が
-  //     どちらも `'status': approved ? 'approved' : revision ? 'rejected' : 'pending'`
-  //     で上書きしている）。そして JsReportTile はその3値でバッジを描き、
-  //   既定の分岐は「未承認」（monthly_history_screen.dart の JsReportTile の switch）。
-  //   ここに 'cancelled' を書き込むと既定分岐に落ちて【取消済の日報が「未承認」と
-  //   表示される】＝嘘になる。よって取消済は別の入れ物で持ち、この画面が自分で描く。
-  // ★キーは report_id（BE の LIST_COLS が必ず載せる列）。
-  final Set<String> _cancelledIds = <String>{};
+  // ── この画面が持つ一覧 ───────────────────────────────────────
+  // ★親から受け取った一覧のコピーを持つ。取り消した行はこの手元の一覧の中で
+  //   status を 'cancelled' に差し替える。
+  // ★旧実装は取消済を別の Set（report_id の集まり）で持ち、行の status には
+  //   書き戻していなかった。当時は JsReportTile が status の3値
+  //   （approved / rejected / pending）だけを描き、'cancelled' は既定分岐に
+  //   落ちて「未承認」と表示されたためである。
+  //   その分岐は lib/utils/report_cancel_gate.dart へ判定を1本化した際に
+  //   取消済を先に見るよう直したので、書き戻しても嘘にならなくなった。
+  //   むしろ書き戻さないほうが嘘になる: 行のバッジが「承認済」のまま、
+  //   すぐ下の行だけが「取消済」と出て、同じ1枚の日報について画面が
+  //   2つの違うことを言う状態になっていた。
+  // ★入れ物を1つにしたので、取消済かどうかを見る条件もこの画面から消えた
+  //   （isCancelledReport ただ1本）。
+  late List<Map<String, dynamic>> _reports = List.of(widget.reports);
 
   // 二重送信ガード。取消は勤怠の記録まで戻す操作なので、連打で2回投げない。
   bool _busy = false;
@@ -130,7 +135,14 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
       _busy = false;
       _didCancel = true;
       if (freshStatus == null || freshStatus == 'cancelled') {
-        _cancelledIds.add(reportId);
+        // 手元の行の status だけを差し替える。他のキーは1つも触らない
+        //   ＝JsReportTile が取消済のバッジと1行を描き、下の取消の導線も
+        //     同じ1つの条件（isCancelledReport）で引っ込む。
+        _reports = _reports
+            .map((r) => _ridOf(r) == reportId
+                ? <String, dynamic>{...r, 'status': 'cancelled'}
+                : r)
+            .toList();
       }
     });
     if (!mounted) return;
@@ -148,36 +160,35 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
   //   取り消せるかを決めるのは BE の門番ただ一つで、FE が同じ判定を持つと必ず
   //   食い違う。とくに 403 でボタンを消さない＝押せば BE が理由を人の言葉で
   //   答えてくれる道を塞がない。
-  // ★取消済のときだけボタンを引っ込めて「取消済」と出す。これは権限ではなく状態で、
-  //   もう一度押しても BE が「既に取消済みです」と返すだけの空押しになるため。
+  // ★取消済のときはボタンを引っ込める。これは権限ではなく状態で、もう一度
+  //   押しても BE が「既に取消済みです」と返すだけの空押しになるため。
+  // ★引っ込めるだけで、ここには「取消済」と書かない。印は JsReportTile が
+  //   カード本体に出すようになった（monthly_history_screen.dart の
+  //   取消済バッジと『取消済（日報は残ります）』の1行）。ここにも書くと
+  //   同じ1枚について同じ文言が2回並ぶ。
   Widget _cancelRow(Map<String, dynamic> r) {
-    final cancelled = _cancelledIds.contains(_ridOf(r));
+    if (isCancelledReport(r)) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(right: 10, bottom: 6),
       child: Align(
         alignment: Alignment.centerRight,
-        child: cancelled
-            ? const Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.cancel_outlined,
-                    color: FieldTokens.textSupport, size: 13),
-                SizedBox(width: 4),
-                Text('取消済（日報は残ります）',
-                    style: TextStyle(
-                        color: FieldTokens.textSupport, fontSize: 11)),
-              ])
-            : TextButton.icon(
-                onPressed: _busy ? null : () => _cancelReport(r),
-                icon: const Icon(Icons.cancel_outlined, size: 14),
-                label: const Text('取り消す', style: TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(
-                  foregroundColor: FieldTokens.statusError,
-                  minimumSize: const Size(0, 36),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                ),
-              ),
+        child: TextButton.icon(
+          onPressed: _busy ? null : () => _cancelReport(r),
+          icon: const Icon(Icons.cancel_outlined, size: 14),
+          label: const Text('取り消す', style: TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            foregroundColor: FieldTokens.statusError,
+            minimumSize: const Size(0, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+          ),
+        ),
       ),
     );
   }
+
+  // 生きている（取消済でない）日報の枚数。件数の表示はすべてこれで数える。
+  int _liveCount(List<Map<String, dynamic>> reps) =>
+      reps.where((r) => !isCancelledReport(r)).length;
 
   Map<String, List<Map<String, dynamic>>> _groupBySite(
       List<Map<String, dynamic>> reps) {
@@ -227,9 +238,12 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
   String _companyLabel(List<Map<String, dynamic>> reps) =>
       reps.first['worker_company'] as String? ?? '協力会社';
 
+  // ★取消済は足さない。取り消した日報の駐車料金は請求の根拠を失っている
+  //   （BE の取消は勤怠の記録まで戻す）。取消済の行にバッジを出しながら
+  //   その金額を合計へ入れると、画面の中で数字と印が食い違う。
   int _sumParkingFee(List<Map<String, dynamic>> reps) {
     double total = 0;
-    for (final r in reps) {
+    for (final r in reps.where((r) => !isCancelledReport(r))) {
       final raw = r['parking_fee'];
       if (raw != null) {
         total += double.tryParse(raw.toString()) ?? 0;
@@ -303,7 +317,10 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
-          Text('${entry.value.length}件',
+          // 件数はヘッダーと同じ数え方（取消済は足さず、あれば並べて書く）。
+          Text(_liveCount(entry.value) == entry.value.length
+                  ? '${entry.value.length}件'
+                  : '${_liveCount(entry.value)}件・取消済${entry.value.length - _liveCount(entry.value)}件',
               style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
         ]),
       ));
@@ -325,8 +342,13 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
     for (final entry in byCompany.entries) {
       final compReps = entry.value;
       final companyName = _companyLabel(compReps);
-      final workerCount =
-          compReps.map((r) => r['user_id']).toSet().length;
+      // ★人数も取消済を除いて数える。取り消した1枚だけを出した人を
+      //   「その日その会社から出た職人」に数えると実績が水増しになる。
+      final workerCount = compReps
+          .where((r) => !isCancelledReport(r))
+          .map((r) => r['user_id'])
+          .toSet()
+          .length;
       final fee = _sumParkingFee(compReps);
       items.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -343,7 +365,9 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
-          Text('${compReps.length}件',
+          Text(_liveCount(compReps) == compReps.length
+                  ? '${compReps.length}件'
+                  : '${_liveCount(compReps)}件・取消済${compReps.length - _liveCount(compReps)}件',
               style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11)),
           if (fee > 0) ...[
             const SizedBox(width: 8),
@@ -405,7 +429,9 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
   }
 
   Widget _buildBody() {
-    final reports = widget.reports;
+    // ★手元の一覧を見る（widget.reports ではない）。この画面で取り消した行の
+    //   status 差し替えを、そのまま描画へ反映するため。
+    final reports = _reports;
     if (reports.isEmpty) {
       return const Center(
         child: Text('この日の日報はありません',
@@ -428,7 +454,12 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
         Row(children: [
           Expanded(
             child: Text(
-              '${reports.length}件',
+              // ★生きている件数を出し、取消済は足さずに並べて書く。
+              //   足すと「3件」と出ているのに仕事は2件しかない、というずれになる。
+              //   取消済0件のときの見え方は従来と同一（'N件' のみ）。
+              _liveCount(reports) == reports.length
+                  ? '${reports.length}件'
+                  : '${_liveCount(reports)}件・取消済${reports.length - _liveCount(reports)}件',
               style: const TextStyle(
                   color: FieldTokens.accent,
                   fontSize: 13,

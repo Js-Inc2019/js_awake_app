@@ -19,6 +19,9 @@ import '../services/work_mode_service.dart';
 import 'home_screen.dart' show PendingApprovalCard;
 import 'revision_inbox_screen.dart' show RevisionCard, ReportDetailSheet;
 import 'revision_edit_screen.dart';
+// 「今日やる仕事」に載せる条件は lib/utils/report_cancel_gate.dart の1本だけを使う。
+import '../utils/report_cancel_gate.dart'
+    show isPendingApproval, isRevisionRequested;
 
 class ApprovalDayScreen extends StatefulWidget {
   const ApprovalDayScreen({
@@ -70,12 +73,13 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
     setState(() => _myUserId = uid);
   }
 
-  // 抽出条件（ReviewTab と同一）
-  bool _isPending(Map<String, dynamic> r) =>
-      r['is_sent'] == true &&
-      r['approved'] != true &&
-      r['revision_requested'] != true;
-  bool _isRevision(Map<String, dynamic> r) => r['revision_requested'] == true;
+  // 抽出条件（ReviewTab と同一）。
+  // ★実体は lib/utils/report_cancel_gate.dart の1本。式（is_sent / approved /
+  //   revision_requested）は従来と同一で、「取消済でないこと」が先頭に足されている。
+  //   この画面へは呼び出し元（ReviewTab の _dayRow）が渡した一覧が来るが、
+  //   条件を持たずに受け取り直すと、渡し元だけ直して片方が取り残される形になる。
+  bool _isPending(Map<String, dynamic> r) => isPendingApproval(r);
+  bool _isRevision(Map<String, dynamic> r) => isRevisionRequested(r);
 
   // 承認/修正依頼の成功後: この画面から対象を外し、呼び出し元にも再読込を促す。
   // （旧 _ReviewTab._reloadBoth 相当＝両方を最新化する挙動を維持）

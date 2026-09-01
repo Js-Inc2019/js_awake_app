@@ -9,6 +9,10 @@ import 'revision_inbox_screen.dart';
 // 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
 // フォールバックする読み方は revision_parser に実装済みのものを再利用する（新設しない）。
 import '../utils/revision_parser.dart' show transportNamesOf;
+// 取消済の判定と4状態の決定は lib/utils/report_cancel_gate.dart の1本だけを使う。
+// この画面に判定式を手書きしない（同じ式を3画面に書いていたことが取消済消失の原因）。
+import '../utils/report_cancel_gate.dart'
+    show isCancelledReport, reportStatusOf, withReportStatus;
 
 // ─────────────────────────────────────────────
 // MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
@@ -58,16 +62,12 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
       }
       if (res.ok) {
         final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
-        // approved/revision_requested boolean → status 文字列に変換
+        // approved/revision_requested/status → 画面の4状態に変換。
+        // ★式は report_cancel_gate.dart の1本だけ。ここに書き戻さない。
+        //   旧実装はこの場で approved/revision の2値だけを見て status を作り直しており、
+        //   BE が載せてきた 'cancelled'（LIST_COLS の r.status）をその場で捨てていた。
         setState(() {
-          _reports = raw.map((r) {
-            final approved   = r['approved'] == true;
-            final revision   = r['revision_requested'] == true;
-            return {
-              ...r,
-              'status': approved ? 'approved' : revision ? 'rejected' : 'pending',
-            };
-          }).toList();
+          _reports = raw.map(withReportStatus).toList();
           _loading = false;
         });
       } else if (res.statusCode == 401) {
@@ -117,14 +117,24 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
 
   @override
   Widget build(BuildContext context) {
-    final total    = _reports.length;
-    final approved = _reports.where((r) => r['status'] == 'approved').length;
-    final rejected = _reports.where((r) => r['status'] == 'rejected').length;
-    final pending  = total - approved - rejected;
+    // ★件数は4状態を1つずつ数える。旧実装の pending は
+    //   「合計 − 承認 − 差戻」の引き算だったため、取消済が画面へ届くように
+    //   なった今そのままにすると、取消済がまるごと未承認に足し込まれる。
+    // ★合計は「生きている日報」＝承認＋差戻＋未承認。取消済は混ぜず別に数える
+    //   （取消済を合計に入れると、4つの数字が合計と合わなくなる）。
+    final approved  = _reports.where((r) => r['status'] == 'approved').length;
+    final rejected  = _reports.where((r) => r['status'] == 'rejected').length;
+    final pending   = _reports.where((r) => r['status'] == 'pending').length;
+    final cancelled = _reports.where(isCancelledReport).length;
+    final total     = approved + rejected + pending;
     final now      = DateTime.now();
     final isCurrentMonth = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
+    // ★絞り込みなし（合計）のときは取消済を出さない。
+    //   「今日やる仕事」ではないこの画面でも、取消済は承認待ちや差戻しと
+    //   同じ並びに混ざると取り違えるため、見るときは取消チップで選んで出す。
+    //   ＝取消済だけが並ぶ一覧と、生きている日報の一覧が必ず別になる。
     final displayed = _filterStatus == null
-        ? _reports
+        ? _reports.where((r) => !isCancelledReport(r)).toList()
         : _reports.where((r) => r['status'] == _filterStatus).toList();
 
     // 日付グループ化（絞る→畳む）新しい順
@@ -187,6 +197,20 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
               JsStatChip('未承認', pending, FieldTokens.statusWarning,
                   selected: _filterStatus == 'pending',
                   onTap: () => _toggleFilter('pending')),
+              const SizedBox(width: 8),
+              // ★取消済を見る道。置き方は「同じ画面の中で切り替える」＝この行の
+              //   既存の絞り込みチップ（合計/承認/差戻/未承認 と _filterStatus）を
+              //   そのまま使う。根拠: このアプリで一覧を分けている作りは2つあり、
+              //     ・TabBar/TabBarView … 別々の画面を束ねる器
+              //       (management_history_screen.dart の _labels と views、
+              //        home_screen.dart の ForemanManagementBody)
+              //     ・JsStatChip + _filterStatus … 1つの一覧を状態で分ける
+              //       (この画面の _toggleFilter と displayed の where)
+              //   今回分けたいのは「同じ月の同じ一覧を状態で分ける」なので後者。
+              //   新しい画面もタブも部品も色も増やしていない（増えたのはチップ1枚）。
+              JsStatChip('取消', cancelled, FieldTokens.textSupport,
+                  selected: _filterStatus == 'cancelled',
+                  onTap: () => _toggleFilter('cancelled')),
             ]),
           ),
         // リスト
@@ -330,14 +354,33 @@ class JsReportTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = report['status'] as String? ?? 'pending';
+    // ★行の状態は report_cancel_gate の判定で決める。行に載っている 'status' を
+    //   そのまま読まない。理由: この部品は親が status を作り直した行
+    //   （月間履歴・カレンダー）と、BE の生の行（notification_list_screen が
+    //   GET /reports/:id の結果をそのまま渡す経路）の両方を受け取る。
+    //   生の行の status は 'open' で、旧実装の既定分岐に落ちて必ず「未承認」と
+    //   出ていた。判定を1本に寄せると、どちらの経路でも同じ答えになる。
+    final status = reportStatusOf(report);
     late final Color sc;
     late final String sl;
     switch (status) {
+      // 取消済の色は既存の textSupport。新色は作らない。
+      //   ・textSupport は「ラベル・補助テキスト・非強調」の色
+      //     (core/theme/field_tokens.dart の textSupport の説明)。
+      //     取消済は手を出す先が無い＝強調しない状態なのでここに合う。
+      //     この switch の既定（未承認）も同じ色で、押しても何も起きない状態を
+      //     同じ弱さで描くという既存の割り当てをそのまま踏襲している
+      //     （見分けは文言で付ける。'取消済' と '未承認' は別の名詞）。
+      //   ・statusError は使わない。取消の【操作】が赤
+      //     (day_reports_screen.dart の取消ボタンと確認ダイアログ)なのは
+      //     「これから起こす危険な操作」の意味で、済んだ状態の色ではない。
+      case 'cancelled': sc = FieldTokens.textSupport;  sl = '取消済'; break;
       case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
       case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
       default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
     }
+    // 取消済。バッジと、下の『取消済（日報は残ります）』の1行に使う。
+    final isCancelled = status == 'cancelled';
     final date       = report['report_date']   as String? ?? '';
     final content    = report['work_content']  as String? ?? '作業内容 未入力';
     final addr       = report['gps_address']   as String? ?? '';
@@ -351,6 +394,18 @@ class JsReportTile extends StatelessWidget {
         : (_isOwn ? FieldTokens.accent : FieldTokens.externalBlue);
 
     return GestureDetector(
+      // ★取消済の行も必ず開ける。タップを止めない。
+      //   ・タップできない行は「押しても何も起きない行」になり、嘘の記号になる。
+      //     一覧に出ている以上、押せば中身が読めなければならない。
+      //   ・記録は消さず、見れば取消済と分かる形にする。それがこのアプリの芯。
+      //     取消済を開けなくすると「残っているのに読めない記録」になり、
+      //     残す裁定と矛盾する。
+      // ★行き先は詳細（下の else 側）。是正依頼へは送らない。
+      //   isRejected は reportStatusOf が取消済を先に返すため、取消済の行では
+      //   必ず false になる。ここで是正依頼へ送ると、その一覧は取消済を
+      //   載せていないので「飛んだ先に無い」行き止まりになる。
+      //   ＝押せてはいけない導線を出さない（day_reports_screen.dart が
+      //     取消済のときだけ取消ボタンを引っ込めるのと同じ考え方）。
       onTap: () {
         if (isRejected) {
           Navigator.push(
@@ -445,6 +500,27 @@ class JsReportTile extends StatelessWidget {
                                         fontWeight: FontWeight.bold)),
                               ]),
                             ],
+                            // ★取消済の印。バッジだけだと文字が小さく、
+                            //   承認済だった行が取消済に変わったことを見落とす。
+                            //   文言は業務で使う名詞で言い切る（勧誘も疑問形もしない）。
+                            //   「日報は残ります」は取消の確認ダイアログの
+                            //   『日報そのものは消えません。取消済として残ります。』
+                            //   （day_reports_screen.dart）と同じ言い方にしてある
+                            //   ＝取り消す前に約束したことを、取り消した後の画面でも
+                            //   同じ言葉で示す。
+                            if (isCancelled) ...[
+                              const SizedBox(height: 6),
+                              const Row(children: [
+                                Icon(Icons.cancel_outlined,
+                                    color: FieldTokens.textSupport, size: 13),
+                                SizedBox(width: 4),
+                                Text('取消済（日報は残ります）',
+                                    style: TextStyle(
+                                        color: FieldTokens.textSupport,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold)),
+                              ]),
+                            ],
                           ],
                         ),
                       ),
@@ -481,10 +557,14 @@ class JsReportDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = report['status'] as String? ?? 'pending';
+    // 判定・色・文言は JsReportTile と同じ1本（report_cancel_gate）から採る。
+    // この画面にも生の行が届く（notification_list_screen が GET /reports/:id の
+    // 結果をそのまま渡す）ため、行の 'status' を直に読まない。
+    final status = reportStatusOf(report);
     final Color sc;
     final String sl;
     switch (status) {
+      case 'cancelled': sc = FieldTokens.textSupport;  sl = '取消済'; break;
       case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
       case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
       default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
@@ -540,6 +620,28 @@ class JsReportDetailSheet extends StatelessWidget {
                 ),
               ],
             ),
+            // ★開いた詳細にも取消済の印を出す。右上のバッジだけだと文字が小さく、
+            //   取り消された日報が普通の日報に見える＝これも嘘の記号になる。
+            //   文言・アイコン・色は一覧の行（JsReportTile）と同じものを使う
+            //   （画面ごとに言い換えない）。
+            // ★この画面には押せる操作が1つも無い（下は読み取り専用の行だけ）ので、
+            //   取消済のときに引っ込めるボタンは存在しない。操作を足すときは
+            //   day_reports_screen.dart の先例（取消済のときだけ引っ込める）に従うこと。
+            if (status == 'cancelled') ...[
+              const SizedBox(height: 10),
+              const Row(children: [
+                Icon(Icons.cancel_outlined,
+                    color: FieldTokens.textSupport, size: 14),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text('取消済（日報は残ります）',
+                      style: TextStyle(
+                          color: FieldTokens.textSupport,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ]),
+            ],
             const SizedBox(height: 16),
             JsDetailRow(icon: Icons.work_outline,      label: '作業内容', value: content),
             if (addr.isNotEmpty)
@@ -616,17 +718,30 @@ class _DateRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRejected = reports.any((r) => r['status'] == 'rejected');
-    final allApproved = reports.every((r) => r['status'] == 'approved');
+    // ★日の印は「生きている日報」だけで決める。取消済を混ぜると
+    //   承認済1件＋取消済1件の日が allApproved=false になって「未承認」と出る。
+    // ★生きている日報が1件も無い日（その日の全部を取り消した）は取消済と出す。
+    //   ここで差戻や未承認へ倒すと、取り消したのに仕事が残っているように見える。
+    final live        = reports.where((r) => !isCancelledReport(r)).toList();
+    final cancelled   = reports.length - live.length;
+    final hasRejected = live.any((r) => r['status'] == 'rejected');
+    final allApproved = live.isNotEmpty && live.every((r) => r['status'] == 'approved');
     final Color sc;
     final String sl;
-    if (hasRejected) {
+    if (live.isEmpty) {
+      sc = FieldTokens.textSupport;   sl = '取消済';
+    } else if (hasRejected) {
       sc = FieldTokens.statusError;   sl = '差戻';
     } else if (allApproved) {
       sc = FieldTokens.statusSuccess; sl = '承認済';
     } else {
       sc = FieldTokens.statusWarning; sl = '未承認';
     }
+    // ★件数も同じ。生きている件数を出し、取消済は足さずに並べて書く
+    //   （足すと「3件」なのに開くと2件しか仕事が無い、というずれになる）。
+    final countLabel = live.isEmpty
+        ? '取消済$cancelled件'
+        : '${live.length}件${cancelled > 0 ? '・取消済$cancelled件' : ''}';
 
     final parts = dateStr.split('-');
     final label = parts.length == 3
@@ -655,7 +770,7 @@ class _DateRow extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 2),
-                Text('${reports.length}件',
+                Text(countLabel,
                     style: const TextStyle(
                         color: FieldTokens.textSupport, fontSize: 12)),
               ],

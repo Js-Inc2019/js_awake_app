@@ -41,6 +41,11 @@ import 'site_quick_register_screen.dart';
 // MonthlyHistoryBody は management_history_screen.dart（履歴セグメント）側へ移ったため
 // この show リストから外した。JsStatChip/JsReportTile は当ファイル内で使用中。
 import 'monthly_history_screen.dart' show JsStatChip, JsReportTile;
+// 取消済の判定と「今日やる仕事」に載せる条件は
+// lib/utils/report_cancel_gate.dart の1本だけを使う（この画面に手書きしない）。
+import '../utils/report_cancel_gate.dart'
+    show isCancelledReport, isPendingApproval, isRevisionRequested,
+         withReportStatus;
 import 'day_reports_screen.dart';
 import 'management_history_screen.dart';
 import 'profile_screen.dart';
@@ -1315,7 +1320,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         firstTimeout: const Duration(seconds: 60),
       );
       if (res.ok && mounted) {
-        final count = res.data?.length ?? 0;
+        // ★取消済を数から外す。BE の GET /reports?revision_requested=true は
+        //   取消済を除外せず（js-office-api routes/reports.js の GET '/' は
+        //   revision_requested の条件しか足さない）、取消は revision_requested を
+        //   落とさない（同 PATCH /cancel は status だけを書く）。
+        //   件数だけをそのまま数えると、取り消した日報がバッジに残り続ける。
+        final count = (res.data ?? const <dynamic>[])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .where(isRevisionRequested)
+            .length;
         p.setInt('cache_revision_count', count);
         setState(() => _revisionCount = count);
       }
@@ -1330,12 +1344,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       final result = await ReportsService().getReports(limit: 50);
       if (result.ok && mounted) {
         final raw = List<Map<String, dynamic>>.from(result.data ?? const []);
-        final count = raw
-            .where((r) =>
-                r['is_sent'] == true &&
-                r['approved'] != true &&
-                r['revision_requested'] != true)
-            .length;
+        // ★条件は report_cancel_gate の isPendingApproval ただ1本。
+        //   式（is_sent / approved / revision_requested）は従来と同一で、
+        //   「取消済でないこと」が先頭に足されている。
+        final count = raw.where(isPendingApproval).length;
         setState(() => _pendingApprovalCount = count);
       }
     } catch (e) {
@@ -5482,12 +5494,12 @@ class _ReviewTabState extends State<ReviewTab> {
   // 抽出条件は旧実装の判定式をそのまま使う。
   //   承認待ち＝送信済み かつ 未承認 かつ 差戻し中でない（旧 _loadPending）
   //   差し戻し＝revision_requested==true（旧 RevisionInboxBody の ?revision_requested=true）
-  static bool _isPending(Map<String, dynamic> r) =>
-      r['is_sent'] == true &&
-      r['approved'] != true &&
-      r['revision_requested'] != true;
-  static bool _isRevision(Map<String, dynamic> r) =>
-      r['revision_requested'] == true;
+  // ★判定の実体は lib/utils/report_cancel_gate.dart の1本（式は従来と同一で、
+  //   「取消済でないこと」だけが先頭に足されている）。この画面には条件を書かない。
+  //   ここを別名で受けているのは、下の where(_isPending) 等の呼び出し側を
+  //   1文字も変えないため。
+  static bool _isPending(Map<String, dynamic> r) => isPendingApproval(r);
+  static bool _isRevision(Map<String, dynamic> r) => isRevisionRequested(r);
 
   Future<void> _load() async {
     _closing.beginRound();
@@ -5530,12 +5542,15 @@ class _ReviewTabState extends State<ReviewTab> {
     });
     if (result.ok) {
       final raw = List<Map<String, dynamic>>.from(result.data ?? const []);
+      // ★_isPending / _isRevision が取消済を落とすので、この一覧＝
+      //   「今日やる仕事」に取消済は1件も入らない。
+      // ★status の作り直しは report_cancel_gate の1本に寄せた
+      //   （旧: 'status': _isRevision(r) ? 'rejected' : 'pending'）。
+      //   ここへ来る行は取消済でないため結果は従来と同じ値になり、
+      //   式が画面ごとに散らばる形だけが消える。
       final targets = raw
           .where((r) => _isPending(r) || _isRevision(r))
-          .map((r) => {
-                ...r,
-                'status': _isRevision(r) ? 'rejected' : 'pending',
-              })
+          .map(withReportStatus)
           .toList();
       setState(() {
         _targets = targets;
@@ -6739,15 +6754,18 @@ class _CalendarTabState extends State<CalendarTab> {
       }
       if (res.ok) {
         final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
-        final enriched = raw.map((r) {
-          final approved = r['approved'] == true;
-          final revision = r['revision_requested'] == true;
-          return <String, dynamic>{
-            ...r,
-            'status': approved ? 'approved' : revision ? 'rejected' : 'pending',
-          };
-        }).toList();
+        // ★status の作り直しは report_cancel_gate の1本。旧実装はこの場で
+        //   approved/revision の2値だけを見ており、BE が載せてきた 'cancelled'
+        //   （LIST_COLS の r.status）をここで捨てていた。
+        // ★取消済の行は捨てない。カレンダーから DayReportsScreen へ渡す元が
+        //   この一覧で、捨てると取り消した日報を見に行く道が消える。
+        final enriched = raw.map(withReportStatus).toList();
+        // ★セルのドットは「日報提出済」の印。取り消した日報は提出の効力を
+        //   失っている（BE の取消は勤怠の記録まで戻す）ので、取消済しか無い日に
+        //   ドットは出さない。取消済は上の enriched に残っており、その日を選べば
+        //   下の詳細から必ず見に行ける（袋小路を作らない）。
         final dates = enriched
+            .where((r) => !isCancelledReport(r))
             .map((r) => r['report_date'] as String? ?? '')
             .where((d) => d.isNotEmpty)
             .toSet();
@@ -7030,7 +7048,12 @@ class _CalendarTabState extends State<CalendarTab> {
     final weekdayIdx = date.weekday % 7;
     final holidayType = _companyHolidayType(ds, weekdayIdx);
     final rest = _myRestDays[ds];
-    final dayReps = _monthReports.where((r) => r['report_date'] == ds).toList();
+    // ★その日の日報は取消済も含めて全部持つ（DayReportsScreen へはこれを渡す
+    //   ＝取り消した日報を後から見る道をここで断たない）。
+    //   数えるときだけ生きている日報と取消済を分ける。
+    final dayReps      = _monthReports.where((r) => r['report_date'] == ds).toList();
+    final dayLiveReps  = dayReps.where((r) => !isCancelledReport(r)).toList();
+    final dayCancelled = dayReps.length - dayLiveReps.length;
     final jpName = _jpHolidays[ds];
 
     String restLabel(String? portion) {
@@ -7115,9 +7138,24 @@ class _CalendarTabState extends State<CalendarTab> {
           ],
 
           // 日報の有無 ＋ DayReportsScreen への導線（既存遷移を維持）
+          // ★件数は生きている日報だけを数える。取消済は同じ行に足さず、
+          //   下に別の行で出す（足すとセルのドットが無いのに「日報：1件」と
+          //   出て食い違う）。
+          // ★導線を出す条件は dayReps（取消済を含む全部）が空でないこと。
+          //   その日の全部を取り消した日でも「日報を確認」が残る＝取り消した
+          //   日報を見に行く道が必ず在る。
           if (dayReps.isNotEmpty) ...[
-            row(Icons.description_outlined, FieldTokens.accent,
-                '日報：${dayReps.length}件'),
+            if (dayLiveReps.isNotEmpty)
+              row(Icons.description_outlined, FieldTokens.accent,
+                  '日報：${dayLiveReps.length}件')
+            else
+              row(Icons.description_outlined, FieldTokens.textSupport,
+                  '日報：なし'),
+            // 取消済の印。色は日報1枚の取消済バッジと同じ textSupport
+            // （monthly_history_screen.dart の JsReportTile）。新色は作らない。
+            if (dayCancelled > 0)
+              row(Icons.cancel_outlined, FieldTokens.textSupport,
+                  '取消済：$dayCancelled件'),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

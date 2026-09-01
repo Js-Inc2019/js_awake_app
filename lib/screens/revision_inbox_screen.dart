@@ -8,6 +8,9 @@ import '../utils/revision_parser.dart' show transportNamesOf;
 import '../widgets/report_photos.dart';
 import '../services/auth_service.dart';
 import '../services/reports_service.dart';
+// 「今日やる仕事」に載せる条件は lib/utils/report_cancel_gate.dart の1本だけを使う。
+import '../utils/report_cancel_gate.dart'
+    show isRevisionRequested, reportStatusOf;
 
 class RevisionInboxScreen extends StatefulWidget {
   const RevisionInboxScreen({super.key});
@@ -79,8 +82,19 @@ class RevisionInboxBodyState extends State<RevisionInboxBody> {
     if (!mounted) return;
     if (r.ok) {
       setState(() {
+        // ★取消済は載せない。BE の GET /reports?revision_requested=true は
+        //   取消済を除外せず（js-office-api routes/reports.js の GET '/' は
+        //   revision_requested の条件しか足さない）、取消は revision_requested を
+        //   落とさない（同 PATCH /cancel は status だけを書く）。
+        //   除外しないと、取り消した日報が是正依頼として残り、開いても
+        //   BE が「この日報は取消済みです」と断るだけの空振りになる。
+        // ★取り消した日報そのものは消えていない。履歴の「取消」で選べば
+        //   一覧に出るし、カレンダーの日を選べば「日報を確認」から見られる
+        //   （行き止まりを作らない）。
         _revisions = (r.data ?? const [])
-            .map((e) => e as Map<String, dynamic>).toList();
+            .map((e) => e as Map<String, dynamic>)
+            .where(isRevisionRequested)
+            .toList();
         _loading = false;
       });
     } else if (r.statusCode == 0) {
@@ -295,13 +309,25 @@ class ReportDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final r = report;
     final date     = r['report_date'] as String? ?? '';
-    final approved = r['approved'] == true;
-    final revision = r['revision_requested'] == true;
+    // ★状態は report_cancel_gate の判定1本で決める。ここに条件を手書きすると
+    //   同じ式の4本目になり、取消済の扱いだけがこの画面に届かない形が残る。
+    //   ★色の割り当ては従来のまま変えていない（差戻し＝statusWarning は
+    //     この画面だけの既存の割り当てで、月間履歴の statusError とは別）。
+    //     足したのは取消済の1分岐だけで、色は取消済へこのアプリが既に与えている
+    //     textSupport を使う（新色を作らない）。
+    final status = reportStatusOf(r);
     final Color sc; final String sl;
-    if (approved)      { sc = FieldTokens.statusSuccess; sl = '承認済'; }
-    else if (revision) { sc = FieldTokens.statusWarning; sl = '差戻し'; }
-    else               { sc = FieldTokens.textSupport;  sl = '未承認'; }
+    switch (status) {
+      case 'cancelled': sc = FieldTokens.textSupport;   sl = '取消済'; break;
+      case 'approved':  sc = FieldTokens.statusSuccess; sl = '承認済'; break;
+      case 'rejected':  sc = FieldTokens.statusWarning; sl = '差戻し'; break;
+      default:          sc = FieldTokens.textSupport;   sl = '未承認'; break;
+    }
 
+    // ★これは状態の判定ではなく「承認時刻の行を出すか」の判定。
+    //   取消は approved を落とさないので、取消済でも承認された事実と時刻は残る。
+    //   記録として残す裁定どおり、ここは取消済でも出したままにする。
+    final approved   = r['approved'] == true;
     final reportId   = r['report_id'] as String? ?? r['id'] as String? ?? '';
     final submitted  = _jst(r['created_at'] as String?);
     final approvedAt = _jst(r['approved_at'] as String?);
@@ -350,6 +376,28 @@ class ReportDetailSheet extends StatelessWidget {
                 ),
               ],
             ),
+            // ★開いた詳細にも取消済の印を出す。右上のバッジだけだと文字が小さく、
+            //   取り消された日報が普通の日報に見える＝これも嘘の記号になる。
+            //   文言・アイコン・色は一覧の行（monthly_history_screen.dart の
+            //   JsReportTile）と同じものを使う（画面ごとに言い換えない）。
+            // ★この画面には押せる操作が1つも無い（下は読み取り専用の行と写真だけ）。
+            //   操作を足すときは day_reports_screen.dart の先例
+            //   （取消済のときだけボタンを引っ込める）に従うこと。
+            if (status == 'cancelled') ...[
+              const SizedBox(height: 10),
+              const Row(children: [
+                Icon(Icons.cancel_outlined,
+                    color: FieldTokens.textSupport, size: 14),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text('取消済（日報は残ります）',
+                      style: TextStyle(
+                          color: FieldTokens.textSupport,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ]),
+            ],
             const SizedBox(height: 14),
             if (submitted != null) _row(Icons.schedule, '提出時刻', submitted),
             if (approved && approvedAt != null)
