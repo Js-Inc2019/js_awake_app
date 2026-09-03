@@ -38,6 +38,15 @@ import '../services/reports_service.dart';
 import '../services/site_service.dart';
 import '../services/worker_service.dart';
 import '../main.dart' show showJsSnackbar;
+// 状態の判定は report_cancel_gate の1本だけを使う（この画面に条件を手書きしない）。
+// 状態→色・語は report_status_style の対応表1本だけを使う。
+// ★この画面が状態を出す必要がある根拠は BE 側にある。POST /bundles/send は
+//   「approved = true かつ status <> 'cancelled'」でないと 403 REPORT_NOT_APPROVED を返す
+//   （js-office-api routes/bundles.js の承認ゲート）。候補に印が無いと、
+//   送れない日報を選んで送信ボタンまで進み、そこで初めて断られる袋小路になる。
+import '../utils/report_cancel_gate.dart' show reportStatusOf;
+import '../utils/report_status_style.dart'
+    show reportStatusStyleForState, reportStatusStyleOf;
 import 'revision_inbox_screen.dart' show ReportDetailSheet;
 import 'share_send_confirm_screen.dart';
 
@@ -856,16 +865,141 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
     );
   }
 
+  // 行の中身は ShareCandidateRow（下の公開部品）へ出してある。
+  //   ★出した理由: この画面は ReportsService 等のシングルトンを直接触るため
+  //     widget テストで実HTTPを避けられない（test/share_send_confirm_test.dart の
+  //     冒頭がその線引きを書いている）。行だけを引数で動く公開部品にすれば、
+  //     画面を立てずに「印が出るか」を検査で固定できる。
+  //     前例は monthly_history_screen.dart の JsReportTile / JsStatChip で、
+  //     どちらも公開部品として test/report_cancel_gate_test.dart が直接組んでいる。
   Widget _pickerRow(Map<String, dynamic> r) {
     final id = _rid(r);
-    final checked = _selectedIds.contains(id);
-    final date = (r['report_date'] ?? '').toString();
-    final worker = (r['worker_name'] ?? '').toString().trim();
+    return ShareCandidateRow(
+      report: r,
+      checked: _selectedIds.contains(id),
+      onChanged: (v) => setState(() {
+        if (v == true) {
+          _selectedIds.add(id);
+        } else {
+          _selectedIds.remove(id);
+        }
+      }),
+      onTap: () => _preview(r),
+    );
+  }
+
+  // ── 下部固定バー（選択件数＋送る）────────────────────────────
+  Widget _bottomBar() {
+    final n = _selectedIds.length;
+    // ★注意帯は下部バーの真上に置く。押す直前に読める位置でなければ、
+    //   送信ボタンへ手が伸びたあとに 403 で断られる袋小路が残る。
+    //   数えるのは選んだ行だけ（一覧に居るだけの行は関係ない）。
+    final blocked = shareSendBlockedCounts(_selectedReports());
+    return SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (blocked.total > 0) ShareSendCautionBanner(counts: blocked),
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          decoration: const BoxDecoration(
+            color: FieldTokens.surfaceCard,
+            border: Border(top: BorderSide(color: FieldTokens.outline)),
+          ),
+          child: Row(children: [
+            // ★Flexible + FittedBox で縮退させる（省略記号や切り落としは使わない＝
+            //   件数は数えた事実であって、丸めたり消したりして良い値ではない）。
+            //   流儀は同ファイルの条件サマリと同一。
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text('$n件を選択中',
+                    style: const TextStyle(
+                        color: FieldTokens.textBody,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const Spacer(),
+            SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: (n == 0 || _sending) ? null : _openSendFlow,
+                icon: const Icon(Icons.send, size: 16),
+                label: const Text('宛先を選んで送る'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: FieldTokens.accent,
+                  foregroundColor: FieldTokens.onAccent,
+                  disabledBackgroundColor: FieldTokens.outlineStrong,
+                  disabledForegroundColor: FieldTokens.textFaint,
+                  // ★横の最小幅をゼロ起点へ戻す。app_theme.dart の elevatedButtonTheme が
+                  //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子
+                  //   として置くと「幅＝無限」を要求して BoxConstraints forces an infinite
+                  //   width で落ちる（＝下部バーの Row ごとレイアウト不能。リリース版では
+                  //   例外表示が出ないためボタンが消えたように見えた）。
+                  //   同じ罠と対処は approval_day_screen.dart / 同ファイルの他の OutlinedButton
+                  //   に前例がある。高さ48・角丸10・色は現状のまま。
+                  minimumSize: const Size(0, 48),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// 送信候補の1行（公開部品）
+//
+// ★状態の印を出す理由（BE が最終権威）:
+//   POST /bundles/send は選ばれた日報を1件ずつ見て
+//   `r.approved !== true || r.status === 'cancelled'` に当たるものが1件でもあれば
+//   403 REPORT_NOT_APPROVED を返す（js-office-api routes/bundles.js の承認ゲート）。
+//   一方 GET /reports は取消済も未承認も差戻し中も候補として返す
+//   （同 routes/reports.js の LIST_COLS は approved と status を載せており、
+//     一覧そのものは状態で絞っていない）。印が無ければ、送れない日報と
+//   送れる日報が同じ顔で並ぶ＝押してから断られる袋小路になる。
+//
+// ★印の出し方（裁定＝案2）:
+//   ・行の左端に縦帯4px（状態の色）
+//   ・2段目の現場名の右に状態の語（太字・状態の色）
+//   ・承認済には何も足さない（送れる行に印を足すと、印そのものの意味が薄まる）
+//
+// ★行は一覧から消さない・タップで開ける・チェックも外さない。
+//   消すと「条件に合う日報が一覧に無い」という別の嘘になる。外すかどうかは
+//   人が決めることで、画面が勝手に決めてよい値ではない。
+// ─────────────────────────────────────────────────────────
+class ShareCandidateRow extends StatelessWidget {
+  const ShareCandidateRow({
+    super.key,
+    required this.report,
+    required this.checked,
+    required this.onChanged,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> report;
+  final bool checked;
+  final ValueChanged<bool?> onChanged;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final date = (report['report_date'] ?? '').toString();
+    final worker = (report['worker_name'] ?? '').toString().trim();
     // 現場名は sitesマスタ正式名 > 職人入力 > 未設定 の順（OFFICE 確認画面と同じ優先度）。
-    final master = (r['master_site_name'] ?? '').toString().trim();
-    final site = (r['site_name'] ?? '').toString().trim();
+    final master = (report['master_site_name'] ?? '').toString().trim();
+    final site = (report['site_name'] ?? '').toString().trim();
     final siteLabel =
         master.isNotEmpty ? master : (site.isNotEmpty ? site : '現場未設定');
+
+    // 判定は report_cancel_gate、色と語は report_status_style。ここには書かない。
+    final status = reportStatusOf(report);
+    final style = reportStatusStyleOf(report);
+    final isApproved = status == 'approved';
 
     return Container(
       decoration: BoxDecoration(
@@ -874,124 +1008,223 @@ class _ShareSendScreenState extends State<ShareSendScreen> {
         border: Border.all(
             color: checked ? FieldTokens.accent : FieldTokens.outline),
       ),
-      child: Row(children: [
-        Checkbox(
-          value: checked,
-          activeColor: FieldTokens.accent,
-          checkColor: FieldTokens.onAccent,
-          side: const BorderSide(color: FieldTokens.textSupport),
-          onChanged: (v) => setState(() {
-            if (v == true) {
-              _selectedIds.add(id);
-            } else {
-              _selectedIds.remove(id);
-            }
-          }),
-        ),
-        // 行タップ＝プレビュー（チェックはチェックボックスで行う＝誤爆させない）。
-        Expanded(
-          child: InkWell(
-            onTap: () => _preview(r),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(0, 10, 8, 10),
-              child: Row(children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Text(date,
-                            style: const TextStyle(
-                                color: FieldTokens.textBody,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                                worker.isEmpty ? '不明' : worker,
-                                style: const TextStyle(
-                                    color: FieldTokens.textBody,
-                                    fontSize: 13)),
-                          ),
-                        ),
-                      ]),
-                      const SizedBox(height: 3),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(siteLabel,
-                            style: const TextStyle(
-                                color: FieldTokens.textSupport,
-                                fontSize: 11)),
-                      ),
-                    ],
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 左端の縦帯。承認済のときは帯そのものを置かない。
+            //   幅と角丸は monthly_history_screen.dart の JsReportTile の
+            //   自社／他社の帯と同じ寸法に揃える（同じアプリで帯の太さを変えない）。
+            if (!isApproved)
+              Container(
+                width: 4,
+                decoration: BoxDecoration(
+                  color: style.color,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(9),
+                    bottomLeft: Radius.circular(9),
                   ),
                 ),
-                const Icon(Icons.chevron_right,
-                    size: 18, color: FieldTokens.textSupport),
-              ]),
+              ),
+            Checkbox(
+              value: checked,
+              activeColor: FieldTokens.accent,
+              checkColor: FieldTokens.onAccent,
+              side: const BorderSide(color: FieldTokens.textSupport),
+              onChanged: onChanged,
             ),
+            // 行タップ＝プレビュー（チェックはチェックボックスで行う＝誤爆させない）。
+            Expanded(
+              child: InkWell(
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 10, 8, 10),
+                  child: Row(children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Text(date,
+                                style: const TextStyle(
+                                    color: FieldTokens.textBody,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                    worker.isEmpty ? '不明' : worker,
+                                    style: const TextStyle(
+                                        color: FieldTokens.textBody,
+                                        fontSize: 13)),
+                              ),
+                            ),
+                          ]),
+                          const SizedBox(height: 3),
+                          // 2段目。現場名の右に状態の語を置く。
+                          //   現場名を Expanded にして語の場所を先に確保する
+                          //   （長い現場名に押し出されて語が消えると印にならない）。
+                          Row(children: [
+                            Expanded(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(siteLabel,
+                                    style: const TextStyle(
+                                        color: FieldTokens.textSupport,
+                                        fontSize: 11)),
+                              ),
+                            ),
+                            if (!isApproved) ...[
+                              const SizedBox(width: 8),
+                              Text(style.label,
+                                  style: TextStyle(
+                                      color: style.color,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ]),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right,
+                        size: 18, color: FieldTokens.textSupport),
+                  ]),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// 送れない日報が選択に何件混じっているかの数え。
+//
+// ★数える条件は BE の承認ゲートと同じ集合にする
+//   （js-office-api routes/bundles.js: `r.approved !== true || r.status === 'cancelled'`）。
+//   ＝取消済・差戻し中・未承認の3つ。承認済だけが送れる。
+// ★差戻し中も数える。裁定で名指しされたのは取消済と未承認だが、差戻し中も
+//   approved=false のまま（BE は request-revision で approved を false へ落とす）
+//   なので、数えないとその行だけが黙って 403 の材料として残り、
+//   注意帯が「0件」と言っているのに送ると断られる形になる。
+//   状態を1つでも数え落とすと注意帯そのものが嘘になるため、3つとも数える。
+// ─────────────────────────────────────────────────────────
+@immutable
+class ShareSendBlockedCounts {
+  const ShareSendBlockedCounts({
+    required this.cancelled,
+    required this.rejected,
+    required this.pending,
+  });
+
+  final int cancelled;
+  final int rejected;
+  final int pending;
+
+  int get total => cancelled + rejected + pending;
+}
+
+/// 選ばれた日報から、送れない件数を状態ごとに数える。
+///
+/// ★判定は report_cancel_gate の reportStatusOf 1本。ここで
+///   approved や status を直接読まない（読み方を2つに増やさない）。
+ShareSendBlockedCounts shareSendBlockedCounts(
+    List<Map<String, dynamic>> selected) {
+  var cancelled = 0, rejected = 0, pending = 0;
+  for (final r in selected) {
+    switch (reportStatusOf(r)) {
+      case 'cancelled':
+        cancelled++;
+      case 'rejected':
+        rejected++;
+      case 'approved':
+        break;
+      default:
+        pending++;
+    }
+  }
+  return ShareSendBlockedCounts(
+      cancelled: cancelled, rejected: rejected, pending: pending);
+}
+
+// ─────────────────────────────────────────────────────────
+// 下部バーの真上に出す注意帯（公開部品）。
+//
+// ★帯の色は statusWarning。状態の色（藤・赤・橙）のどれかを使うと
+//   「この帯は取消済のこと」と読めてしまうが、実際は複数の状態をまとめて
+//   知らせる帯である。同じ画面の上限超過の注意帯（_listPhase の truncated）が
+//   既に statusWarning なので、注意を促す帯の色はそれに揃える。
+// ★2行目の文は BE が 403 で返す文そのままにしてある
+//   （js-office-api routes/bundles.js の REPORT_NOT_APPROVED の error）。
+//   送る前と断られた後で言うことが違うと、どちらが本当か人が判断できなくなる。
+// ─────────────────────────────────────────────────────────
+class ShareSendCautionBanner extends StatelessWidget {
+  const ShareSendCautionBanner({super.key, required this.counts});
+
+  final ShareSendBlockedCounts counts;
+
+  /// 「取消済2件・未承認1件」のような、数えた事実だけの並び。
+  /// 0件の状態は書かない（0を並べると読む手間だけが増える）。
+  String get countsLine {
+    final parts = <String>[];
+    if (counts.cancelled > 0) {
+      parts.add(
+          '${reportStatusStyleForState('cancelled').label}${counts.cancelled}件');
+    }
+    if (counts.rejected > 0) {
+      parts.add(
+          '${reportStatusStyleForState('rejected').label}${counts.rejected}件');
+    }
+    if (counts.pending > 0) {
+      parts.add(
+          '${reportStatusStyleForState('pending').label}${counts.pending}件');
+    }
+    return '選択中に ${parts.join('・')} が含まれています';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: const BoxDecoration(
+        color: FieldTokens.surfaceCard,
+        border: Border(top: BorderSide(color: FieldTokens.outline)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.warning_amber_rounded,
+            color: FieldTokens.statusWarning, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(countsLine,
+                  style: const TextStyle(
+                      color: FieldTokens.textBody,
+                      fontSize: 12,
+                      height: 1.4,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              const Text(
+                '承認済みの日報のみ送信できます。'
+                '未承認・差戻し中の日報は承認を受けてから、'
+                '取消済みの日報は選択から外してから送信してください',
+                style: TextStyle(
+                    color: FieldTokens.textSupport,
+                    fontSize: 12,
+                    height: 1.4),
+              ),
+            ],
           ),
         ),
       ]),
-    );
-  }
-
-  // ── 下部固定バー（選択件数＋送る）────────────────────────────
-  Widget _bottomBar() {
-    final n = _selectedIds.length;
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        decoration: const BoxDecoration(
-          color: FieldTokens.surfaceCard,
-          border: Border(top: BorderSide(color: FieldTokens.outline)),
-        ),
-        child: Row(children: [
-          // ★Flexible + FittedBox で縮退させる（省略記号や切り落としは使わない＝
-          //   件数は数えた事実であって、丸めたり消したりして良い値ではない）。
-          //   流儀は同ファイルの条件サマリと同一。
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text('$n件を選択中',
-                  style: const TextStyle(
-                      color: FieldTokens.textBody,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: (n == 0 || _sending) ? null : _openSendFlow,
-              icon: const Icon(Icons.send, size: 16),
-              label: const Text('宛先を選んで送る'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: FieldTokens.accent,
-                foregroundColor: FieldTokens.onAccent,
-                disabledBackgroundColor: FieldTokens.outlineStrong,
-                disabledForegroundColor: FieldTokens.textFaint,
-                // ★横の最小幅をゼロ起点へ戻す。app_theme.dart の elevatedButtonTheme が
-                //   minimumSize: Size(double.infinity, 52) を課しており、Row の非 flex 子
-                //   として置くと「幅＝無限」を要求して BoxConstraints forces an infinite
-                //   width で落ちる（＝下部バーの Row ごとレイアウト不能。リリース版では
-                //   例外表示が出ないためボタンが消えたように見えた）。
-                //   同じ罠と対処は approval_day_screen.dart / 同ファイルの他の OutlinedButton
-                //   に前例がある。高さ48・角丸10・色は現状のまま。
-                minimumSize: const Size(0, 48),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ),
-        ]),
-      ),
     );
   }
 }

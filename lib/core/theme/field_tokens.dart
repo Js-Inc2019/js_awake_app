@@ -19,7 +19,9 @@
 //   ・文字 = textBody（本文・値） / textSupport（ラベル・補助） /
 //            textFaint（弱い補助・非活性） / textHint（placeholder 専用）
 //   ・強調 = accent 系。押せるもの＝accent、見せるだけの顔＝brand と役割を分ける。
-//   ・状態 = statusSuccess / statusWarning / statusError（＋塗り用の面と前景）
+//   ・状態 = statusSuccess / statusWarning / statusError / statusCancelled
+//            （＋塗り用の面と前景）。日報の4状態への割り当ては
+//            lib/utils/report_status_style.dart が唯一の対応表として持つ。
 //   ・外部 = externalBlue（他社・外部）。自社＝accent との対比でのみ使う。
 //   ・別系統 = wbgt*（環境省指針）／worker*・boss*（人物の役割）／toolBrand（他アプリの顔）。
 //             意匠を変えてもこれらは動かさない。
@@ -111,6 +113,20 @@ class FieldTokens {
 
   /// エラー。カレンダーの日曜文字色にも使う
   static const Color statusError = Color(0xFFE05252);
+
+  /// 取消済。取り消された日報のバッジ・縦帯・絞り込みチップに使う。
+  ///
+  /// ★なぜ専用の色を持つか: 取消済はこれまで textSupport（ラベル・補助の温グレー）を
+  ///   借りていたが、同じ色を未承認も使っていたため、色だけでは2つを見分けられず
+  ///   語を読まないと区別できなかった。取消済は「もう手を出す先が無い済んだ状態」で、
+  ///   未承認（これから承認を受ける）とは業務上の意味が正反対なので、色を分ける。
+  /// ★なぜ緑・橙・赤のどれでもないか: statusSuccess / statusWarning / statusError は
+  ///   「良い・気をつける・悪い」の軸で、取消済はそのどれでもない（良し悪しではなく
+  ///   取り下げという事実）。この3色のどれかを借りると、取り消しただけの日報が
+  ///   良い／悪いの判定を受けたように見える。
+  /// ★取消の【操作】の赤（day_reports_screen.dart の取消ボタンと確認ダイアログ）とも
+  ///   分ける。あちらは「これから起こす危険な操作」、こちらは「済んだ状態」。
+  static const Color statusCancelled = Color(0xFFA98FC0);
 
   // ─── スクリム（半透明黒・面トークンでは表現できない重ね色）──────
   /// 写真の上に置く操作ボタンの下敷き（黒54%）

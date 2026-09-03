@@ -13,6 +13,9 @@ import '../utils/revision_parser.dart' show transportNamesOf;
 // この画面に判定式を手書きしない（同じ式を3画面に書いていたことが取消済消失の原因）。
 import '../utils/report_cancel_gate.dart'
     show isCancelledReport, reportStatusOf, withReportStatus;
+// 状態→色・語も1本だけを使う。この画面に switch を手書きしない
+// （同じ switch が3箇所にあり、未承認の色が箇所によって違っていた）。
+import '../utils/report_status_style.dart' show reportStatusStyleForState;
 
 // ─────────────────────────────────────────────
 // MonthlyHistoryBody — Scaffold なし（Shell の IndexedStack で使用）
@@ -181,20 +184,29 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         if (!_loading && _error == null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            // ★状態を持つ4枚の色は対応表から採る（手書きのトークン名を置かない）。
+            //   ここが手書きだったせいで、未承認がチップでは橙・日報1行では
+            //   温グレーという食い違いが生まれていた。語は短い形のまま変えない
+            //   （'承認' '差戻' '取消' はチップだけの語で、バッジの
+            //     '承認済' '差戻し' '取消済' とは別の文字列）。
+            //   '合計' は状態ではないので対応表に載せず textSupport のまま。
             child: Row(children: [
               JsStatChip('合計', total, FieldTokens.textSupport,
                   selected: _filterStatus == null,
                   onTap: () => setState(() => _filterStatus = null)),
               const SizedBox(width: 8),
-              JsStatChip('承認', approved, FieldTokens.statusSuccess,
+              JsStatChip('承認', approved,
+                  reportStatusStyleForState('approved').color,
                   selected: _filterStatus == 'approved',
                   onTap: () => _toggleFilter('approved')),
               const SizedBox(width: 8),
-              JsStatChip('差戻', rejected, FieldTokens.statusError,
+              JsStatChip('差戻', rejected,
+                  reportStatusStyleForState('rejected').color,
                   selected: _filterStatus == 'rejected',
                   onTap: () => _toggleFilter('rejected')),
               const SizedBox(width: 8),
-              JsStatChip('未承認', pending, FieldTokens.statusWarning,
+              JsStatChip('未承認', pending,
+                  reportStatusStyleForState('pending').color,
                   selected: _filterStatus == 'pending',
                   onTap: () => _toggleFilter('pending')),
               const SizedBox(width: 8),
@@ -208,7 +220,8 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
               //       (この画面の _toggleFilter と displayed の where)
               //   今回分けたいのは「同じ月の同じ一覧を状態で分ける」なので後者。
               //   新しい画面もタブも部品も色も増やしていない（増えたのはチップ1枚）。
-              JsStatChip('取消', cancelled, FieldTokens.textSupport,
+              JsStatChip('取消', cancelled,
+                  reportStatusStyleForState('cancelled').color,
                   selected: _filterStatus == 'cancelled',
                   onTap: () => _toggleFilter('cancelled')),
             ]),
@@ -361,24 +374,14 @@ class JsReportTile extends StatelessWidget {
     //   生の行の status は 'open' で、旧実装の既定分岐に落ちて必ず「未承認」と
     //   出ていた。判定を1本に寄せると、どちらの経路でも同じ答えになる。
     final status = reportStatusOf(report);
-    late final Color sc;
-    late final String sl;
-    switch (status) {
-      // 取消済の色は既存の textSupport。新色は作らない。
-      //   ・textSupport は「ラベル・補助テキスト・非強調」の色
-      //     (core/theme/field_tokens.dart の textSupport の説明)。
-      //     取消済は手を出す先が無い＝強調しない状態なのでここに合う。
-      //     この switch の既定（未承認）も同じ色で、押しても何も起きない状態を
-      //     同じ弱さで描くという既存の割り当てをそのまま踏襲している
-      //     （見分けは文言で付ける。'取消済' と '未承認' は別の名詞）。
-      //   ・statusError は使わない。取消の【操作】が赤
-      //     (day_reports_screen.dart の取消ボタンと確認ダイアログ)なのは
-      //     「これから起こす危険な操作」の意味で、済んだ状態の色ではない。
-      case 'cancelled': sc = FieldTokens.textSupport;  sl = '取消済'; break;
-      case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
-      case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
-      default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
-    }
+    // ★色と語は report_status_style の対応表1本から採る。ここに switch を書かない。
+    //   以前はここに手書きの switch があり、取消済と未承認が同じ温グレーで、
+    //   さらに同じ「未承認」を絞り込みチップは橙で描いていた（＝同じ状態が
+    //   画面の中で2色あった）。取消済は藤・未承認は橙に揃えたのが対応表の側。
+    //   語は対応表へ写しただけで1文字も変えていない。
+    final style = reportStatusStyleForState(status);
+    final Color sc = style.color;
+    final String sl = style.label;
     // 取消済。バッジと、下の『取消済（日報は残ります）』の1行に使う。
     final isCancelled = status == 'cancelled';
     final date       = report['report_date']   as String? ?? '';
@@ -428,8 +431,12 @@ class JsReportTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
+          // 差戻しの枠も状態の色。トークン名を手書きせず対応表から採る
+          //   （差戻しの色を変える日に、ここだけ取り残されないため）。
           border: Border.all(
-              color: isRejected ? FieldTokens.statusError : FieldTokens.outline),
+              color: isRejected
+                  ? reportStatusStyleForState('rejected').color
+                  : FieldTokens.outline),
         ),
         child: IntrinsicHeight(
           child: Row(
@@ -487,15 +494,17 @@ class JsReportTile extends StatelessWidget {
                                       color: FieldTokens.textSupport, fontSize: 11),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis),
+                            // 色はバッジと同じ sc（＝対応表の差戻しの色）。
+                            //   同じ行の中で差戻しが2色にならないようにする。
                             if (isRejected) ...[
                               const SizedBox(height: 6),
-                              const Row(children: [
+                              Row(children: [
                                 Icon(Icons.arrow_forward,
-                                    color: FieldTokens.statusError, size: 13),
-                                SizedBox(width: 4),
+                                    color: sc, size: 13),
+                                const SizedBox(width: 4),
                                 Text('是正依頼を確認',
                                     style: TextStyle(
-                                        color: FieldTokens.statusError,
+                                        color: sc,
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold)),
                               ]),
@@ -508,15 +517,18 @@ class JsReportTile extends StatelessWidget {
                             //   （day_reports_screen.dart）と同じ言い方にしてある
                             //   ＝取り消す前に約束したことを、取り消した後の画面でも
                             //   同じ言葉で示す。
+                            // 色はバッジと同じ sc（＝対応表の取消済の色）を使う。
+                            //   同じ行の中で取消済が2色になると、どちらが状態の
+                            //   色なのか読めなくなる。
                             if (isCancelled) ...[
                               const SizedBox(height: 6),
-                              const Row(children: [
+                              Row(children: [
                                 Icon(Icons.cancel_outlined,
-                                    color: FieldTokens.textSupport, size: 13),
-                                SizedBox(width: 4),
+                                    color: sc, size: 13),
+                                const SizedBox(width: 4),
                                 Text('取消済（日報は残ります）',
                                     style: TextStyle(
-                                        color: FieldTokens.textSupport,
+                                        color: sc,
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold)),
                               ]),
@@ -561,14 +573,10 @@ class JsReportDetailSheet extends StatelessWidget {
     // この画面にも生の行が届く（notification_list_screen が GET /reports/:id の
     // 結果をそのまま渡す）ため、行の 'status' を直に読まない。
     final status = reportStatusOf(report);
-    final Color sc;
-    final String sl;
-    switch (status) {
-      case 'cancelled': sc = FieldTokens.textSupport;  sl = '取消済'; break;
-      case 'approved': sc = FieldTokens.statusSuccess; sl = '承認済'; break;
-      case 'rejected': sc = FieldTokens.statusError;   sl = '差戻し'; break;
-      default:         sc = FieldTokens.textSupport;  sl = '未承認'; break;
-    }
+    // 色と語は行（JsReportTile）と同じ対応表から採る。ここにも switch を書かない。
+    final style = reportStatusStyleForState(status);
+    final Color sc = style.color;
+    final String sl = style.label;
 
     final date        = report['report_date']    as String? ?? '';
     final content     = report['work_content']   as String? ?? '作業内容 未入力';
@@ -627,16 +635,16 @@ class JsReportDetailSheet extends StatelessWidget {
             // ★この画面には押せる操作が1つも無い（下は読み取り専用の行だけ）ので、
             //   取消済のときに引っ込めるボタンは存在しない。操作を足すときは
             //   day_reports_screen.dart の先例（取消済のときだけ引っ込める）に従うこと。
+            // 色は上のバッジと同じ sc（＝対応表の取消済の色）。行と同じ扱い。
             if (status == 'cancelled') ...[
               const SizedBox(height: 10),
-              const Row(children: [
-                Icon(Icons.cancel_outlined,
-                    color: FieldTokens.textSupport, size: 14),
-                SizedBox(width: 6),
+              Row(children: [
+                Icon(Icons.cancel_outlined, color: sc, size: 14),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text('取消済（日報は残ります）',
                       style: TextStyle(
-                          color: FieldTokens.textSupport,
+                          color: sc,
                           fontSize: 12,
                           fontWeight: FontWeight.bold)),
                 ),
@@ -726,17 +734,26 @@ class _DateRow extends StatelessWidget {
     final cancelled   = reports.length - live.length;
     final hasRejected = live.any((r) => r['status'] == 'rejected');
     final allApproved = live.isNotEmpty && live.every((r) => r['status'] == 'approved');
-    final Color sc;
-    final String sl;
-    if (live.isEmpty) {
-      sc = FieldTokens.textSupport;   sl = '取消済';
-    } else if (hasRejected) {
-      sc = FieldTokens.statusError;   sl = '差戻';
-    } else if (allApproved) {
-      sc = FieldTokens.statusSuccess; sl = '承認済';
-    } else {
-      sc = FieldTokens.statusWarning; sl = '未承認';
-    }
+    // ★色だけを対応表から採り、語はこの行が持っていたものをそのまま残す。
+    //   理由: ここの差戻しの語は '差戻'（送り仮名なし）で、日報1枚のバッジの
+    //   '差戻し' とは別の文字列である。語を変えないという裁定に従い、
+    //   語を揃えることは今回しない。色だけを揃える
+    //   （未承認はここも対応表と同じ橙で、見た目は変わらない）。
+    final String dayState = live.isEmpty
+        ? 'cancelled'
+        : hasRejected
+            ? 'rejected'
+            : allApproved
+                ? 'approved'
+                : 'pending';
+    const Map<String, String> dayLabels = <String, String>{
+      'cancelled': '取消済',
+      'rejected':  '差戻',
+      'approved':  '承認済',
+      'pending':   '未承認',
+    };
+    final Color sc = reportStatusStyleForState(dayState).color;
+    final String sl = dayLabels[dayState]!;
     // ★件数も同じ。生きている件数を出し、取消済は足さずに並べて書く
     //   （足すと「3件」なのに開くと2件しか仕事が無い、というずれになる）。
     final countLabel = live.isEmpty
@@ -756,8 +773,11 @@ class _DateRow extends StatelessWidget {
         decoration: BoxDecoration(
           color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(10),
+          // 日報1行と同じ扱い。差戻しの枠の色も対応表から採る。
           border: Border.all(
-              color: hasRejected ? FieldTokens.statusError : FieldTokens.outline),
+              color: hasRejected
+                  ? reportStatusStyleForState('rejected').color
+                  : FieldTokens.outline),
         ),
         child: Row(children: [
           Expanded(
