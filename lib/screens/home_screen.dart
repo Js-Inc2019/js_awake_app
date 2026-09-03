@@ -2148,6 +2148,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           active: _tabIndex == 1,
           onTap: () => _setTab(1),
           // badge（承認待ち）は職長のときのみ点灯（職人は承認セグメントを持たないため 0＝非表示）
+          // ★この2つのバッジ色は lib/utils/report_status_style.dart の対応表へ
+          //   【寄せていない】。承知している例外である。
+          //   ・寄せられないのではなく、寄せると見た目が変わるため裁定を待っている。
+          //     対応表は未承認＝statusWarning（橙）・差戻し＝statusError（赤）なので、
+          //     寄せると承認待ちのバッジが緑から橙へ、差し戻しのバッジが橙から赤へ変わる。
+          //   ・ここの色は日報1枚に付ける状態のバッジではなく、下タブに点く
+          //     「ここに何件ある」の通知の点である。日報を開いていない場所に出る印で、
+          //     状態のバッジとは役割が違う。
+          //   ・検査 test/report_status_style_test.dart の名簿
+          //     kKnownOutsideStatusTable にこのファイルを載せてある。
+          //     寄せると決めた日は、名簿から外して検査を緑に戻すこと。
           badge: widget.isForeman ? _pendingApprovalCount : 0,
           badgeColor: FieldTokens.statusSuccess,
           // badge2（差し戻し）は職人にも点灯させる。差し戻しは「自分の日報が
@@ -5756,6 +5767,10 @@ class _ReviewTabState extends State<ReviewTab> {
                 style: const TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
             const Spacer(),
             // 内訳は0のものを出さない
+            // ★この内訳の色も対応表へ【寄せていない】（上の下タブのバッジと同じ理由）。
+            //   寄せると承認待ちが温グレーから橙へ、差し戻しが橙から赤へ変わる。
+            //   ここは1枚の日報の状態ではなく、その日に何件あるかを並べた数字である。
+            //   検査 test/report_status_style_test.dart の名簿に載せてある。
             if (pendingCount > 0)
               Text('承認待ち$pendingCount',
                   style: const TextStyle(

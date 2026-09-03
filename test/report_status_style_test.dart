@@ -7,6 +7,10 @@
 //   ② 共有の送信候補の1行に状態の印（左の縦帯＋2段目の語）が出る。
 //      承認済には何も足さない。行は消えず・押せて・チェックも外れない。
 //   ③ 送れない日報の件数を数える式と、下部バーの真上に出る注意帯。
+//   ④ 対応表の【外】で日報の状態から色を手書きしていないこと。
+//      これは次に誰かが手書きを足したら落ちる鳴子で、ソースを直接読む。
+//      同じ手（Directory('lib') を舐めて名簿と突き合わせる）は
+//      test/session_lockout_wiring_test.dart の「runApiCall を通らない通信」に前例がある。
 //
 // ★期待する色・文言はすべてここへ直書きする（実装から import しない）。
 //   実装を写すと「実装が変わったらテストも変わる」＝何も検査しない。
@@ -20,6 +24,8 @@
 //   直接組む。monthly_history_screen.dart の JsReportTile を
 //   test/report_cancel_gate_test.dart が直接組んでいるのと同じ手。
 // ============================================================
+
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -331,6 +337,103 @@ void main() {
         counts: ShareSendBlockedCounts(cancelled: 0, rejected: 0, pending: 12),
       );
       expect(b.countsLine, '選択中に 未承認12件 が含まれています');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────
+  // ④ 対応表の外に手書きが残っていないことの鳴子
+  //
+  // ★ソースを直接読む理由: 手書きの割り当ては「どこかの画面にだけ残る」形で
+  //   増える。増えたことは画面を1枚ずつ開かないと分からないので、
+  //   増えた瞬間に落ちる仕掛けをここに置く。
+  //   同じ手（Directory('lib') を舐めて名簿と突き合わせる）は
+  //   test/session_lockout_wiring_test.dart に前例がある。
+  // ─────────────────────────────────────────────────────────
+  group('④ 対応表の外に手書きの状態色が無い', () {
+    // 日報の4状態を指す印。機械のキーと、画面に出る語の両方を見る。
+    final stateMark = RegExp(
+        "承認待ち|差し戻し|差戻し|差戻|未承認|取消済|承認済"
+        "|'cancelled'|'approved'|'rejected'|'pending'");
+    // 状態の色として使われうるトークン。
+    final colorRef = RegExp(r'FieldTokens\.'
+        r'(statusSuccess|statusWarning|statusError|statusCancelled'
+        r'|textSupport|accent)');
+
+    // 承知している例外と、その本数。名簿に無いファイルは0本でなければならない。
+    // ★本数まで書くのが要点。ファイル名だけ許すと、同じファイルに手書きを
+    //   何本足しても素通りしてしまう。
+    const knownOutside = <String, int>{
+      // 対応表そのもの。ここに4状態ぶんの割り当てが並ぶのが正しい姿。
+      'lib/utils/report_status_style.dart': 4,
+      // 会社連携の申請の状態（'active' / 'rejected' / 審査中）。日報ではない。
+      //   語も '承認済み' / '却下' / '審査中' で、日報の4語と1つも一致しない
+      //   （lib/screens/company_link_screen.dart の _statusLabel）。
+      'lib/screens/company_link_screen.dart': 1,
+      // ホームの要対応行（_AttentionRow）の2本。日報の状態から色を出しているが、
+      //   1枚の日報に付けるバッジではなく件数の行の左に立てる2pxの帯なので、
+      //   寄せるかどうかの裁定を待っている。理由は同ファイルのコメントに書いた。
+      'lib/screens/punch_screen.dart': 2,
+    };
+
+    // Windows は path の区切りが円記号になる。名簿はスラッシュで書いてあるので、
+    // 引く前に揃える（揃えないと Windows でだけ名簿に当たらない）。
+    String slashPath(File f) => f.path.replaceAll(r'\', '/');
+
+    // 行コメントだけを落とす。コメントアウトで検査を黙らせないため。
+    List<String> codeLines(File f) => f
+        .readAsLinesSync()
+        .where((l) => !l.trimLeft().startsWith('//'))
+        .toList();
+
+    test('状態と色を同じ行に並べた箇所は名簿の本数を超えない', () {
+      final offenders = <String>[];
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        final hits = codeLines(f)
+            .where((l) => stateMark.hasMatch(l) && colorRef.hasMatch(l))
+            .length;
+        if (hits == 0) continue;
+        final allowed = knownOutside[slashPath(f)] ?? 0;
+        if (hits > allowed) {
+          offenders.add('${slashPath(f)}: $hits本'
+              '（名簿で承知しているのは $allowed本）');
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: '対応表(lib/utils/report_status_style.dart)を通さずに'
+              '日報の状態から色を決めている箇所がある:\n${offenders.join('\n')}');
+    });
+
+    // 寄せた画面が、あとから手書きへ戻されないようにする。
+    test('対応表へ寄せた画面は対応表を import している', () {
+      const joined = <String>[
+        'lib/screens/monthly_history_screen.dart',
+        'lib/screens/share_send_screen.dart',
+        'lib/screens/revision_inbox_screen.dart',
+        'lib/screens/approval_day_screen.dart',
+      ];
+      for (final path in joined) {
+        final src = codeLines(File(path)).join('\n');
+        expect(src.contains('report_status_style.dart'), isTrue,
+            reason: '$path が対応表を import していない'
+                '（状態の色を手書きへ戻した疑い）');
+      }
+    });
+
+    // 名簿が古びて嘘にならないようにする。寄せたのに名簿へ残すと落ちる。
+    test('名簿に載せた画面は、まだ対応表を import していない', () {
+      const notJoined = <String>[
+        'lib/screens/punch_screen.dart',
+        'lib/screens/home_screen.dart',
+      ];
+      for (final path in notJoined) {
+        final src = codeLines(File(path)).join('\n');
+        expect(src.contains('report_status_style.dart'), isFalse,
+            reason: '$path は対応表へ寄せたのに名簿へ残っている'
+                '（名簿から外してこの検査を直すこと）');
+      }
     });
   });
 }

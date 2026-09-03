@@ -11,6 +11,9 @@ import '../services/reports_service.dart';
 // 「今日やる仕事」に載せる条件は lib/utils/report_cancel_gate.dart の1本だけを使う。
 import '../utils/report_cancel_gate.dart'
     show isRevisionRequested, reportStatusOf;
+// 状態→色も1本だけを使う。この画面に色の割り当てを手書きしない
+// （手書きだったせいで、同じ差戻しが月間履歴では赤・ここでは橙になっていた）。
+import '../utils/report_status_style.dart' show reportStatusStyleForState;
 
 class RevisionInboxScreen extends StatefulWidget {
   const RevisionInboxScreen({super.key});
@@ -311,18 +314,25 @@ class ReportDetailSheet extends StatelessWidget {
     final date     = r['report_date'] as String? ?? '';
     // ★状態は report_cancel_gate の判定1本で決める。ここに条件を手書きすると
     //   同じ式の4本目になり、取消済の扱いだけがこの画面に届かない形が残る。
-    //   ★色の割り当ては従来のまま変えていない（差戻し＝statusWarning は
-    //     この画面だけの既存の割り当てで、月間履歴の statusError とは別）。
-    //     足したのは取消済の1分岐だけで、色は取消済へこのアプリが既に与えている
-    //     textSupport を使う（新色を作らない）。
+    // ★色も report_status_style の対応表1本から採る。ここに switch を書かない。
+    //   直す前はこの画面だけが独自の割り当てを持っていて、
+    //     ・差戻し … statusWarning（橙）。月間履歴の JsReportTile は statusError（赤）。
+    //     ・取消済 … textSupport（温グレー）。既定の未承認と同じ色で見分けが付かない。
+    //   となっており、同じ状態が画面によって違う色で出ていた。
+    //   対応表へ寄せた結果、この画面では差戻しが橙から赤へ、取消済が温グレーから
+    //   藤へ、未承認が温グレーから橙へ変わる。見た目が変わるのは承知の裁定。
+    // ★語（'取消済' '承認済' '差戻し' '未承認'）はこの場のものをそのまま残す。
+    //   4語とも対応表と同じ文字列だが、語を対応表から採るかどうかは今回の対象外
+    //   なので、色だけを寄せる（monthly_history_screen.dart の _DateRow と同じやり方）。
     final status = reportStatusOf(r);
-    final Color sc; final String sl;
-    switch (status) {
-      case 'cancelled': sc = FieldTokens.textSupport;   sl = '取消済'; break;
-      case 'approved':  sc = FieldTokens.statusSuccess; sl = '承認済'; break;
-      case 'rejected':  sc = FieldTokens.statusWarning; sl = '差戻し'; break;
-      default:          sc = FieldTokens.textSupport;   sl = '未承認'; break;
-    }
+    const Map<String, String> labels = <String, String>{
+      'cancelled': '取消済',
+      'approved':  '承認済',
+      'rejected':  '差戻し',
+      'pending':   '未承認',
+    };
+    final Color sc = reportStatusStyleForState(status).color;
+    final String sl = labels[status] ?? '未承認';
 
     // ★これは状態の判定ではなく「承認時刻の行を出すか」の判定。
     //   取消は approved を落とさないので、取消済でも承認された事実と時刻は残る。

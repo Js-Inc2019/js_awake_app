@@ -605,6 +605,19 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     const Divider(color: _border, thickness: 1, height: 1),
                     // ── 要対応行（0件の行は描画しない）────────────────
                     //   件数・遷移先は親から下ろした既存の値だけを使う。
+                    // ★この2本の色は lib/utils/report_status_style.dart の
+                    //   対応表へ【寄せていない】。承知している例外である。
+                    //   ・寄せられないのではなく、寄せると見た目が変わるため
+                    //     裁定を待っている。対応表は差戻し＝statusError（赤）・
+                    //     未承認＝statusWarning（橙）なので、寄せると
+                    //     差し戻しの帯が橙から赤へ、承認待ちの帯が accent（青緑）から
+                    //     橙へ変わる。
+                    //   ・ここの色は日報1枚に付ける状態のバッジではなく、
+                    //     件数を数えた行の左に立てる2pxの帯（_AttentionRow の accent）で、
+                    //     押して次の画面へ行く導線の印である。バッジとは役割が違う。
+                    //   ・検査 test/report_status_style_test.dart の名簿
+                    //     kKnownOutsideStatusTable にこのファイルを載せてある。
+                    //     寄せると決めた日は、名簿から外して検査を緑に戻すこと。
                     if (widget.revisionCount > 0)
                       _AttentionRow(
                         accent: FieldTokens.statusWarning,          // 差し戻し = warning系

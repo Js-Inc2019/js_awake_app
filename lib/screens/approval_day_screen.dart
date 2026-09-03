@@ -22,6 +22,8 @@ import 'revision_edit_screen.dart';
 // 「今日やる仕事」に載せる条件は lib/utils/report_cancel_gate.dart の1本だけを使う。
 import '../utils/report_cancel_gate.dart'
     show isPendingApproval, isRevisionRequested;
+// 状態→色は lib/utils/report_status_style.dart の対応表1本だけを使う。
+import '../utils/report_status_style.dart' show reportStatusStyleForState;
 
 class ApprovalDayScreen extends StatefulWidget {
   const ApprovalDayScreen({
@@ -211,14 +213,25 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
 
   // 1行 = 左:氏名（主役） / 右:種別テキスト。カードは使わない。
   Widget _row(({String kind, Map<String, dynamic> data}) e) {
+    // ★日報の状態から出す色は report_status_style の対応表から採る。
+    //   kind の 'pending' / 'revision' は日報の状態そのもの
+    //   （_entries が isPendingApproval / isRevisionRequested で分けている）。
+    //   手書きのトークン名を置くと、対応表の色を変える日にここだけ取り残される。
+    //   ★今回この2行の色は1px も変わらない（元から対応表と同じ割り当てだった）。
+    //     変えたのは「どこから採るか」だけ。
+    // ★語はこの場のものをそのまま残す。'承認待ち' は対応表の '未承認' とは
+    //   別の文字列で、この画面は「今日やる仕事」の並びなので待ちの語を使う。
+    //   語を揃えることは今回の対象外（monthly_history_screen.dart の _DateRow と同じ扱い）。
+    // ★'break' は日報ではなく休憩申請（BE routes/attendance.js の
+    //   GET /attendance/break-requests）なので、対応表の対象外。textSupport のまま。
     final String label;
     final Color  labelColor;
     if (e.kind == 'pending') {
       label = '承認待ち';
-      labelColor = FieldTokens.statusWarning;
+      labelColor = reportStatusStyleForState('pending').color;
     } else if (e.kind == 'revision') {
       label = '差戻し';
-      labelColor = FieldTokens.statusError;
+      labelColor = reportStatusStyleForState('rejected').color;
     } else {
       final min = e.data['break_override_min'] as int? ?? 0;
       label = '休憩 $min分';
