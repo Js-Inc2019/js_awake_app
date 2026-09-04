@@ -6632,6 +6632,205 @@ class _CoopCard extends StatelessWidget {
 // 曜日ラベル（日=0 起点）。グリッド見出しと選択日ラベルで共有する。
 const List<String> _kWeekLabels = ['日', '月', '火', '水', '木', '金', '土'];
 
+// ─────────────────────────────────────────────
+// カレンダーの高さ配分（純関数と、その入力になる定数）
+// ─────────────────────────────────────────────
+// ★なぜ関数へ切り出すか: 画面を立てずに検査できるようにするため。
+//   CalendarTab は初回 build のあと必ず通信へ行く（_loadMonth）ので、
+//   widget テストで実HTTPを避けられない。この線引きは
+//   test/share_send_confirm_test.dart の冒頭に既に書かれている流儀に倣う。
+// ★定数はすべて「実物の widget が同じ数を使っている」ことが前提。
+//   片方だけ変えると配った高さと実際の高さがずれて、また下が切れる。
+//   結び先はそれぞれの定数のコメントに書いてある。
+
+/// 曜日ヘッダー1行の高さ。結び先＝_buildCalendarGrid のヘッダーの SizedBox。
+const double kCalendarWeekHeaderHeight = 21;
+
+/// グリッド外周の縦の余白の合計。結び先＝_buildCalendarGrid の
+/// Padding.fromLTRB(6, 6, 6, 0)（上6＋下0）。
+const double kCalendarGridPaddingV = 6;
+
+/// マス1つの外側の余白の縦の合計。結び先＝_DayCell の margin: EdgeInsets.all(1)。
+const double kCalendarCellMargin = 2;
+
+/// マスの高さの下限。ボス裁定 Q16=3。これ以下には縮めない。
+const double kCalendarMinCellHeight = 36;
+
+/// マスの高さの上限。ボス裁定 Q18=2 で 48 から 56 へ上げた。
+/// ★上限そのものを置く理由: 上限が無いと4週の月・背の高い端末でマスが
+///   70〜80まで伸びて、日付だけが間延びした見た目になる。
+/// ★56 にした理由: 48 より指で押しやすくなり、それでも下のパネルの取り分は
+///   足りる。calendarHeightsFor はパネルの取り分を【先に】引いてから
+///   残りを割るので、上限に当たる高さではパネルは確保ぶんより必ず大きくなる。
+/// ★月外のマスもこの値で揃う。_buildCalendarGrid が月内のマス（_DayCell）と
+///   月外の SizedBox の両方へ同じ cellHeight を渡しているため、
+///   ここ1箇所を変えれば両方が同じ高さで動く。
+const double kCalendarMaxCellHeight = 56;
+
+/// 既定パネルの上下の余白（片側）。結び先＝CalendarDayPanel の Padding。
+const double kCalendarPanelPaddingV = 8;
+
+/// 既定パネルの見出し行の高さ。結び先＝CalendarDayPanel の見出しの SizedBox。
+const double kCalendarPanelTitleHeight = 22;
+
+/// 見出しと本文のあいだ。結び先＝CalendarDayPanel の SizedBox。
+const double kCalendarPanelTitleGap = 6;
+
+/// 既定パネルの情報行1行の高さ。結び先＝_DayInfoRow の SizedBox。
+const double kCalendarPanelRowHeight = 22;
+
+/// 既定パネルが必要とする高さ。これを【先に】確保する（ボス裁定 Q16=3）。
+/// 内訳: 上下の余白 + 見出し + 見出し下の間 + 情報行の最大3行
+///       （会社休み・自分の休み・日報。休みが両方なしの日は2行になる）。
+const double kCalendarPanelReservedHeight = kCalendarPanelPaddingV * 2 +
+    kCalendarPanelTitleHeight +
+    kCalendarPanelTitleGap +
+    kCalendarPanelRowHeight * 3;
+
+/// その月のカレンダーが何行になるか（週の本数）。
+/// ★式はここ1本。build の高さ配分と _buildCalendarGrid の描画が
+///   別々に数えると、配った高さと実際の行数がずれる。
+int calendarRowCountOf(DateTime month) {
+  final firstDay = DateTime(month.year, month.month, 1);
+  final lastDay = DateTime(month.year, month.month + 1, 0);
+  // DateTime.weekday は 月=1..日=7。%7 で 日=0..土=6（日曜始まり）。
+  return ((firstDay.weekday % 7 + lastDay.day) / 7).ceil();
+}
+
+/// グリッドとパネルへの高さの配り方の結果。
+@immutable
+class CalendarHeights {
+  const CalendarHeights({
+    required this.cellHeight,
+    required this.gridHeight,
+    required this.panelHeight,
+  });
+
+  /// 1マスの高さ（余白を含まない）。
+  final double cellHeight;
+
+  /// 曜日ヘッダーと外周の余白を含むグリッド全体の高さ。
+  final double gridHeight;
+
+  /// 区切り線の下に残る、パネルの取り分。
+  final double panelHeight;
+}
+
+/// 余った高さをマスへ配る（ボス裁定 Q16=3）。
+///
+/// 手順:
+///   1. パネルが必要とする高さ(kCalendarPanelReservedHeight)と、
+///      グリッドの固定分（外周の余白＋曜日ヘッダー）と区切り線を先に引く。
+///   2. 残りを行数で割り、マス1つぶんの余白を引いてマスの高さにする。
+///   3. 下限36・上限48で挟む。下限に当たった月では引き算が足りず、
+///      パネルの取り分が確保した高さを下回る＝これまで通りグリッドが
+///      先に取る形へ落ちる（パネルはスクロールするので読めなくならない）。
+CalendarHeights calendarHeightsFor({
+  required double available,
+  required int rowCount,
+  double dividerHeight = 1,
+}) {
+  final fixed =
+      kCalendarGridPaddingV + kCalendarWeekHeaderHeight + dividerHeight;
+  final free = available - fixed - kCalendarPanelReservedHeight;
+  var cell = rowCount <= 0
+      ? kCalendarMinCellHeight
+      : free / rowCount - kCalendarCellMargin;
+  if (cell > kCalendarMaxCellHeight) cell = kCalendarMaxCellHeight;
+  if (cell < kCalendarMinCellHeight) cell = kCalendarMinCellHeight;
+  final gridHeight = kCalendarGridPaddingV +
+      kCalendarWeekHeaderHeight +
+      rowCount * (cell + kCalendarCellMargin);
+  var panel = available - gridHeight - dividerHeight;
+  if (panel < 0) panel = 0;
+  return CalendarHeights(
+      cellHeight: cell, gridHeight: gridHeight, panelHeight: panel);
+}
+
+/// 残す週の下に空く高さ（＝せり上がる箱に渡せる高さ）。
+/// gridTop はグリッドの外枠の画面上の y（実物から採る）。
+double _calendarSheetRoom({
+  required double screenHeight,
+  required double gridTop,
+  required double cellHeight,
+  required int rows,
+}) =>
+    screenHeight -
+    (gridTop +
+        kCalendarGridPaddingV +
+        kCalendarWeekHeaderHeight +
+        rows * (cellHeight + kCalendarCellMargin));
+
+/// せり上がる箱の下に残す週の数（ボス裁定 Q19=3）。
+///
+/// ★旧: 返す高さのほうに下限200を置いていた。カレンダーが画面のかなり下から
+///   始まる並びでは、その下限が「上2週は見えたまま残す」という約束を黙って
+///   破っていた（下限のぶんだけ2週の線より上へ箱がはみ出す）。
+/// ★新: 約束を破らず、条件付きで書き直す。通常は上2週を残す。使える高さが
+///   足りず「開いたのに何も読めない箱」になるときだけ、残す週を1週ずつ減らして
+///   箱を広げる。減ったことは「残す週の数」として言葉になっているので、
+///   黙って線を越える形にはならない。
+/// ★minKeepRows(1) より下には減らさない。1週を残してもなお中身が入りきらない
+///   場合は、箱の中をスクロールさせて対応する。
+///   CalendarDaySheet は Flexible の中が SingleChildScrollView で、写し元の
+///   _SitePickerSheet も Flexible の中が ListView（_buildBody の戻り値）＝
+///   同じ形であることを実物で確かめてある。
+/// ★readableHeight は「これ未満だと開いても読めない」と見なす高さ。
+///   返す値の下限ではなく、残す週を1つ減らすかどうかの引き金にだけ使う。
+int calendarSheetKeptRows({
+  required double screenHeight,
+  required double gridTop,
+  required double cellHeight,
+  int keepRows = 2,
+  int minKeepRows = 1,
+  double readableHeight = 200,
+}) {
+  var rows = keepRows < minKeepRows ? minKeepRows : keepRows;
+  while (rows > minKeepRows &&
+      _calendarSheetRoom(
+            screenHeight: screenHeight,
+            gridTop: gridTop,
+            cellHeight: cellHeight,
+            rows: rows,
+          ) <
+          readableHeight) {
+    rows -= 1;
+  }
+  return rows;
+}
+
+/// せり上がる箱の高さの上限＝(c)「カレンダーの行が見えたまま残る」高さ。
+///
+/// ★残す週の数は calendarSheetKeptRows ただ1本が決める。ここで数え直さない
+///   （同じ判定を2箇所に書くと、片方だけ直した日に線がずれる）。
+/// ★負の値は返さない。ConstrainedBox の maxHeight は0以上でなければならず、
+///   グリッドの1週目が既に画面の外という並びでは、箱を広げてもその週は
+///   戻ってこない（広げないほうが害が小さい）。
+double calendarSheetMaxHeight({
+  required double screenHeight,
+  required double gridTop,
+  required double cellHeight,
+  int keepRows = 2,
+  int minKeepRows = 1,
+  double readableHeight = 200,
+}) {
+  final rows = calendarSheetKeptRows(
+    screenHeight: screenHeight,
+    gridTop: gridTop,
+    cellHeight: cellHeight,
+    keepRows: keepRows,
+    minKeepRows: minKeepRows,
+    readableHeight: readableHeight,
+  );
+  final room = _calendarSheetRoom(
+    screenHeight: screenHeight,
+    gridTop: gridTop,
+    cellHeight: cellHeight,
+    rows: rows,
+  );
+  return room < 0 ? 0 : room;
+}
+
 // 公開化（管理・履歴タブから同一実体を呼ぶため）。
 class CalendarTab extends StatefulWidget {
   const CalendarTab({super.key});
@@ -6652,6 +6851,13 @@ class _CalendarTabState extends State<CalendarTab> {
   //   ★カレンダーは他の情報（会社休日・祝日）と並ぶので、理由は全面ではなく
   //     1行の帯で出す＝既存の _buildFailureBar と同じ並びに置く。
   final ClosingPeriodGate _closing = ClosingPeriodGate();
+
+  /// グリッドの外枠。シートの高さの上限（上2週を残す）を出すのに位置が要る。
+  final GlobalKey _gridKey = GlobalKey();
+
+  /// 直近に配った1マスの高さ。build（LayoutBuilder）が入れ、
+  /// _sheetMaxHeight が読む。既定は上限と同じ値にしておく。
+  double _cellHeight = kCalendarMaxCellHeight;
 
   /// 選択中の日（'YYYY-MM-DD'）。null=未選択。
   /// 旧実装は _DayCell へ isSelected:false を固定で渡していて選択が機能していなかった。
@@ -6904,17 +7110,43 @@ class _CalendarTabState extends State<CalendarTab> {
           ClosingPeriodBar(gate: _closing, onResolved: _loadMonth),
         // ② 取得失敗の可視化（黙って空にしない）
         _buildFailureBar(),
-        // ③ カレンダーグリッド
-        _monthLoading
-            ? const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(
-                    child: CircularProgressIndicator(color: FieldTokens.accent)))
-            : _buildCalendarGrid(),
-        // ④ 選択日の詳細（旧「日付をタップして日報を確認」のヒントを置換）
-        const Divider(height: 1, color: FieldTokens.outline),
+        // ③④ グリッドと選択日パネルの高さの配り方
+        //  ★旧: 「グリッド → 区切り線 → Expanded(パネル)」の素の並びだった。
+        //    グリッドはマス48固定で自分の高さを先に取り、パネルは残りを受ける
+        //    形だったので、6週の月では月ナビ＋グリッド＋区切り線で縦を使い切り、
+        //    パネルの取り分がほぼ消えて中身が切れていた（今回直している形）。
+        //  ★新: ボス裁定 Q16=3 に従い順序を逆にする。パネルが必要とする高さ
+        //    (kCalendarPanelReservedHeight) を先に確保し、余りを行数で割って
+        //    マスの高さを決める。マスの下限は kCalendarMinCellHeight(36)。
+        //    下限に当たった月では、これまで通りグリッドが先に取る形へ落ちる
+        //    （落ちてもパネルは SingleChildScrollView なのでスクロールで読める）。
         Expanded(
-          child: _buildSelectedDay(),
+          child: LayoutBuilder(
+            builder: (context, box) {
+              final h = calendarHeightsFor(
+                available: box.maxHeight,
+                rowCount: calendarRowCountOf(_selectedMonth),
+              );
+              // シートの高さの上限（上2週を残す計算）の入力になる。
+              _cellHeight = h.cellHeight;
+              return Column(
+                children: [
+                  _monthLoading
+                      ? const Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Center(
+                              child: CircularProgressIndicator(
+                                  color: FieldTokens.accent)))
+                      : _buildCalendarGrid(h.cellHeight),
+                  // ④ 選択日の要約（旧「日付をタップして日報を確認」のヒントを置換）
+                  const Divider(height: 1, color: FieldTokens.outline),
+                  Expanded(
+                    child: _buildSelectedDay(),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ],
     );
@@ -6962,7 +7194,9 @@ class _CalendarTabState extends State<CalendarTab> {
   String? _companyHolidayType(String ds, int weekdayIdx) =>
       _holidayDates[ds] ?? _holidayWeekly['$weekdayIdx'];
 
-  Widget _buildCalendarGrid() {
+  // 引数の cellHeight は build 側の LayoutBuilder が配った1マスの高さ。
+  // ★グリッドが自分で高さを決めない（それが切れていた原因）。
+  Widget _buildCalendarGrid(double cellHeight) {
     // (a) 日曜始まり。ヘッダも日→土。
     const weekdays = _kWeekLabels;
     final now      = DateTime.now();
@@ -6972,9 +7206,14 @@ class _CalendarTabState extends State<CalendarTab> {
     // DateTime.weekday は 月=1..日=7。%7 で 日=0..土=6 になる（OFFICE
     // holiday_calendar_screen.dart の _buildCalendar と同一の作り方）。
     final startOffset = firstDay.weekday % 7;
-    final rowCount = ((startOffset + lastDay.day) / 7).ceil();
+    // ★行数の式は calendarRowCountOf ただ1本。build 側の高さ配分と
+    //   ここで別々に数えると、配った高さと実際の行数がずれる。
+    final rowCount = calendarRowCountOf(_selectedMonth);
 
     return Padding(
+      // シートの高さの上限を出すのに、グリッドの画面上の位置が要る。
+      key: _gridKey,
+      // 縦の余白の合計は kCalendarGridPaddingV と一致させること。
       padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
       child: Table(
         children: [
@@ -6986,8 +7225,11 @@ class _CalendarTabState extends State<CalendarTab> {
                   : e.key == 6
                       ? FieldTokens.saturday  // 土曜=水色
                       : FieldTokens.textSupport;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
+              // ★高さを成り行き（Padding+文字）にしない。高さ配分の式が
+              //   kCalendarWeekHeaderHeight を引き算しているので、実物が
+              //   ずれると配った高さもずれる。定数と実物をここで結ぶ。
+              return SizedBox(
+                height: kCalendarWeekHeaderHeight,
                 child: Center(
                   child: Text(e.value,
                       style: TextStyle(
@@ -7005,7 +7247,10 @@ class _CalendarTabState extends State<CalendarTab> {
                 final cellIndex = row * 7 + col;
                 final dayNum = cellIndex - startOffset + 1;
                 if (dayNum < 1 || dayNum > lastDay.day) {
-                  return const SizedBox(height: 48);
+                  // ★月外のマスも月内と同じ高さに揃える。揃えないと Table の
+                  //   行の高さが背の高い側（月内のマス＋余白）に引きずられ、
+                  //   配った高さと実際の行の高さがずれて、また下が切れる。
+                  return SizedBox(height: cellHeight + kCalendarCellMargin);
                 }
                 final date = DateTime(
                     _selectedMonth.year, _selectedMonth.month, dayNum);
@@ -7027,9 +7272,14 @@ class _CalendarTabState extends State<CalendarTab> {
                   isJpHoliday: _jpHolidays.containsKey(ds),
                   isCompanyHoliday: _companyHolidayType(ds, weekdayIdx) != null,
                   restPortion: rest?['portion'] as String?,
-                  // タップは「選択」。日報へは下の詳細パネルの導線から行く
-                  // （DayReportsScreen への遷移は削除していない・_buildSelectedDay 参照）。
-                  onTap: () => setState(() => _selectedDate = ds),
+                  cellHeight: cellHeight,
+                  // ★既存の1文（選択日を変えるだけ）は消していない。
+                  //   その後にシートを開く1行を足しただけ。選択の枠は
+                  //   シートを閉じた後もそのまま残り、下の要約がその日を指す。
+                  onTap: () {
+                    setState(() => _selectedDate = ds);
+                    _openDaySheet(ds);
+                  },
                 );
               }),
             ),
@@ -7038,10 +7288,10 @@ class _CalendarTabState extends State<CalendarTab> {
     );
   }
 
-  // ── (e) 選択日の詳細 ────────────────────────────────────────
-  // 表示: 会社休み / 自分の休み（終日・午前休・午後休）/ 日報の有無。
-  // 旧「日付をタップして日報を確認」のヒントはこれに置き換えた。
-  // ★DayReportsScreen への遷移は削除せず、日報がある日は必ずここから行ける。
+  // ── (e) 選択日の要約 ────────────────────────────────────────
+  // 表示: 見出し（祝日名を畳む）/ 休みの行 / 日報の行。
+  // ★旧実装はここにボタン2つと最大6行を持っていて、6週の月では切れていた。
+  //   全部は日付タップのシート（showCalendarDaySheet）へ移した。
   Widget _buildSelectedDay() {
     final ds = _selectedDate;
     if (ds == null) {
@@ -7057,159 +7307,487 @@ class _CalendarTabState extends State<CalendarTab> {
         ),
       );
     }
+    return CalendarDayPanel(info: _dayInfoOf(ds));
+  }
 
+  // その日ぶんの中身を1本にまとめて作る。
+  // ★要約（CalendarDayPanel）とシート（CalendarDaySheet）が同じこれを読む
+  //   ＝同じ日について2通りの数え方が生まれない。
+  CalendarDayInfo _dayInfoOf(String ds) {
     final parts = ds.split('-').map(int.parse).toList();
-    final date  = DateTime(parts[0], parts[1], parts[2]);
-    final weekdayIdx = date.weekday % 7;
-    final holidayType = _companyHolidayType(ds, weekdayIdx);
+    final date = DateTime(parts[0], parts[1], parts[2]);
     final rest = _myRestDays[ds];
-    // ★その日の日報は取消済も含めて全部持つ（DayReportsScreen へはこれを渡す
-    //   ＝取り消した日報を後から見る道をここで断たない）。
-    //   数えるときだけ生きている日報と取消済を分ける。
-    final dayReps      = _monthReports.where((r) => r['report_date'] == ds).toList();
-    final dayLiveReps  = dayReps.where((r) => !isCancelledReport(r)).toList();
-    final dayCancelled = dayReps.length - dayLiveReps.length;
-    final jpName = _jpHolidays[ds];
+    return CalendarDayInfo(
+      date: date,
+      jpHolidayName: _jpHolidays[ds],
+      companyHolidayType: _companyHolidayType(ds, date.weekday % 7),
+      restPortion: rest?['portion'] as String?,
+      restReason: rest?['reason'] as String?,
+      // ★取消済を含む全部を渡す（DayReportsScreen へ渡す元もこれ）。
+      reports:
+          _monthReports.where((r) => r['report_date'] == ds).toList(),
+    );
+  }
 
-    String restLabel(String? portion) {
-      switch (portion) {
-        case 'am_half': return '午前休';
-        case 'pm_half': return '午後休';
-        default:        return '終日休み';
-      }
-    }
+  // シートの高さの上限。(c)「カレンダーの上2週は見えたまま残す」を実現する。
+  // ★グリッドの画面上の位置は実物から採る（_gridKey）。月ナビや取得失敗バーが
+  //   出ている・出ていないで上端が動くため、定数で持つと2週の線がずれる。
+  double _sheetMaxHeight() {
+    final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
+    return calendarSheetMaxHeight(
+      screenHeight: MediaQuery.of(context).size.height,
+      gridTop: box == null ? 0 : box.localToGlobal(Offset.zero).dy,
+      cellHeight: _cellHeight,
+    );
+  }
 
-    Widget row(IconData icon, Color color, String text) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Row(children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(text,
-                  style: const TextStyle(
-                      color: FieldTokens.textBody, fontSize: 13)),
+  // 日付タップで開く箱。開き方の本体は showCalendarDaySheet（検査も同じ1本を呼ぶ）。
+  // ★旧パネルが持っていた2つの導線（代休で休む／日報を確認）はここへ移した。
+  //   どちらも押した後の後始末（_loadMonth / _loadReports）は旧と同じ。
+  Future<void> _openDaySheet(String ds) async {
+    final info = _dayInfoOf(ds);
+    await showCalendarDaySheet(
+      context,
+      info: info,
+      maxHeight: _sheetMaxHeight(),
+      myCompanyId: _myCompanyId,
+      onCompOff: () async {
+        Navigator.pop(context);
+        final took = await showCompOffFlow(context, restDate: ds);
+        if (took && mounted) _loadMonth();   // BE の真実へ追随
+      },
+      onOpenDayReports: () async {
+        Navigator.pop(context);
+        // ★戻り値を待つ。DayReportsScreen で日報を取り消すと true が返る。
+        //   取消で変わるのは日報だけなので _loadMonth ではなく _loadReports。
+        final changed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DayReportsScreen(
+              date: info.date,
+              reports: info.reports,
+              myCompanyId: _myCompanyId,
             ),
-          ]),
+          ),
         );
+        if (changed == true && mounted) await _loadReports();
+      },
+    );
+  }
 
+}
+
+// ─────────────────────────────────────────────
+// カレンダーの1日ぶんの中身と、その見せ方2種（要約とシート）
+// ─────────────────────────────────────────────
+
+/// カレンダーの1日ぶんの中身。
+///
+/// ★既定のパネル（要約）と、日付タップで開くシート（全部）が【この1本】を読む。
+///   2つの見せ方が別々に数え直すと、同じ日について件数や語が食い違う
+///   （lib/utils/report_cancel_gate.dart が「判定を1本にする」ために作られたのと
+///   同じ理由で、ここでは「1日ぶんの読み取り」を1本にしている）。
+class CalendarDayInfo {
+  CalendarDayInfo({
+    required this.date,
+    this.jpHolidayName,
+    this.companyHolidayType,
+    this.restPortion,
+    this.restReason,
+    this.reports = const <Map<String, dynamic>>[],
+  });
+
+  final DateTime date;
+
+  /// 内閣府データ由来の祝日名（null=祝日ではない）。
+  final String? jpHolidayName;
+
+  /// 会社の休業。'legal' | 'scheduled' | null。
+  final String? companyHolidayType;
+
+  /// 自分の休み。'full' | 'am_half' | 'pm_half' | null。
+  final String? restPortion;
+  final String? restReason;
+
+  /// その日の日報。
+  /// ★取消済も含めて全部持つ。取り消した日報を後から見に行く道をここで断たない
+  ///   （旧 _buildSelectedDay が dayReps を丸ごと DayReportsScreen へ渡していた
+  ///   裁定をそのまま引き継ぐ）。数えるときだけ生きている日報と分ける。
+  final List<Map<String, dynamic>> reports;
+
+  int get weekdayIdx => date.weekday % 7;
+
+  List<Map<String, dynamic>> get liveReports =>
+      reports.where((r) => !isCancelledReport(r)).toList();
+
+  int get liveCount => liveReports.length;
+  int get cancelledCount => reports.length - liveCount;
+
+  /// 会社休みか自分の休みのどちらかが在る日か。(f) の行数の分かれ目。
+  bool get hasAnyRest => companyHolidayType != null || restPortion != null;
+
+  /// 見出し。
+  /// ★祝日名は行を1本増やさずここへ畳む。既定のパネルは (a) により
+  ///   「切れずに1枚まるごと読める量」に収める必要があり、祝日の日だけ
+  ///   1行増えると確保した高さ(kCalendarPanelReservedHeight)を超えるため。
+  String get title {
+    final base = '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）';
+    final jp = jpHolidayName;
+    return jp == null ? base : '$base・祝日：$jp';
+  }
+
+  String get restLabel {
+    switch (restPortion) {
+      case 'am_half':
+        return '午前休';
+      case 'pm_half':
+        return '午後休';
+      case null:
+        return 'なし';
+      default:
+        return '終日休み';
+    }
+  }
+
+  /// 自分の休みの1行。理由が在れば括弧で足す（旧パネルと同じ言い方）。
+  String get restLine {
+    final reason = restReason;
+    final tail = (restPortion != null && reason != null) ? '（$reason）' : '';
+    return '自分の休み：$restLabel$tail';
+  }
+
+  String get companyHolidayLine {
+    final t = companyHolidayType;
+    if (t == null) return '会社休み：なし';
+    return '会社休み（${t == 'legal' ? '法定休日' : '所定休日'}）';
+  }
+
+  /// 日報の1行。
+  /// ★取消済は行を増やさず同じ行の後ろへ足す。旧パネルは別の行に出していて、
+  ///   その1行ぶんが (a) の「1枚で読める量」を押し出していた。
+  ///   件数は生きている日報だけを数える（取消済を足すとセルのドットが
+  ///   無いのに件数だけ出て食い違う。旧パネルの裁定をそのまま引き継ぐ）。
+  String get reportLine {
+    final base = liveCount > 0 ? '日報：$liveCount件' : '日報：なし';
+    return cancelledCount > 0 ? '$base・取消済$cancelledCount件' : base;
+  }
+}
+
+/// カレンダーの1行（アイコン＋文）。
+/// ★既定のパネルとシートで同じ形を使う＝同じ情報が2つの見た目にならない。
+/// ★高さを固定にする理由: 高さ配分の式が kCalendarPanelRowHeight を
+///   引き算しているため、実物が成り行きだと確保した高さと実際がずれて
+///   また切れる。定数と実物をここで結ぶ。
+class _DayInfoRow extends StatelessWidget {
+  const _DayInfoRow({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: kCalendarPanelRowHeight,
+        child: Row(children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                  color: FieldTokens.textBody, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
+      );
+}
+
+/// (f) 休みの行。
+/// ★両方「なし」の日は1行にまとめ、どちらかに休みがある日だけ2行にする。
+///   理由: 何も無い日に「会社休み：なし」「自分の休み：なし」の2行が並ぶのは、
+///   読む側にとって中身ゼロの行が2本場所を取っているだけだった。
+/// ★要約とシートで同じ関数を使う＝行の出方が2通りに割れない。
+List<Widget> _dayRestRows(CalendarDayInfo info) {
+  if (!info.hasAnyRest) {
+    return const <Widget>[
+      _DayInfoRow(
+        icon: Icons.event_available_outlined,
+        color: FieldTokens.textSupport,
+        text: '会社休み・自分の休み：なし',
+      ),
+    ];
+  }
+  return <Widget>[
+    _DayInfoRow(
+      icon: Icons.business_outlined,
+      color: info.companyHolidayType != null
+          ? FieldTokens.statusError
+          : FieldTokens.textSupport,
+      text: info.companyHolidayLine,
+    ),
+    _DayInfoRow(
+      icon: info.restPortion != null
+          ? Icons.event_busy_outlined
+          : Icons.event_available_outlined,
+      color: info.restPortion != null
+          ? FieldTokens.accent
+          : FieldTokens.textSupport,
+      text: info.restLine,
+    ),
+  ];
+}
+
+/// 日報の1行（要約とシートで共有）。
+Widget _dayReportRow(CalendarDayInfo info) => _DayInfoRow(
+      icon: Icons.description_outlined,
+      color: info.liveCount > 0
+          ? FieldTokens.accent
+          : FieldTokens.textSupport,
+      text: info.reportLine,
+    );
+
+/// 既定の（シートを開いていないときの）選択日パネル。
+///
+/// ★(a) 0タップで読める要約だけに絞ってある。旧パネルはここに
+///   「代休で休む」「日報を確認」の2つのボタンと最大6行を持っていて、
+///   6週の月ではグリッドが先に高さを取るため下半分が画面外へ出ていた。
+///   ボタンと日報1枚ごとの行は CalendarDaySheet（日付タップ）へ移した。
+/// ★中身の高さは kCalendarPanelReservedHeight と釣り合わせてある
+///   （見出し1行＋情報行を最大3行＋上下の余白）。行を足すときは
+///   定数も一緒に足すこと。足さないとまた切れる。
+class CalendarDayPanel extends StatelessWidget {
+  const CalendarDayPanel({super.key, required this.info});
+
+  final CalendarDayInfo info;
+
+  @override
+  Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(
+          16, kCalendarPanelPaddingV, 16, kCalendarPanelPaddingV),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-              '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）',
-              style: const TextStyle(
-                  color: FieldTokens.textBody,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-
-          // 祝日名（あれば）。会社の休業設定とは独立した「その日の性質」。
-          if (jpName != null) row(Icons.flag_outlined, FieldTokens.holidayText, '祝日：$jpName'),
-
-          // 会社休み
-          if (holidayType != null)
-            row(Icons.business_outlined, FieldTokens.statusError,
-                '会社休み（${holidayType == 'legal' ? '法定休日' : '所定休日'}）')
-          else
-            row(Icons.business_outlined, FieldTokens.textSupport, '会社休み：なし'),
-
-          // 自分の休み
-          if (rest != null)
-            row(Icons.event_busy_outlined, FieldTokens.accent,
-                '自分の休み：${restLabel(rest['portion'] as String?)}'
-                '${(rest['reason'] as String?) != null ? '（${rest['reason']}）' : ''}')
-          else ...[
-            row(Icons.event_available_outlined, FieldTokens.textSupport, '自分の休み：なし'),
-            // ── 代休で休む（入口②）────────────────────────────
-            //  ★日はここ（入口）が持つ。人がカレンダーでタップした ds を
-            //    そのまま部品へ渡すだけで、部品は自分では日を決めない
-            //    （画面に出ている日と送る日がずれない）。
-            //  ★選ばせる部品と書く口は「本日休み」の画面と同じ1本
-            //    （lib/widgets/comp_off_dialog.dart の showCompOffFlow）。
-            //    入口が2つでも操作は1通り。
-            //  ★既に休みが在る日には出さない（上の if の else 側）。
-            //    出しても BE が ALREADY_RESTED で断るだけで、押せるのに
-            //    必ず失敗するボタンになる。
-            //  ★形は同じパネルの「日報を確認」と同じ OutlinedButton.icon。
-            //    新しい見た目を作らない・タブも増やさない（増えたのは入口だけ）。
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final took = await showCompOffFlow(context, restDate: ds);
-                  if (took && mounted) _loadMonth();   // BE の真実へ追随
-                },
-                icon: const Icon(Icons.event_repeat, size: 16),
-                label: const Text('代休で休む'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: FieldTokens.textBody,
-                  side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+          SizedBox(
+            height: kCalendarPanelTitleHeight,
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  info.title,
+                  style: const TextStyle(
+                      color: FieldTokens.textBody,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          // 日報の有無 ＋ DayReportsScreen への導線（既存遷移を維持）
-          // ★件数は生きている日報だけを数える。取消済は同じ行に足さず、
-          //   下に別の行で出す（足すとセルのドットが無いのに「日報：1件」と
-          //   出て食い違う）。
-          // ★導線を出す条件は dayReps（取消済を含む全部）が空でないこと。
-          //   その日の全部を取り消した日でも「日報を確認」が残る＝取り消した
-          //   日報を見に行く道が必ず在る。
-          if (dayReps.isNotEmpty) ...[
-            if (dayLiveReps.isNotEmpty)
-              row(Icons.description_outlined, FieldTokens.accent,
-                  '日報：${dayLiveReps.length}件')
-            else
-              row(Icons.description_outlined, FieldTokens.textSupport,
-                  '日報：なし'),
-            // 取消済の印。色は日報1枚の取消済バッジと同じ textSupport
-            // （monthly_history_screen.dart の JsReportTile）。新色は作らない。
-            if (dayCancelled > 0)
-              row(Icons.cancel_outlined, FieldTokens.textSupport,
-                  '取消済：$dayCancelled件'),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                // ★戻り値を待つ。DayReportsScreen で日報を取り消すと true が返る。
-                //   dayReps の元は _monthReports で、それを埋めるのは _loadReports()
-                //   ただ一つ。既存のそれをそのまま呼び直す（新しい取得の口は作らない
-                //   ＝締め日の解決 _closing.send も今までどおり通る）。
-                //   ★_loadMonth() ではなく _loadReports() を呼ぶ。取消で変わるのは
-                //     日報だけで、会社休日・自分の休みは変わらないため。
-                //   true 以外（見ただけで戻った・null）では何もしない。
-                onPressed: () async {
-                  final changed = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DayReportsScreen(
-                        date: date,
-                        reports: dayReps,
-                        myCompanyId: _myCompanyId,
-                      ),
-                    ),
-                  );
-                  if (changed == true && mounted) await _loadReports();
-                },
-                icon: const Icon(Icons.open_in_new, size: 16),
-                label: const Text('日報を確認'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: FieldTokens.textBody,
-                  side: const BorderSide(
-                      color: FieldTokens.textBody, width: 1.5),
-                ),
-              ),
-            ),
-          ] else
-            row(Icons.description_outlined, FieldTokens.textSupport, '日報：なし'),
+              // 「押すともっと出る」の手掛かり。押す先は日付のマスなので
+              // ここ自体はボタンにしない（押せそうで押せない印を作らない）。
+              const Icon(Icons.keyboard_arrow_up,
+                  color: FieldTokens.textSupport, size: 18),
+            ]),
+          ),
+          const SizedBox(height: kCalendarPanelTitleGap),
+          ..._dayRestRows(info),
+          _dayReportRow(info),
         ],
       ),
     );
   }
+}
 
+/// 日付を押したときに下からせり上がる箱の中身。
+///
+/// ★器は showModalBottomSheet（ボス裁定 Q17=2）。写し元はこのファイルの
+///   _showSitePicker / _SitePickerSheet。
+///   ・showModalBottomSheet の引数の並び（backgroundColor / isScrollControlled /
+///     角丸16 の shape）は _showSitePicker をそのまま写した。
+///   ・中身の骨（SafeArea → ConstrainedBox(maxHeight) → Column(mainAxisSize.min)
+///     → Flexible(スクロール)）は _SitePickerSheet の build をそのまま写した。
+///     この骨は (e)「中身の量ぶんだけ伸ばす」を素で満たす。
+///     このリポにもう一つある DraggableScrollableSheet（JsReportDetailSheet /
+///     revision_inbox_screen / share_send_screen）は initialChildSize で
+///     必ず一定の高さを取るので、日報が0件の日に大きな空箱が出る＝(e) に反する。
+/// ★状態の色と語は一切書かない。日報1枚の行は JsReportTile をそのまま使い、
+///   あれが lib/utils/report_status_style.dart の対応表から色と語を採る。
+///   ここで自前のバッジを作ると対応表の外に手書きが1つ増える（(g) に反する）。
+class CalendarDaySheet extends StatelessWidget {
+  const CalendarDaySheet({
+    super.key,
+    required this.info,
+    required this.maxHeight,
+    this.myCompanyId = '',
+    this.onCompOff,
+    this.onOpenDayReports,
+  });
+
+  final CalendarDayInfo info;
+
+  /// 高さの上限。(c)「カレンダーの行は見えたまま残す」をここで止める。
+  /// 値は calendarSheetMaxHeight が出す（通常は上2週、使える高さが足りない
+  /// ときだけ1週まで減らす＝ボス裁定 Q19=3）。上限に当たったときは
+  /// 下の Flexible の中がスクロールして中身を全部読ませる。
+  final double maxHeight;
+
+  final String myCompanyId;
+
+  /// 代休で休む（既存の showCompOffFlow へ繋ぐ）。null=出さない。
+  final VoidCallback? onCompOff;
+
+  /// 日報を確認（既存の DayReportsScreen へ繋ぐ）。null=出さない。
+  final VoidCallback? onOpenDayReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // (d) 閉じ方その1＝下スワイプ。摘まむ場所が在ることを見せる帯。
+            //     実際に閉じるのは showModalBottomSheet の enableDrag。
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 4),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: FieldTokens.outline,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+              child: Row(children: [
+                Expanded(
+                  child: Text(
+                    info.title,
+                    style: const TextStyle(
+                        color: FieldTokens.textBody,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // (d) 閉じ方その2＝✕。
+                IconButton(
+                  icon: const Icon(Icons.close, color: FieldTokens.textBody),
+                  tooltip: '閉じる',
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, color: FieldTokens.outline),
+            // (e) 中身の量ぶんだけ伸びる。Flexible なので少ない日は縮む。
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ..._dayRestRows(info),
+                    // 代休で休む（旧パネルの入口②をここへ移した）。
+                    // ★既に休みが在る日には出さない。出しても BE が
+                    //   ALREADY_RESTED で断るだけの、必ず失敗するボタンになる
+                    //   （旧パネルの裁定をそのまま引き継ぐ）。
+                    if (info.restPortion == null && onCompOff != null) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: onCompOff,
+                          icon: const Icon(Icons.event_repeat, size: 16),
+                          label: const Text('代休で休む'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: FieldTokens.textBody,
+                            side: const BorderSide(
+                                color: FieldTokens.textBody, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    _dayReportRow(info),
+                    // (b) その日の日報を1枚ずつ全部出す。
+                    // ★取消済も並べる（info.reports は取消済を含む全部）。
+                    //   語と色は JsReportTile が対応表から採る。
+                    if (info.reports.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      for (final r in info.reports)
+                        JsReportTile(report: r, myCompanyId: myCompanyId),
+                      // 旧パネルの「日報を確認」導線をそのまま残す。
+                      // ★出す条件も旧と同じ＝取消済しか無い日でも出す
+                      //   （取り消した日報を見に行く道を断たない）。
+                      if (onOpenDayReports != null)
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: onOpenDayReports,
+                            icon: const Icon(Icons.open_in_new, size: 16),
+                            label: const Text('日報を確認'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: FieldTokens.textBody,
+                              side: const BorderSide(
+                                  color: FieldTokens.textBody, width: 1.5),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 日付タップでせり上がる箱を開く。
+///
+/// ★画面（_CalendarTabState）と検査の両方がこの1本を呼ぶ。
+///   引数の並びを画面側にだけ書くと、検査は「本物と同じ開き方」を
+///   検査できず、閉じ方が壊れても気付けない。
+/// ★(d) 閉じ方は3つ。3つとも既定に頼らず明示で書く:
+///   下スワイプ=enableDrag / 暗幕タップ=isDismissible / ✕=シート内の IconButton。
+Future<void> showCalendarDaySheet(
+  BuildContext context, {
+  required CalendarDayInfo info,
+  required double maxHeight,
+  String myCompanyId = '',
+  VoidCallback? onCompOff,
+  VoidCallback? onOpenDayReports,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: FieldTokens.surfaceCard,
+    isScrollControlled: true,
+    enableDrag: true,
+    isDismissible: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => CalendarDaySheet(
+      info: info,
+      maxHeight: maxHeight,
+      myCompanyId: myCompanyId,
+      onCompOff: onCompOff,
+      onOpenDayReports: onOpenDayReports,
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -7234,6 +7812,7 @@ class _DayCell extends StatelessWidget {
     this.isJpHoliday = false,
     this.isCompanyHoliday = false,
     this.restPortion,
+    required this.cellHeight,
     required this.onTap,
   });
   final int day;
@@ -7248,6 +7827,10 @@ class _DayCell extends StatelessWidget {
   final bool isCompanyHoliday;
   /// 自分の休み。null=休みなし / 'full' / 'am_half' / 'pm_half'
   final String? restPortion;
+
+  /// 1マスの高さ。★固定値を持たない（ボス裁定 Q16=3）。
+  ///   親（_buildCalendarGrid）が余りを配った結果をそのまま受ける。
+  final double cellHeight;
   final VoidCallback onTap;
 
   @override
@@ -7268,7 +7851,8 @@ class _DayCell extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        height: 48,
+        height: cellHeight,
+        // 上下合わせて kCalendarCellMargin。高さ配分の式がこの分を足している。
         margin: const EdgeInsets.all(1),
         decoration: BoxDecoration(
           // セル塗り＝会社休業日のみ（選択の表現には使わない＝意味を混ぜない）
