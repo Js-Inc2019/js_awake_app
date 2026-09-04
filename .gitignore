@@ -55,3 +55,6 @@ secrets.txt
 .firebase/
 firebase.hosting.json.bak
 .firebaserc
+
+# Claude Code のローカル設定（機械ごとに違うので共有しない）
+.claude/settings.local.json
