@@ -585,7 +585,10 @@ class ReportsService {
   //
   // ★events は BE が【実在の記録だけ】から組んだ行（type / at / text / notified?）。
   //   ★text は BE の文。端末で書き換えない・言い換えない（同じ事実に2通りの言い方を作らない）。
-  // ★この口は1バイトも書かない（BE 側の★＝1件を開くたびに成立させない）。
+  // ★この口は【読むだけ】だが、BE が読む前に「読むときの保険」を1回通す
+  //   （2026-09-20 に一覧の口と揃えた）。期限が過ぎた「休む日の変更」は、
+  //   開いた時点で成立していることがある＝1バイトも書かない、とは言えない。
+  //   ★端末から見れば、返ってきた姿がそのときの真実。ここで古い姿を覚えておかない。
   Future<ApiResult<Map<String, dynamic>>> getRestDay(String id) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<Map<String, dynamic>>(
@@ -605,6 +608,125 @@ class ReportsService {
               .toList(),
         };
       },
+    );
+  }
+
+  // ============================================================
+  // 振替休日の【操作】5本（2026-09-20）。
+  //
+  // ★どれも BE の口をそのまま叩くだけ。断りの文（error）は BE が書く。
+  //   ここで言い換えない・組み立てない・作らない。画面は runApiCall が
+  //   持ち帰った errorMessage をそのまま出す（api_result.dart の規約2）。
+  // ★成功の中身も素の Map で渡し、画面側で null 安全に読む
+  //   （getMySubstitutes / getRestDay と同じ扱い・欠落キーを握り潰さない）。
+  // ============================================================
+
+  // POST /rest-days/:id/agree-substitute — 持ちかけられた振替に同意する。
+  //   本文は無し（BE は body を1つも読まない）。
+  //   断り＝NOT_FOUND / NOT_YOUR_REST_DAY / MEMBERSHIP_MISMATCH / NOT_SUBSTITUTE /
+  //         CANCELLED / NOT_PROPOSED / ALREADY_AGREED / SELF_PROPOSED
+  Future<ApiResult<Map<String, dynamic>>> agreeSubstitute(String id) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.agreeSubstitute',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/rest-days/$id/agree-substitute'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  // GET /rest-days/:id/change-candidates — 新しい休む日に選べる日を引く。
+  //   返り＝{ rest_day_id, current_rest_date, paired_work_date,
+  //           holiday_def_configured, days[] }
+  //   days[] の1つ＝{ date, dow, selectable, reason_code, reason, deadline }
+  //   ★選べない理由の文（reason）は BE が日本語で返す。端末で書かない・言い換えない。
+  //   ★holiday_def_configured が false の回も days は返る（全部 selectable=false で、
+  //     reason に「会社の休みの日が設定されていません…」が入る）。画面はその文を出す。
+  Future<ApiResult<Map<String, dynamic>>> getChangeCandidates(String id) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.getChangeCandidates',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/$id/change-candidates'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final m = apiJsonMap(body);
+        return {
+          'rest_day_id': m?['rest_day_id'],
+          'current_rest_date': m?['current_rest_date'],
+          'paired_work_date': m?['paired_work_date'],
+          'holiday_def_configured': m?['holiday_def_configured'] == true,
+          'days': ((m?['days'] as List?) ?? const [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        };
+      },
+    );
+  }
+
+  // POST /rest-days/:id/change-request — 休む日の変更を申し出る。
+  //   本文＝{ "change_requested_rest_date": "YYYY-MM-DD" }
+  //   断り＝INVALID_CHANGE_REQUESTED_REST_DATE / NOT_FOUND / NOT_YOUR_REST_DAY /
+  //         NOT_SUBSTITUTE / CANCELLED / SUBSTITUTE_PENDING_AGREEMENT /
+  //         SUBSTITUTE_CHANGE_ALREADY_SETTLED / SUBSTITUTE_CHANGE_ALREADY_REQUESTED /
+  //         SUBSTITUTE_CHANGE_SAME_DATE / SUBSTITUTE_CHANGE_NOT_FUTURE /
+  //         SUBSTITUTE_CHANGE_DEADLINE_PASSED / SUBSTITUTE_SAME_DATE /
+  //         SUBSTITUTE_DIFFERENT_WEEK / SUBSTITUTE_REST_DATE_NOT_WORKDAY
+  //   ★SUBSTITUTE_CHANGE_DEADLINE_PASSED のときは本文に deadline も載る。
+  //     握り潰さない＝runApiCall が errorDetails に応答本文をそのまま入れる。
+  Future<ApiResult<Map<String, dynamic>>> requestSubstituteChange(
+      String id, String newDate) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.requestSubstituteChange',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/rest-days/$id/change-request'),
+        headers: headers,
+        body: jsonEncode(substituteChangeBody(newDate)),
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  /// 送る body を組む部品。★組み立てを名前付きにするのは、送る形そのものを
+  ///   検査で固定するため（takeCompOff の compOffBody と同じ作法）。
+  static Map<String, dynamic> substituteChangeBody(String newDate) =>
+      <String, dynamic>{'change_requested_rest_date': newDate};
+
+  // DELETE /rest-days/:id/change-request — 申し出を取り下げる。
+  //   断り＝NOT_FOUND / NOT_YOUR_REST_DAY / SUBSTITUTE_CHANGE_NOT_REQUESTED
+  //   成功＝{ success, rest_day, change_request: null }
+  Future<ApiResult<Map<String, dynamic>>> withdrawSubstituteChange(
+      String id) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.withdrawSubstituteChange',
+      () => http.delete(
+        Uri.parse('$kApiBaseUrl/rest-days/$id/change-request'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  // DELETE /rest-days/:id — 休みを1件、id を指して取り消す。
+  //   ★下の deleteRestDay（DELETE /rest-days/today）とは別の口。あちらは
+  //     サーバが確定した【当日】の行しか触れないので、先の日付の振替は取り消せない。
+  //     ご本人が自分の休みを取り消す回は、この口が日付の制限なく通す（BE の門番）。
+  //   ★取消済・他人の行は BE が断る（ALREADY_CANCELLED / FORBIDDEN）。
+  //     ここで先に潰さない＝同じ判定を2箇所に持たない。
+  Future<ApiResult<Map<String, dynamic>>> cancelRestDayById(String id) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.cancelRestDayById',
+      () => http.delete(
+        Uri.parse('$kApiBaseUrl/rest-days/$id'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
     );
   }
 
