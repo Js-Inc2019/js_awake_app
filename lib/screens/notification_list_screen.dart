@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/field_tokens.dart';
+import 'substitute_detail_screen.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/notification_service.dart';
 import '../services/profile_service.dart';
@@ -154,6 +155,19 @@ class NotificationListBodyState extends State<NotificationListBody> {
   //   ★MonthlyHistoryScreen は自前 AppBar と戻るを持つ push 用のラッパー
   //     （同ファイルの MonthlyHistoryBody は Scaffold を持たないタブの中身なので使わない）。
   bool _reportBusy = false; // 取得中の連打防止（_shareBusy と同型）
+
+  // 振替休日を開く。★id は ref_id からだけ取る（推測しない）。
+  //   解析できない回はボタンを出していないのでここへ来ないが、念のため無言で倒さない。
+  void _openSubstitute(Map<String, dynamic> item) {
+    final id = parseSubstituteRefId((item['ref_id'] ?? '').toString());
+    if (id == null) {
+      debugPrint('substitute: ref_id を解析できません ref_id=${item['ref_id']}');
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SubstituteDetailScreen(restDayId: id),
+    ));
+  }
 
   Future<void> _openApprovedReport(Map<String, dynamic> item) async {
     if (_reportBusy) return;
@@ -367,6 +381,7 @@ class NotificationListBodyState extends State<NotificationListBody> {
                 onShareReceived: _openShareInbox,
                 onShareSent: _openShareOutbox,
                 shareBusy: _shareBusy,
+                onSubstitute: () => _openSubstitute(_items[i]),
               ),
             ),
     );
@@ -433,6 +448,7 @@ class _NotificationRow extends StatelessWidget {
     required this.punchRemindBusy,
     required this.onTamper,
     required this.onShareReceived,
+    required this.onSubstitute,
     required this.onShareSent,
     required this.shareBusy,
   });
@@ -448,6 +464,8 @@ class _NotificationRow extends StatelessWidget {
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
   final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
   final VoidCallback onShareReceived; // 'share_received' 展開時「受信トレイを開く」
+  // 振替の4種類（kSubstituteNoticeTypes）展開時「振替休日を開く」
+  final VoidCallback onSubstitute;
   final VoidCallback onShareSent;     // 'share_sent' 展開時「送信済みを開く」
   final bool shareBusy; // 受信トレイを開く前の権限取得中は押せない（連打防止）
 
@@ -610,6 +628,31 @@ class _NotificationRow extends StatelessWidget {
                         ),
                       ),
                     ],
+                    // 振替のお知らせ（BE services/notify.js の4種類）。
+                    //   ★上と同じく独立した if で足す（type は互いに排他）。
+                    //   ★ref_id を解析できない回は【ボタンを出さない】。出しても
+                    //     どの休みか分からず、押しても別のものを開くことになる。
+                    //     黙って消さず debugPrint に残す（report_approved と同じ作法）。
+                    if (kSubstituteNoticeTypes.contains(type)) ...[
+                      if (parseSubstituteRefId(
+                              (item['ref_id'] ?? '').toString()) !=
+                          null) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _ActionButton(
+                            icon: Icons.swap_horiz,
+                            label: '振替休日を開く',
+                            onPressed: onSubstitute,
+                          ),
+                        ),
+                      ] else
+                        Builder(builder: (_) {
+                          debugPrint('substitute: ref_id を解析できません'
+                              ' ref_id=${item['ref_id']}（ボタンを出していません）');
+                          return const SizedBox.shrink();
+                        }),
+                    ],
                     if (type == 'share_sent') ...[
                       const SizedBox(height: 10),
                       Align(
@@ -678,6 +721,32 @@ String? _parseReportApprovedRefId(String refId) {
   const prefix = 'report_approved:';
   if (!refId.startsWith(prefix)) return null;
   final id = refId.substring(prefix.length).trim();
+  return id.isEmpty ? null : id;
+}
+
+// ─── 振替のお知らせ ref_id の解析 ───────────────────────────────────────
+// 職人に届く振替のお知らせは4種類（BE services/notify.js の実測）:
+//   substitute_registered / substitute_change_confirmed /
+//   substitute_change_auto_settled / substitute_change_blocked
+// ref_id の形（BE routes/rest_days.js・services/substituteChangeSweep.js の実測）:
+//   'type:<休みのid>' か 'type:<休みのid>:<日付など>'
+//   ＝最初の ':' の後ろ、次の ':' までが休みの id。
+//
+// ★補完も推測もしない・不明は null（_parseReportApprovedRefId と同じ流儀）。
+//   id を推測して別の休みを開くのは、黙って違うものを見せることと同じ。
+const Set<String> kSubstituteNoticeTypes = {
+  'substitute_registered',
+  'substitute_change_confirmed',
+  'substitute_change_auto_settled',
+  'substitute_change_blocked',
+};
+
+String? parseSubstituteRefId(String refId) {
+  final first = refId.indexOf(':');
+  if (first < 0) return null;
+  final rest = refId.substring(first + 1);
+  final second = rest.indexOf(':');
+  final id = (second < 0 ? rest : rest.substring(0, second)).trim();
   return id.isEmpty ? null : id;
 }
 

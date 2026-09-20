@@ -55,8 +55,11 @@ class PunchScreen extends StatefulWidget {
     required this.shiftType,
     required this.onShiftTypeChanged,
     this.revisionCount = 0,
+    this.substituteCount = 0,
+    this.substituteTruncated = false,
     this.pendingApprovalCount = 0,
     this.onOpenRevisions,
+    this.onOpenSubstitutes,
     this.onOpenPendingApprovals,
     this.onPunchStateChanged,
     this.isReportDone,
@@ -65,7 +68,17 @@ class PunchScreen extends StatefulWidget {
     this.onPunchOutHandlerReady,
     this.todayClosed = false,
     this.onExtraDeclaration,
+    this.reports,
   });
+  /// 口の差し替え（検査だけが渡す）。
+  ///   ★なぜ要るか【Q70】: この画面は initState から実 HTTP へ行くため、
+  ///     要対応の行（0件なら出ない／押すと進む／天井で切れたら + が付く）を
+  ///     1つも測れなかった。測れないまま出すのは、直したつもりで直っていない形。
+  ///   ★形は ReportsService が既に持っている差し替えの入口
+  ///     （@visibleForTesting ReportsService.forTest()）に乗せるだけ。新しい仕組みは作らない。
+  ///   ★既定は null＝今までどおり ReportsService()。呼び出し側（home_screen.dart の
+  ///     PunchScreen 生成箇所）は1文字も変わらない。
+  final ReportsService? reports;
   final VoidCallback? onNavigateToReport;
   // ── N7: ホームの「⏰ 追加の申告」（完了ビューの同ボタンとは別の増設・あちらは不変）──
   // 締め済みか。真実源は home_screen の _todayClosed（'closed' を読む _readWorkStatusToday /
@@ -108,8 +121,14 @@ class PunchScreen extends StatefulWidget {
   //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart の PunchScreen 生成箇所を参照）。
   //   0件のときは行そのものを描画しない＝「無いものは見せない」。
   final int revisionCount;          // 差し戻し（home_screen.dart の _revisionCount）
+  // 振替休日（同 _substituteCount）。★職長かどうかで分けない＝振替は全員のもの。
+  //   数えるのは一覧の口が返した行のうち action_needed が true の数（home_screen 側）。
+  final int substituteCount;
+  // BE の天井で切れた回。★切れていたら数の後ろに + を付ける＝嘘の数を出さない。
+  final bool substituteTruncated;
   final int pendingApprovalCount;   // 承認待ち（同 _pendingApprovalCount・職長のときのみ非0が渡る）
   final VoidCallback? onOpenRevisions;
+  final VoidCallback? onOpenSubstitutes;
   final VoidCallback? onOpenPendingApprovals;
   // 勤務区分（日勤/夜勤）は親(JsMainShell)が真実を保持し、値+変更通知を下ろす。
   // 送信時の report_date 補正・shift_type 送出は親側で行う。
@@ -135,7 +154,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   // 本日休み状態（_RestDayButton から持ち上げ）。ボタン表示と日報報告ゲートが
   // 単一の状態を共有する（照会失敗は fail-open＝rested=false）。
-  final ReportsService _reports = ReportsService();
+  // ★本番は今までどおり ReportsService()。差し替えを渡すのは検査だけ。
+  late final ReportsService _reports = widget.reports ?? ReportsService();
   bool _restLoading = true;
   bool _rested      = false;
   String? _restReason;
@@ -625,6 +645,18 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                         count:  widget.revisionCount,
                         onTap:  widget.onOpenRevisions,
                       ),
+                    // 振替休日。★差し戻しのすぐ下（どちらも「自分が動く番」の行）。
+                    //   帯と数字の色は差し戻しと同じ statusWarning のまま
+                    //   （この節の色は状態の語彙で、振替に新しい色を作らない）。
+                    //   0件なら行ごと出さない（差し戻しと同じ＝無いものは見せない）。
+                    if (widget.substituteCount > 0)
+                      _AttentionRow(
+                        accent: FieldTokens.statusWarning,
+                        label:  '振替休日',
+                        count:  widget.substituteCount,
+                        countTruncated: widget.substituteTruncated,
+                        onTap:  widget.onOpenSubstitutes,
+                      ),
                     if (widget.pendingApprovalCount > 0)
                       _AttentionRow(
                         accent: FieldTokens.accent,           // 承認待ち = accent系
@@ -1111,10 +1143,14 @@ class _AttentionRow extends StatelessWidget {
     required this.label,
     required this.count,
     required this.onTap,
+    this.countTruncated = false,
   });
   final Color accent;       // 意味の色（差し戻し=warning / 承認待ち=accent）
   final String label;
   final int count;
+  // 天井で切れた回だけ true。★数の後ろに + を付けるためだけの純追加で、
+  //   既定 false ＝今までの呼び手（差し戻し・承認待ち）の見え方は1ピクセルも変わらない。
+  final bool countTruncated;
   final VoidCallback? onTap;
 
   @override
@@ -1139,7 +1175,7 @@ class _AttentionRow extends StatelessWidget {
               ),
               // 数字が主役: 件数20px / 単位11px
               Text(
-                '$count',
+                countTruncated ? '$count+' : '$count',
                 style: const TextStyle(
                   color: _text,
                   fontSize: 20,

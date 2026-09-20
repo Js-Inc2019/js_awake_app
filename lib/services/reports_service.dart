@@ -546,6 +546,68 @@ class ReportsService {
     );
   }
 
+  // GET /rest-days/my/substitutes → { rows:[...], truncated:bool }
+  // 本人の振替休日の一覧（BE routes/rest_days.js の GET /rest-days/my/substitutes）。
+  //
+  // ★月を渡さない。この口は【期間で切らない】＝同意待ちや成立できない振替は
+  //   来月の分もありうるため（BE 側の口の★）。月で切る getRestDaysMy とは別物で、
+  //   どちらかがどちらかの代わりになることは無い。
+  // ★返るのは (a) 本人が動く番（同意待ち・成立できない）と (b) これからの成立済み。
+  //   取消済・過去の成立済みは BE が返さない＝端末で落とす細工は要らない。
+  // ★rows の各要素のキーは BE がそのまま返すものを読むだけ。素の Map で渡し、
+  //   画面側で null 安全に読む（getRestDaysMy と同じ扱い・欠落キーを握り潰さない）。
+  //   ★proposed_by_name は BE の別便で足している最中。無い回は null で返り、
+  //     画面は名前なしで出す（落とさない・作らない）。
+  // ★truncated を捨てない。BE の天井（1000）で切れた事実を運ぶ
+  //   ＝画面が「これで全部」と言い切らないための材料。
+  Future<ApiResult<Map<String, dynamic>>> getMySubstitutes() async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.getMySubstitutes',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/my/substitutes'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final m = apiJsonMap(body);
+        return {
+          'rows': ((m?['rows'] as List?) ?? const [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+          'truncated': m?['truncated'] == true,
+        };
+      },
+    );
+  }
+
+  // GET /rest-days/:id → { rest_day:{...}, events:[...] }
+  // 休みを1件開く（BE routes/rest_days.js の GET /rest-days/:id）。
+  //
+  // ★events は BE が【実在の記録だけ】から組んだ行（type / at / text / notified?）。
+  //   ★text は BE の文。端末で書き換えない・言い換えない（同じ事実に2通りの言い方を作らない）。
+  // ★この口は1バイトも書かない（BE 側の★＝1件を開くたびに成立させない）。
+  Future<ApiResult<Map<String, dynamic>>> getRestDay(String id) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.getRestDay',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/$id'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final m = apiJsonMap(body);
+        return {
+          'rest_day': m?['rest_day'] is Map
+              ? Map<String, dynamic>.from(m!['rest_day'] as Map)
+              : <String, dynamic>{},
+          'events': ((m?['events'] as List?) ?? const [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        };
+      },
+    );
+  }
+
   // GET /rest-days/today → { rested: bool, reason: string|null }
   Future<ApiResult<RestDayToday>> getRestDayToday() async {
     final headers = await _auth.getAuthHeaders();

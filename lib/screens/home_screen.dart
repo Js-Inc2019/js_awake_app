@@ -33,6 +33,8 @@ import '../main.dart'
         OvertimeDialog;
 import '../core/theme/field_tokens.dart';
 import 'revision_inbox_screen.dart';
+import 'substitute_list_screen.dart';
+import 'substitute_detail_screen.dart';
 // 承認タブ（ReviewTab）の日付行タップで開く「その日の報告」画面。
 import 'approval_day_screen.dart';
 import 'site_quick_register_screen.dart';
@@ -355,6 +357,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   String _companyName = "";
   String _userName = '';
   int _revisionCount = 0;
+  // 振替休日の要対応。★数えるのは BE が返した action_needed が true の行だけ
+  //   （端末で条件を作らない）。天井で切れた回は _substituteTruncated が true。
+  int _substituteCount = 0;
+  bool _substituteTruncated = false;
+
   int _pendingApprovalCount = 0;
   // _linkCount（協力申請の未処理件数）は撤去した。
   // 唯一の読み手だった AppBar の 🤝 アイコンを撤去したため、
@@ -1169,6 +1176,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await Future.wait([
       _fetchGps(prefs: prefs),
       _loadRevisionCount(prefs: prefs),
+      _loadSubstituteCount(),
       _loadPendingApprovalCount(),
       _fetchCompanyAddress(),
     ]);
@@ -1335,6 +1343,35 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('是正件数取得エラー: $e');
+    }
+  }
+
+  // 振替休日の要対応件数をシェルへ取得。
+  //   ★形は直上の _loadRevisionCount と同じ（ApiResult を見る・mounted 確認・setState）。
+  //     ただし prefs へのキャッシュは持たない。差し戻しが持っているのは
+  //     「起動直後に前回値を出す」ためで、振替はまだ前回値を出す場所が無い
+  //     （持たせると、消えた要対応が起動直後だけ復活する形を作る）。
+  //   ★数えるのは BE が返した action_needed が true の行の数。端末で
+  //     pending_agreement や日付から条件を組み立て直さない。
+  //   ★truncated を握り潰さない。天井で切れた回は行の数が下限でしかないので、
+  //     画面が数の後ろに + を付けられるよう真偽をそのまま持つ。
+  //   ★職長かどうかで分けない（振替は全員のもの）。
+  Future<void> _loadSubstituteCount() async {
+    try {
+      final res = await ReportsService().getMySubstitutes();
+      if (!res.ok || !mounted) return;
+      final d = res.data ?? const <String, dynamic>{};
+      final rows = ((d['rows'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      setState(() {
+        _substituteCount =
+            rows.where((r) => r['action_needed'] == true).length;
+        _substituteTruncated = d['truncated'] == true;
+      });
+    } catch (e) {
+      debugPrint('振替件数取得エラー: $e');
     }
   }
 
@@ -1891,6 +1928,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   承認待ち   = _pendingApprovalCount (取得は _loadPendingApprovalCount)
         //     ※職長のみ。isForeman の掛け方はボトムバッジと同一の流儀。
         revisionCount: _revisionCount,
+        //   振替休日 = _substituteCount (取得は _loadSubstituteCount)
+        //     ※職長で分けない（振替は全員のもの）。
+        substituteCount: _substituteCount,
+        substituteTruncated: _substituteTruncated,
         pendingApprovalCount: widget.isForeman ? _pendingApprovalCount : 0,
         // 遷移先も既存のものを使う:
         //   差し戻し → RevisionInboxScreen（notification_list_screen.dart /
@@ -1900,6 +1941,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
           );
           if (mounted) _loadRevisionCount();
+        },
+        //   振替休日 → SubstituteListScreen（通知・カレンダーの「振替休日を開く」と同じ画面）
+        onOpenSubstitutes: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SubstituteListScreen()),
+          );
+          if (mounted) _loadSubstituteCount();
         },
         //   承認待ち → 「管理・履歴」タブへ切替し、そのまま「承認」セグメントを開く。
         //     セグメントはラベルで要求する（index直指定はしない）。職長以外は
@@ -6863,6 +6911,36 @@ class _CalendarTabState extends State<CalendarTab> {
   /// 旧実装は _DayCell へ isSelected:false を固定で渡していて選択が機能していなかった。
   String? _selectedDate;
 
+  /// 'YYYY-MM-DD' → その日に関わる振替の id。
+  ///   ★休む日と【対の出勤日】の両方を鍵にする（モック A4＝どちらの箱からも開ける）。
+  ///   ★端末で「振替の日か」を判定しない。BE が返した一覧に在るかどうかだけ。
+  ///   ★月では切らない（振替の一覧の口は期間で切らない）。月を送っても取り直さない
+  ///     ＝この地図は月と無関係なので、画面に入ったときに1回だけ引く。
+  Map<String, String> _substituteByDate = const {};
+
+  Future<void> _loadSubstituteDates() async {
+    try {
+      final res = await ReportsService().getMySubstitutes();
+      if (!res.ok || !mounted) return;
+      final rows = (((res.data ?? const {})['rows'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      final byDate = <String, String>{};
+      for (final r in rows) {
+        final id = '${r['id'] ?? ''}';
+        if (id.isEmpty) continue;
+        for (final k in const ['rest_date', 'paired_work_date']) {
+          final d0 = r[k];
+          if (d0 is String && d0.isNotEmpty) byDate.putIfAbsent(d0, () => id);
+        }
+      }
+      setState(() => _substituteByDate = byDate);
+    } catch (e) {
+      debugPrint('振替の日付取得エラー: $e');
+    }
+  }
+
   // ── 会社休日（GET /attendance/holidays/my）──
   //   weekly: {"0".."6" → 'legal'|'scheduled'} / dates: {"YYYY-MM-DD" → 'legal'|'scheduled'}
   //   セル塗り（会社がその日を休みにしているか）にのみ使う。文字色には使わない。
@@ -6899,6 +6977,8 @@ class _CalendarTabState extends State<CalendarTab> {
     super.initState();
     _initCompanyId();
     _loadMonth();
+    // 振替の日付は月と無関係（一覧の口は期間で切らない）。画面に入ったときに1回だけ。
+    _loadSubstituteDates();
   }
 
   Future<void> _initCompanyId() async {
@@ -7351,6 +7431,16 @@ class _CalendarTabState extends State<CalendarTab> {
       info: info,
       maxHeight: _sheetMaxHeight(),
       myCompanyId: _myCompanyId,
+      // 振替の日（休む日 または 対の出勤日）の箱にだけ出す入口。null=出さない。
+      substituteId: _substituteByDate[ds],
+      onOpenSubstitute: () {
+        final id = _substituteByDate[ds];
+        if (id == null) return;
+        Navigator.pop(context);
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => SubstituteDetailScreen(restDayId: id),
+        ));
+      },
       onCompOff: () async {
         Navigator.pop(context);
         final took = await showCompOffFlow(context, restDate: ds);
@@ -7380,6 +7470,30 @@ class _CalendarTabState extends State<CalendarTab> {
 // ─────────────────────────────────────────────
 // カレンダーの1日ぶんの中身と、その見せ方2種（要約とシート）
 // ─────────────────────────────────────────────
+
+/// 休みの理由（BE の rest_days.reason）→ 人の言葉。
+///   ★言葉は【既にこのアプリが使っているもの】だけを使う。新しい呼び名を作らない:
+///     ・paid_leave / absence / company_closed / personal
+///       … rest_day_screen.dart の _kReasons（同ファイル :15-20）の label と1文字も同じ。
+///     ・comp_off … 同じ画面が「代休」と呼んでいる（rest_day_screen.dart の代休の節）。
+///     ・substitute … 承認済みモック field_substitute_flow_mock_v4.html の A4 の「振替休日」。
+///   ★rest_day_screen.dart の _kReasons を import しないのは、あれがあのファイルの
+///     私有（先頭が _）で外から読めないため。表を公開すると、あの画面の選択肢の並びを
+///     この表の都合で触ることになるので、語だけを写して出どころをここに明記した。
+///   ★知らない理由は【英字のまま出す】。黙って消すと、BE が種別を足した日に
+///     カレンダーから理由が静かに消える（沈黙障害）。握り潰さず debugPrint に残す。
+String restReasonLabel(String reason) {
+  switch (reason) {
+    case 'paid_leave':     return '有給';
+    case 'absence':        return '欠勤';
+    case 'company_closed': return '会社休業';
+    case 'personal':       return '私用';
+    case 'comp_off':       return '代休';
+    case 'substitute':     return '振替休日';
+  }
+  debugPrint('restReasonLabel: 知らない理由 reason=$reason（英字のまま出しています）');
+  return reason;
+}
 
 /// カレンダーの1日ぶんの中身。
 ///
@@ -7450,9 +7564,14 @@ class CalendarDayInfo {
   }
 
   /// 自分の休みの1行。理由が在れば括弧で足す（旧パネルと同じ言い方）。
+  ///   ★2026-09-19: 理由を【英字のまま】出していた（例「自分の休み：終日休み（paid_leave）」）。
+  ///     BE の rest_days.reason は英字の鍵で、そのまま出すと読み手には意味が無い。
+  ///     日本語にするのは restReasonLabel ただ1本（下の★）。
   String get restLine {
     final reason = restReason;
-    final tail = (restPortion != null && reason != null) ? '（$reason）' : '';
+    final tail = (restPortion != null && reason != null)
+        ? '（${restReasonLabel(reason)}）'
+        : '';
     return '自分の休み：$restLabel$tail';
   }
 
@@ -7627,6 +7746,8 @@ class CalendarDaySheet extends StatelessWidget {
     this.myCompanyId = '',
     this.onCompOff,
     this.onOpenDayReports,
+    this.substituteId,
+    this.onOpenSubstitute,
   });
 
   final CalendarDayInfo info;
@@ -7644,6 +7765,12 @@ class CalendarDaySheet extends StatelessWidget {
 
   /// 日報を確認（既存の DayReportsScreen へ繋ぐ）。null=出さない。
   final VoidCallback? onOpenDayReports;
+
+  /// その日に関わる振替の id。null=その日は振替と関係が無い＝入口を出さない。
+  ///   ★端末で「振替の日か」を判定しない。BE が返した一覧（休む日と対の出勤日）に
+  ///     その日が在るかどうかだけで決まる。
+  final String? substituteId;
+  final VoidCallback? onOpenSubstitute;
 
   @override
   Widget build(BuildContext context) {
@@ -7718,6 +7845,26 @@ class CalendarDaySheet extends StatelessWidget {
                         ),
                       ),
                     ],
+                    // 振替休日を開く（モック A4）。休む日の箱にも、対の出勤日の箱にも出す。
+                    // ★既定のパネル（CalendarDayPanel）ではなくこの箱に置く。あちらは
+                    //   確保した高さ（kCalendarPanelReservedHeight）に釣り合わせてあり、
+                    //   ボタンは全部この箱へ移すのがこのファイルの作法（上の★）。
+                    if (substituteId != null && onOpenSubstitute != null) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: onOpenSubstitute,
+                          icon: const Icon(Icons.swap_horiz, size: 16),
+                          label: const Text('振替休日を開く'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: FieldTokens.textBody,
+                            side: const BorderSide(
+                                color: FieldTokens.textBody, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     _dayReportRow(info),
                     // (b) その日の日報を1枚ずつ全部出す。
@@ -7770,6 +7917,8 @@ Future<void> showCalendarDaySheet(
   String myCompanyId = '',
   VoidCallback? onCompOff,
   VoidCallback? onOpenDayReports,
+  String? substituteId,
+  VoidCallback? onOpenSubstitute,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -7786,6 +7935,8 @@ Future<void> showCalendarDaySheet(
       myCompanyId: myCompanyId,
       onCompOff: onCompOff,
       onOpenDayReports: onOpenDayReports,
+      substituteId: substituteId,
+      onOpenSubstitute: onOpenSubstitute,
     ),
   );
 }
