@@ -10,6 +10,8 @@ import '../services/reports_service.dart';
 import '../main.dart' show showJsSnackbar;
 import '../widgets/comp_off_dialog.dart';
 import 'rest_day_done_screen.dart';
+import 'substitute_detail_screen.dart' show showSubstituteNotice;
+import 'substitute_register_screen.dart';
 
 // 理由4値（null=未選択）。表示ラベルと BE キーの対応。
 const List<Map<String, String>> _kReasons = [
@@ -34,18 +36,26 @@ class RestDayScreen extends StatefulWidget {
     this.editMode = false,
     this.initialReason,
     this.initialPortion = 'full',
+    this.service,
   });
 
   final bool editMode;          // false=新規登録 / true=修正
   final String? initialReason;  // 修正モードの初期 reason（null許容）
   final String initialPortion;  // 修正モードの初期 portion（full/am_half/pm_half）
 
+  /// 口の差し替え（検査だけが渡す）。既定は null＝今までどおり ReportsService()。
+  ///   ★形も理由も substitute_list_screen.dart の同じ引数の★と同じ【Q70】。
+  ///   ★呼び出し側は editMode / initialReason / initialPortion しか渡しておらず、
+  ///     1文字も変わらない。
+  final ReportsService? service;
+
   @override
   State<RestDayScreen> createState() => _RestDayScreenState();
 }
 
 class _RestDayScreenState extends State<RestDayScreen> {
-  final ReportsService _svc = ReportsService();
+  // ★本番は今までどおり ReportsService()。差し替えを渡すのは検査だけ。
+  late final ReportsService _svc = widget.service ?? ReportsService();
 
   String? _selectedReason;
   String _selectedPortion = 'full';
@@ -149,6 +159,47 @@ class _RestDayScreenState extends State<RestDayScreen> {
     // 取れたらホームへ戻す（ホームが休みの状態を取り直す）。
     // ★「本日休み」の登録が done 画面へ進むのとは道を分ける。代休は
     //   今日とは限らないので、今日のねぎらい画面へ入れると嘘になる。
+    Navigator.of(context).popUntil((r) => r.isFirst);
+  }
+
+  // ── 振替の日（入口②が持つ）────────────────────────────────
+  //  ★代休の日（_compOffDate）とは別に持つ。同じ変数を使い回すと、代休の日を
+  //    選び直したつもりで振替の日まで動く（1つの値に2つの意味を持たせない）。
+  DateTime _substituteDate = DateTime.now();
+
+  String _substituteDateLabel() {
+    final w = _kWeekdayJa[_substituteDate.weekday - 1];
+    return '${_substituteDate.month}月${_substituteDate.day}日（$w）';
+  }
+
+  // 別の日を選ぶ。★日付部品の使い方も選べる範囲も代休の _pickCompOffDate と
+  //   同じに揃える（同じ画面に2通りの日の選び方を作らない）。
+  Future<void> _pickSubstituteDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _substituteDate,
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 1, now.month, now.day),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _substituteDate = picked);
+  }
+
+  // 振替で休む。★手前に注意書き（B2）を挟む。使うのは1件の画面が既に持っている
+  //   showSubstituteNotice ただ1本で、同じ注意書きの写しをここに作らない。
+  Future<void> _openSubstitute() async {
+    if (!await showSubstituteNotice(context)) return;
+    if (!mounted) return;
+    final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => SubstituteRegisterScreen(
+        restDate: _ymd(_substituteDate),
+        service: widget.service,
+      ),
+    ));
+    if (!mounted || done != true) return;
+    // 登録できたらホームへ戻す。★ホームが休みの状態・カレンダー・要対応の件数を
+    //   取り直す道（代休の _openCompOff とまったく同じ＝数が古いまま残らない）。
     Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
@@ -326,6 +377,41 @@ class _RestDayScreenState extends State<RestDayScreen> {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _busy ? null : _pickCompOffDate,
+                  child: const Text('別の日にする',
+                      style: TextStyle(color: FieldTokens.textSupport)),
+                ),
+
+                // ── 振替で休む（入口②）────────────────────────────
+                //  ★代休の入口の【すぐ下】に、同じ形・同じ並びで置く
+                //    （区切り線 → 小見出し → 主ボタン → 別の日にする）。
+                //    並べ方を揃えるのは、2つが同じ「この画面の本体とは別の休み」で、
+                //    選び方も同じだから。違う形にすると別の仕掛けに見える。
+                //  ★区分も理由も選ばせない。BE の口（POST /rest-days/substitute）は
+                //    まるごと1日しか受け付けず、reason は 'substitute' 固定で刻まれる。
+                //    上の区分チップ・理由4値には1文字も手を入れていない。
+                //  ★修正モードで出さないのは代休と同じ理由（その日は既に休みなので
+                //    BE が ALREADY_RESTED で断るだけ＝必ず失敗するボタンを置かない）。
+                const SizedBox(height: 24),
+                const Divider(color: FieldTokens.outline, height: 1),
+                const SizedBox(height: 16),
+                const Text('振替',
+                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _openSubstitute,
+                    icon: const Icon(Icons.swap_horiz, size: 16),
+                    label: Text('振替で休む（${_substituteDateLabel()}）'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: FieldTokens.textBody,
+                      side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _busy ? null : _pickSubstituteDate,
                   child: const Text('別の日にする',
                       style: TextStyle(color: FieldTokens.textSupport)),
                 ),

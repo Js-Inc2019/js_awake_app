@@ -611,6 +611,76 @@ class ReportsService {
     );
   }
 
+  // GET /rest-days/substitute/candidates?rest_date=YYYY-MM-DD
+  // 休む日を決めた人に「出勤する日」に選べる日を返す（2026-09-20）。
+  //   返り＝{ rest_date, rest_date_is_workday, holiday_def_configured, days[] }
+  //   days[] の1つ＝{ date, dow, selectable, reason_code, reason }
+  //   ★上の getChangeCandidates（休む日を変える方）とは【別の口】。あちらは
+  //     既に在る振替の「新しい休む日」、こちらは新しく作る振替の「出勤する日」で、
+  //     問いが逆を向いている。片方で代用しない（deadline が付くのもあちらだけ）。
+  //   ★選べない理由の文（reason）は BE が日本語で返す。端末で書かない・言い換えない。
+  //   ★rest_date_is_workday を握り潰さない。休む日そのものが会社の休みの日だった回を
+  //     画面が知れる（ただし端末で先回りして弾かない＝断るのは口の仕事）。
+  Future<ApiResult<Map<String, dynamic>>> getSubstituteWorkDateCandidates(
+      String restDate) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.getSubstituteWorkDateCandidates',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/rest-days/substitute/candidates'
+            '?rest_date=$restDate'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      (body) {
+        final m = apiJsonMap(body);
+        return {
+          'rest_date': m?['rest_date'],
+          'rest_date_is_workday': m?['rest_date_is_workday'] == true,
+          'holiday_def_configured': m?['holiday_def_configured'] == true,
+          'days': ((m?['days'] as List?) ?? const [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        };
+      },
+    );
+  }
+
+  // POST /rest-days/substitute — 振替休日を登録する（2026-09-20）。
+  //   本文＝{ "rest_date": "YYYY-MM-DD", "paired_work_date": "YYYY-MM-DD" }
+  //   ★portion は送らない。BE は【まるごと1日】しか受け付けない（半日の入替は別の工事）。
+  //     送らないことで「半日も選べるのでは」と読める余地を作らない。
+  //   201＝{ rest_day, pending_agreement, notice? }
+  //   ★ご本人が自分で登録した回は pending_agreement が false（その場で成立）。
+  //   断り＝FORBIDDEN / INVALID_REST_DATE / SUBSTITUTE_PAIR_REQUIRED /
+  //         INVALID_PAIRED_WORK_DATE / SUBSTITUTE_SAME_DATE / SUBSTITUTE_DIFFERENT_WEEK /
+  //         INVALID_PORTION / SUBSTITUTE_FULL_ONLY / MEMBERSHIP_NOT_FOUND /
+  //         SUBSTITUTE_WORK_DATE_NOT_HOLIDAY / SUBSTITUTE_REST_DATE_NOT_WORKDAY /
+  //         ALREADY_RESTED / SUBSTITUTE_WORK_DATE_IS_REST /
+  //         SUBSTITUTE_WORK_DATE_TAKEN / SERVER_ERROR
+  Future<ApiResult<Map<String, dynamic>>> registerSubstitute(
+      String restDate, String pairedWorkDate) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.registerSubstitute',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/rest-days/substitute'),
+        headers: headers,
+        body: jsonEncode(substituteRegisterBody(restDate, pairedWorkDate)),
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  /// 送る body を組む部品。★組み立てを名前付きにするのは、送る形そのものを
+  ///   検査で固定するため（compOffBody / substituteChangeBody と同じ作法）。
+  ///   ★portion を入れない＝上の★のとおり。
+  static Map<String, dynamic> substituteRegisterBody(
+          String restDate, String pairedWorkDate) =>
+      <String, dynamic>{
+        'rest_date': restDate,
+        'paired_work_date': pairedWorkDate,
+      };
+
   // ============================================================
   // 振替休日の【操作】5本（2026-09-20）。
   //

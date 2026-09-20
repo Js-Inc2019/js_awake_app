@@ -35,6 +35,7 @@ import '../core/theme/field_tokens.dart';
 import 'revision_inbox_screen.dart';
 import 'substitute_list_screen.dart';
 import 'substitute_detail_screen.dart';
+import 'substitute_register_screen.dart';
 // 承認タブ（ReviewTab）の日付行タップで開く「その日の報告」画面。
 import 'approval_day_screen.dart';
 import 'site_quick_register_screen.dart';
@@ -7446,6 +7447,20 @@ class _CalendarTabState extends State<CalendarTab> {
         final took = await showCompOffFlow(context, restDate: ds);
         if (took && mounted) _loadMonth();   // BE の真実へ追随
       },
+      // 振替で休む。★代休と同じ道＝箱を閉じてから進み、通ったら読み直す。
+      //   手前の注意書きは1件の画面が持つ showSubstituteNotice ただ1本
+      //   （同じ注意書きの写しをここに作らない）。
+      onSubstitute: () async {
+        Navigator.pop(context);
+        if (!await showSubstituteNotice(context)) return;
+        if (!mounted) return;
+        final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+          builder: (_) => SubstituteRegisterScreen(restDate: ds),
+        ));
+        // ★数が古いまま残らないように読み直す。_loadMonth はカレンダーと
+        //   要対応の件数の両方を取り直す（代休の道と同じ1本）。
+        if (done == true && mounted) _loadMonth();
+      },
       onOpenDayReports: () async {
         Navigator.pop(context);
         // ★戻り値を待つ。DayReportsScreen で日報を取り消すと true が返る。
@@ -7748,6 +7763,7 @@ class CalendarDaySheet extends StatelessWidget {
     this.onOpenDayReports,
     this.substituteId,
     this.onOpenSubstitute,
+    this.onSubstitute,
   });
 
   final CalendarDayInfo info;
@@ -7771,6 +7787,12 @@ class CalendarDaySheet extends StatelessWidget {
   ///     その日が在るかどうかだけで決まる。
   final String? substituteId;
   final VoidCallback? onOpenSubstitute;
+
+  /// 振替で休む（注意書き → 出勤する日を選ぶ画面へ繋ぐ）。null=出さない。
+  ///   ★出す条件は「代休で休む」と同じ＝その日にまだ休みが入っていないこと。
+  ///     既に休みが在る日に出しても BE が ALREADY_RESTED で断るだけで、
+  ///     押せるのに必ず失敗するボタンになる。
+  final VoidCallback? onSubstitute;
 
   @override
   Widget build(BuildContext context) {
@@ -7837,6 +7859,28 @@ class CalendarDaySheet extends StatelessWidget {
                           onPressed: onCompOff,
                           icon: const Icon(Icons.event_repeat, size: 16),
                           label: const Text('代休で休む'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: FieldTokens.textBody,
+                            side: const BorderSide(
+                                color: FieldTokens.textBody, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                    // 振替で休む（モック B1 の入口をカレンダーにも置いた）。
+                    // ★「代休で休む」の【すぐ下】に、同じ形で置く。どちらも
+                    //   「その日を休みにする」入口で、選び方も同じだから。
+                    // ★出す条件も代休と同じ＝その日にまだ休みが入っていないとき。
+                    //   振替の日・対の出勤日の箱には、下の「振替休日を開く」が出る
+                    //   （あちらは既に在る振替を見る道で、これとは別の入口）。
+                    if (info.restPortion == null && onSubstitute != null) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: onSubstitute,
+                          icon: const Icon(Icons.swap_horiz, size: 16),
+                          label: const Text('振替で休む'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: FieldTokens.textBody,
                             side: const BorderSide(
@@ -7919,6 +7963,7 @@ Future<void> showCalendarDaySheet(
   VoidCallback? onOpenDayReports,
   String? substituteId,
   VoidCallback? onOpenSubstitute,
+  VoidCallback? onSubstitute,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -7937,6 +7982,7 @@ Future<void> showCalendarDaySheet(
       onOpenDayReports: onOpenDayReports,
       substituteId: substituteId,
       onOpenSubstitute: onOpenSubstitute,
+      onSubstitute: onSubstitute,
     ),
   );
 }
