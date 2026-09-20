@@ -1,5 +1,5 @@
 # Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -44,6 +44,19 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
 
+    # ★各 Pod の iOS の下限を 15.0 へ上げる（2026-09-20）。
+    #   理由: Xcode 27 は下限が 15.0 未満のターゲットをビルドできない
+    #   （"the range of supported deployment target versions is 15.0 to 27.0.x"）。
+    #   Pod の中には自分で 9.0/11.0/12.0 を名乗るものがあり、上の
+    #   flutter_additional_ios_build_settings はそれを 15.0 までは上げない。
+    #   ★Podfile の platform（:ios, '15.0'）だけでは足りない。あれは【新しく作る】
+    #     ターゲットの既定で、Pod 側が自分の podspec で明示している下限は上書きされない。
+    #   ★書くのは一律 15.0（Flutter が案内している形そのまま）。15.0 より上を
+    #     要求する Pod が将来入ったらここで下げることになるが、その Pod は
+    #     コンパイルで落ちて必ず気付ける＝黙って壊れる形にはならない。
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
   end
 
   # CwlCatchException の Swift コードが CwlCatchExceptionSupport を import するが
@@ -69,14 +82,44 @@ post_install do |installer|
   end
 
   # iOS 26 / macOS 26: resource fork detritus を除去してコード署名エラーを防ぐ
+  #
+  # ★2026-09-20 に【毎回足し続ける形】を直した。それまでは無条件に
+  #   new_shell_script_build_phase を呼んでおり、pod install のたびに
+  #   同じ名前のフェーズが1つずつ増え、UUID も振り直されていた。
+  #   実測＝Runner の buildPhases に「Clear Extended Attributes」が2つ並び、
+  #   回すたびに project.pbxproj が汚れて（＝git の差分が出て）いた。
+  #   回すほど増える形は、いつか署名の前に同じ掃除が何度も走る形にもなる。
+  # ★直し方＝在れば【足さずに中身を揃える】、無いときだけ足す（冪等）。
+  #   既に2つ以上並んでいたら先頭の1つに寄せ、余分は取り除く。
+  CLEAR_XATTR_NAME = 'Clear Extended Attributes'
+  CLEAR_XATTR_SCRIPT =
+    'find "$BUILT_PRODUCTS_DIR" -name "*.app" -o -name "*.framework" ' \
+    '-o -name "*.dylib" | xargs xattr -cr 2>/dev/null; true'
+
   runner_target = installer.aggregate_targets.find { |t| t.name == 'Pods-Runner' }
   if runner_target
     runner_target.user_project.targets.each do |target|
       next unless target.name == 'Runner'
-      phase = target.new_shell_script_build_phase('Clear Extended Attributes')
-      phase.shell_script = 'find "$BUILT_PRODUCTS_DIR" -name "*.app" -o -name "*.framework" -o -name "*.dylib" | xargs xattr -cr 2>/dev/null; true'
+
+      # 同じ名前のフェーズを全部拾う（過去の便で増えた分もここで拾える）。
+      existing = target.build_phases.select do |p|
+        p.respond_to?(:name) && p.name.to_s == CLEAR_XATTR_NAME
+      end
+
+      if existing.empty?
+        phase = target.new_shell_script_build_phase(CLEAR_XATTR_NAME)
+      else
+        # 先頭の1つを使い回す。余分は取り除く（1つに寄せる）。
+        phase = existing.first
+        existing.drop(1).each { |extra| target.build_phases.delete(extra) }
+      end
+
+      phase.shell_script = CLEAR_XATTR_SCRIPT
       phase.run_only_for_deployment_postprocessing = '0'
-      # コード署名フェーズの直前に移動
+
+      # コード署名フェーズの直前へ置き直す（位置は今までどおり）。
+      #   ★毎回 delete → insert するのは、フェーズの並びを一定に保つため。
+      #     既に正しい位置に在れば同じ場所へ戻るだけで、差分は出ない。
       target.build_phases.delete(phase)
       codesign_idx = target.build_phases.index { |p| p.respond_to?(:name) && p.name.to_s.include?('Sign') }
       insert_idx = codesign_idx ? codesign_idx : target.build_phases.length - 1
