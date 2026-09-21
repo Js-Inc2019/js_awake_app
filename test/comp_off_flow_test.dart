@@ -267,7 +267,9 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: RestDayScreen()));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.textContaining('代休で休む'));
+      // ★本日休みの画面では、代休の入口は種類名「代休」だけになった
+      //   （代休と振替を横に並べたため。受け皿は今までと同じ1本）。
+      await tester.tap(find.text('代休'));
       await tester.pumpAndSettle();
       // 受け皿の中にしか無い行が出れば、同じ部品を通っている。
       expect(find.text(kUndecidedRow), findsOneWidget,
@@ -321,7 +323,7 @@ void main() {
         expect(find.text(t), findsOneWidget, reason: '理由「$t」が消えている');
       }
       expect(find.text('休みを登録する'), findsOneWidget, reason: '登録ボタンが消えている');
-      expect(find.text('※理由は任意です。有給は事務の確認後に休暇の記録へ反映されます。'),
+      expect(find.text('※理由は任意。有給は事務の確認後に記録へ反映'),
           findsOneWidget, reason: '従来の注記が消えている');
     });
 
@@ -332,7 +334,7 @@ void main() {
           home: RestDayScreen(editMode: true, initialReason: 'paid_leave')));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('代休で休む'), findsNothing);
+      expect(find.text('代休'), findsNothing);
       expect(find.text('変更を保存'), findsOneWidget, reason: '修正モードが壊れている');
       expect(find.text('休みを取り消す'), findsOneWidget, reason: '取消の道が消えている');
     });

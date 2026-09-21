@@ -130,12 +130,13 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      // ★上下を 16 → 12 に詰める。左右 16 はそのまま（1画面に収めるため）。
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       children: [
         // ── 休む日（上）──────────────────────────────────────
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: FieldTokens.surfaceRaised,
             borderRadius: BorderRadius.circular(8),
@@ -161,12 +162,12 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
 
         // ── 区切りの帯 ───────────────────────────────────────
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: FieldTokens.surfaceCard,
@@ -175,14 +176,14 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
           child: const Text('同じ週の中で入れ替え',
               style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
 
         const Text('代わりに出勤する日',
             style: TextStyle(
                 color: FieldTokens.textSupport,
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
 
         // ── 候補（BE が返した7日をその順のまま）──────────────────
         for (final d in _days)
@@ -193,15 +194,15 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
             onTap: () => setState(() => _picked = '${d['date']}'),
           ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         // ── ※（モック B3 の2行）──────────────────────────────
         //   ★週の両端は BE が返した days[] の最初と最後から出す。
-        Text('※出勤する日は、休む日と同じ週（$_weekFirst〜$_weekLast）の'
-            '会社休みの日から選びます。',
+        //   ★1行目は同じ意味のまま短くした（1画面に収めるため）。
+        Text('※同じ週（$_weekFirst〜$_weekLast）の会社休みの日から選びます。',
             style: _note),
         const Text('※出勤する日を決めないと登録できません。', style: _note),
 
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
@@ -296,7 +297,8 @@ class _WorkDateRow extends StatelessWidget {
     return Opacity(
       opacity: selectable ? 1.0 : 0.55,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
+        // ★行の間だけ詰める（8 → 4）。行そのものの高さは下の padding で保つ。
+        margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
           color: FieldTokens.surfaceCard,
           borderRadius: BorderRadius.circular(8),
@@ -307,11 +309,21 @@ class _WorkDateRow extends StatelessWidget {
         child: InkWell(
           onTap: (selectable && !busy) ? onTap : null,
           child: Padding(
+            // ★押せる高さは 44pt 以上を保つ。行の高さは日付1行（15pt）が決める。
+            //   実測: 21〜22 + 12 * 2 = 45（検査の書体）／46（実機）。
+            //   ここを縮めると 44 を割るため詰めない。
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
                 SizedBox(
-                  width: 104,
+                  // ★104 では日付が2行に折れて、行の高さが 44 ではなく 67 になっていた
+                  //   （7日ぶんで 161pt ぶん余計に伸び、これが「1画面に収まらない」
+                  //     一番の原因だった）。
+                  //   実測（iPhone 16 / iOS 26.5 のシミュレータ）:
+                  //     '12月31日（水）' 15pt太字 = 112.3pt ＞ 104 → 折れる
+                  //     列を 144 にすると行の高さは 46pt（1行のまま）
+                  //   ★144 は検査で使う書体（'12月31日（水）' = 137.3pt）でも折れない幅。
+                  width: 144,
                   child: Text('${jpMonthDay(date)}$dowText',
                       style: TextStyle(
                           color: selectable

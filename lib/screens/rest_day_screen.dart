@@ -246,6 +246,69 @@ class _RestDayScreenState extends State<RestDayScreen> {
     }
   }
 
+  // ── 代休／振替の主ボタン（横に2つ並べる）────────────────────
+  //  ★中は2行。上＝種類名（代休／振替・太字）、下＝その日付。
+  //    種類名をいちばん目立たせるのは、賃金の扱いが違う2つを取り違えないため。
+  //  ★半分の幅に「代休で休む（12月31日（水））」は1行に入らないので、
+  //    種類名と日付を縦に分けた（文字を削らずに幅へ収める）。
+  Widget _entryButton({
+    required IconData icon,
+    required String kind,
+    required String date,
+    required VoidCallback? onPressed,
+  }) =>
+      SizedBox(
+        height: 48,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: FieldTokens.textBody,
+            side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+            // ★半分の幅しか無いので、左右の余白は既定より詰める。
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: Size.zero,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16),
+              const SizedBox(width: 6),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(kind,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.bold)),
+                  Text(date, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // ── 「別の日」（横に2つ並べる）──────────────────────────────
+  //  ★見た目の文字は2つとも「別の日」。どちらの日かは上のボタンの真下という
+  //    位置で分かる。目で見えない読み上げには label で手がかりを渡す。
+  Widget _anotherDayButton({
+    required String semanticsLabel,
+    required VoidCallback? onPressed,
+  }) =>
+      SizedBox(
+        height: 44, // 押せる部品は 44pt 以上
+        child: TextButton(
+          onPressed: onPressed,
+          style: TextButton.styleFrom(minimumSize: Size.zero),
+          child: Semantics(
+            label: semanticsLabel,
+            excludeSemantics: true,
+            child: const Text('別の日',
+                style: TextStyle(color: FieldTokens.textSupport)),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -258,7 +321,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+          // ★上下を 24 → 16 に詰める。左右 20 はそのまま（1画面に収めるため）。
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -270,12 +334,12 @@ class _RestDayScreenState extends State<RestDayScreen> {
                     fontSize: 22,
                     fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
               // 区分チップ3択（単一選択・解除不可＝必ずどれか1つ。既定=終日）
               const Text('区分',
                   style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
@@ -302,11 +366,11 @@ class _RestDayScreenState extends State<RestDayScreen> {
                 }).toList(),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
               const Text('理由（任意）',
                   style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               // 理由チップ4択（単一選択・再タップで解除）
               Wrap(
@@ -337,87 +401,87 @@ class _RestDayScreenState extends State<RestDayScreen> {
                 }).toList(),
               ),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 8),
+              // ★同じ意味のまま1行に収まる長さにした（1画面に収めるため）。
               const Text(
-                '※理由は任意です。有給は事務の確認後に休暇の記録へ反映されます。',
+                '※理由は任意。有給は事務の確認後に記録へ反映',
                 style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
               ),
 
-              // ── 代休で休む（入口①）────────────────────────────
-              //  ★この画面の本体（今日・理由4値・「休みを登録する」）には
+              // ── 代休・振替（この画面の本体とは別の休み）──────────
+              //  ★この画面の本体（今日・区分3値・理由4値・「休みを登録する」）には
               //    1つも手を入れていない。下に増設しただけ＝従来の道はそのまま通る。
               //  ★なぜ本体に混ぜないか: この画面は「本日」固定で、理由も
               //    有給/欠勤/会社休業/私用 の4値に固定されている（_kReasons）。
               //    代休は理由が comp_off で4値に無く、休む日も今日とは限らない。
+              //    振替も同じで、BE の口（POST /rest-days/substitute）は
+              //    まるごと1日しか受け付けず reason は 'substitute' 固定。
               //    同じチップの列に並べると「今日の私用」と同じ操作に見えるのに
               //    送り先も規則も違う、という嘘になる。
-              //  ★日はこの入口が持つ（既定＝今日／別の日も選べる）。部品は受け取るだけ。
+              //  ★2つを【横に並べて1つの節】にまとめた。以前は縦に2節あり、
+              //    実機でスクロールしないと「休みを登録する」まで届かなかった。
+              //    賃金の扱いが違う2つなので、種類名（代休／振替）をいちばん
+              //    目立たせて取り違えを防ぐ。日付はその下に小さく添える。
+              //  ★日はそれぞれの入口が持つ（既定＝今日／別の日も選べる）。
               //  ★修正モード（既に休みが登録されている日を開いている）では出さない。
-              //    その日は既に休みなので、代休を足しても BE が ALREADY_RESTED で
+              //    その日は既に休みなので、代休も振替も BE が ALREADY_RESTED で
               //    断るだけ＝押せるのに必ず失敗するボタンを置かない。
               if (!widget.editMode) ...[
-                const SizedBox(height: 24),
-                const Divider(color: FieldTokens.outline, height: 1),
                 const SizedBox(height: 16),
-                const Text('代休',
+                const Divider(color: FieldTokens.outline, height: 1),
+                const SizedBox(height: 12),
+                const Text('代休・振替',
                     style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _openCompOff,
-                    icon: const Icon(Icons.event_repeat, size: 16),
-                    label: Text('代休で休む（${_compOffDateLabel()}）'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: FieldTokens.textBody,
-                      side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _busy ? null : _pickCompOffDate,
-                  child: const Text('別の日にする',
-                      style: TextStyle(color: FieldTokens.textSupport)),
-                ),
 
-                // ── 振替で休む（入口②）────────────────────────────
-                //  ★代休の入口の【すぐ下】に、同じ形・同じ並びで置く
-                //    （区切り線 → 小見出し → 主ボタン → 別の日にする）。
-                //    並べ方を揃えるのは、2つが同じ「この画面の本体とは別の休み」で、
-                //    選び方も同じだから。違う形にすると別の仕掛けに見える。
-                //  ★区分も理由も選ばせない。BE の口（POST /rest-days/substitute）は
-                //    まるごと1日しか受け付けず、reason は 'substitute' 固定で刻まれる。
-                //    上の区分チップ・理由4値には1文字も手を入れていない。
-                //  ★修正モードで出さないのは代休と同じ理由（その日は既に休みなので
-                //    BE が ALREADY_RESTED で断るだけ＝必ず失敗するボタンを置かない）。
-                const SizedBox(height: 24),
-                const Divider(color: FieldTokens.outline, height: 1),
-                const SizedBox(height: 16),
-                const Text('振替',
-                    style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _openSubstitute,
-                    icon: const Icon(Icons.swap_horiz, size: 16),
-                    label: Text('振替で休む（${_substituteDateLabel()}）'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: FieldTokens.textBody,
-                      side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+                // 1行目＝主ボタンを横に2つ。左＝代休・右＝振替。
+                Row(
+                  children: [
+                    Expanded(
+                      child: _entryButton(
+                        icon: Icons.event_repeat,
+                        kind: '代休',
+                        date: _compOffDateLabel(),
+                        onPressed: _busy ? null : _openCompOff,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _entryButton(
+                        icon: Icons.swap_horiz,
+                        kind: '振替',
+                        date: _substituteDateLabel(),
+                        onPressed: _busy ? null : _openSubstitute,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _busy ? null : _pickSubstituteDate,
-                  child: const Text('別の日にする',
-                      style: TextStyle(color: FieldTokens.textSupport)),
+
+                // 2行目＝「別の日」を横に2つ。左＝代休・右＝振替（上の行と同じ並び）。
+                Row(
+                  children: [
+                    Expanded(
+                      child: _anotherDayButton(
+                        // ★見た目は「別の日」だけ。同じ文字のボタンが2つ並ぶので、
+                        //   読み上げにはどちらの日かが分かる手がかりを残す。
+                        semanticsLabel: '代休を別の日にする',
+                        onPressed: _busy ? null : _pickCompOffDate,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _anotherDayButton(
+                        semanticsLabel: '振替を別の日にする',
+                        onPressed: _busy ? null : _pickSubstituteDate,
+                      ),
+                    ),
+                  ],
                 ),
               ],
 
-              const SizedBox(height: 32),
+              // ★「別の日」の行（または修正モードでは※）と主ボタンの間。
+              const SizedBox(height: 24),
 
               // 主ボタン（accent面・onAccent文字・高さ52）
               SizedBox(

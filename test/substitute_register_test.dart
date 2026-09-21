@@ -35,8 +35,14 @@ import 'package:js_awake_app/services/api_result.dart';
 import 'package:js_awake_app/services/reports_service.dart';
 
 // ── 画面の実文言（lib の実文字列をここへ写した）──────────────────
+// ★カレンダーの箱（home_screen）の文言。ここは今までどおり。
 const String kActSubstitute = '振替で休む';
 const String kActCompOff    = '代休で休む';
+// ★本日休みの画面は、代休と振替を横に並べたときに種類名だけに変わった。
+//   （半分の幅に「振替で休む（12月31日（水））」は1行に入らないため）
+const String kRestSubstitute = '振替';
+const String kRestCompOff    = '代休';
+const String kRestAnotherDay = '別の日';
 const String kSubmitLabel   = '休みを登録する';
 const String kNoticeHead    = 'はじめにご確認ください';
 const String kNoticeOk      = '確認しました';
@@ -142,18 +148,17 @@ void main() {
         (tester) async {
       await _pump(tester, RestDayScreen(service: _FakeSvc()));
 
-      expect(find.textContaining(kActSubstitute), findsOneWidget,
-          reason: '振替の入口が無い');
+      expect(find.widgetWithText(OutlinedButton, kRestSubstitute),
+          findsOneWidget, reason: '振替の入口が無い');
       // ★対照: 既にあった入口を1つも壊していない。
-      expect(find.textContaining(kActCompOff), findsOneWidget,
+      expect(find.widgetWithText(OutlinedButton, kRestCompOff), findsOneWidget,
           reason: '代休の入口が消えている');
       expect(find.text(kSubmitLabel), findsOneWidget,
           reason: '本体の「休みを登録する」が消えている');
-      expect(find.text('振替'), findsOneWidget, reason: '小見出しが無い');
-      expect(find.text('代休'), findsOneWidget);
-      // 「別の日にする」は代休と振替で1つずつ＝2つ。
-      expect(find.text('別の日にする'), findsNWidgets(2),
-          reason: '振替側の「別の日にする」が無い／代休側が消えている');
+      expect(find.text('代休・振替'), findsOneWidget, reason: '小見出しが無い');
+      // 「別の日」は代休と振替で1つずつ＝2つ。
+      expect(find.text(kRestAnotherDay), findsNWidgets(2),
+          reason: '振替側の「別の日」が無い／代休側が消えている');
     });
 
     testWidgets('★押すと注意書き（B2）が出る（対照: 押す前は出ていない）',
@@ -162,7 +167,7 @@ void main() {
 
       expect(find.text(kNoticeHead), findsNothing,
           reason: '押していないのに注意書きが出ている');
-      await tester.tap(find.textContaining(kActSubstitute));
+      await tester.tap(find.text(kRestSubstitute));
       await tester.pumpAndSettle();
       expect(find.text(kNoticeHead), findsOneWidget, reason: '注意書きが出ない');
       expect(find.text(kNoticeOk), findsOneWidget);
@@ -173,7 +178,7 @@ void main() {
       final api = _FakeSvc(days: _week());
       await _pump(tester, RestDayScreen(service: api));
 
-      await tester.tap(find.textContaining(kActSubstitute));
+      await tester.tap(find.text(kRestSubstitute));
       await tester.pumpAndSettle();
       await tester.tap(find.text(kNoticeOk));
       await tester.pumpAndSettle();
@@ -193,7 +198,7 @@ void main() {
       final api = _FakeSvc(days: _week());
       await _pump(tester, RestDayScreen(service: api));
 
-      await tester.tap(find.textContaining(kActSubstitute));
+      await tester.tap(find.text(kRestSubstitute));
       await tester.pumpAndSettle();
       await tester.tap(find.text('やめる'));
       await tester.pumpAndSettle();
@@ -233,8 +238,7 @@ void main() {
               restDate: '2026-06-13', service: _FakeSvc(days: _week())));
 
       expect(
-          find.text('※出勤する日は、休む日と同じ週（6月7日〜6月14日）の'
-              '会社休みの日から選びます。'),
+          find.text('※同じ週（6月7日〜6月14日）の会社休みの日から選びます。'),
           findsOneWidget, reason: '1行目が原文どおりでない／両端が違う');
       expect(find.text('※出勤する日を決めないと登録できません。'), findsOneWidget);
     });
@@ -249,8 +253,7 @@ void main() {
           SubstituteRegisterScreen(restDate: '2026-07-08', service: api));
 
       expect(
-          find.text('※出勤する日は、休む日と同じ週（7月5日〜7月11日）の'
-              '会社休みの日から選びます。'),
+          find.text('※同じ週（7月5日〜7月11日）の会社休みの日から選びます。'),
           findsOneWidget, reason: '両端を変えても文が変わらない＝決め打ちになっている');
     });
   });
