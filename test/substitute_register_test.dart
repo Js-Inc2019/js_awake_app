@@ -33,6 +33,9 @@ import 'package:js_awake_app/screens/substitute_register_screen.dart'
     show SubstituteRegisterScreen;
 import 'package:js_awake_app/services/api_result.dart';
 import 'package:js_awake_app/services/reports_service.dart';
+// ★代休の受け皿の差し替え口（test/comp_off_flow_test.dart と同じ使い方）。
+import 'package:js_awake_app/widgets/comp_off_dialog.dart'
+    show compOffServiceFactory;
 
 // ── 画面の実文言（lib の実文字列をここへ写した）──────────────────
 // ★カレンダーの箱（home_screen）の文言。ここは今までどおり。
@@ -76,6 +79,11 @@ class _FakeSvc extends ReportsService {
     this.restDateIsWorkday = true,
     this.candidatesFail,
     this.registerFail,
+    this.restDateReasonCode,
+    this.restDateReason,
+    this.registerFailCode,
+    this.registerFailPastDates,
+    this.failOnlyWithoutPriorAgreement = false,
   }) : super.forTest();
 
   final List<Map<String, dynamic>> days;
@@ -83,9 +91,19 @@ class _FakeSvc extends ReportsService {
   final bool restDateIsWorkday;
   final String? candidatesFail;
   final String? registerFail;
+  // ★休む日そのものが断られる回（BE が応答の頭に載せる2つ）。
+  final String? restDateReasonCode;
+  final String? restDateReason;
+  // ★断りの符号と past_dates（BE が数えた過去の日）。
+  final String? registerFailCode;
+  final List<String>? registerFailPastDates;
+  // ★prior_agreement を付けて出し直したときだけ通す（1回目は断る）。
+  final bool failOnlyWithoutPriorAgreement;
 
   final List<String> candidateCalls = [];
   final List<Map<String, String>> registerCalls = [];
+  /// 送った body そのもの（キーが有るか無いかを数で見るため）。
+  final List<Map<String, dynamic>> registerBodies = [];
 
   @override
   Future<ApiResult<Map<String, dynamic>>> getSubstituteWorkDateCandidates(
@@ -100,6 +118,8 @@ class _FakeSvc extends ReportsService {
       data: {
         'rest_date': restDate,
         'rest_date_is_workday': restDateIsWorkday,
+        'rest_date_reason_code': restDateReasonCode,
+        'rest_date_reason': restDateReason,
         'holiday_def_configured': holidayDefConfigured,
         'days': days,
       },
@@ -108,14 +128,29 @@ class _FakeSvc extends ReportsService {
 
   @override
   Future<ApiResult<Map<String, dynamic>>> registerSubstitute(
-      String restDate, String pairedWorkDate) async {
+      String restDate, String pairedWorkDate,
+      {bool priorAgreement = false}) async {
     registerCalls.add({'rest_date': restDate, 'work_date': pairedWorkDate});
+    // ★送る形そのものを数える。実装の組み立て（substituteRegisterBody）を
+    //   通して記録するので、キーが入る／入らないをここで作り直さない。
+    registerBodies.add(ReportsService.substituteRegisterBody(
+        restDate, pairedWorkDate, priorAgreement: priorAgreement));
+    // ★出し直し（prior_agreement: true）だけ通す回。
+    if (failOnlyWithoutPriorAgreement && priorAgreement) {
+      return apiSuccess<Map<String, dynamic>>(
+          statusCode: 201, data: const {'pending_agreement': false});
+    }
     return registerFail == null
         ? apiSuccess<Map<String, dynamic>>(
             statusCode: 201,
             data: const {'pending_agreement': false})
         : apiFailure<Map<String, dynamic>>(
-            statusCode: 409, errorMessage: registerFail, errorCode: 'X');
+            statusCode: 409,
+            errorMessage: registerFail,
+            errorCode: registerFailCode ?? 'X',
+            errorDetails: registerFailPastDates == null
+                ? null
+                : {'past_dates': registerFailPastDates});
   }
 }
 
@@ -450,4 +485,240 @@ void main() {
       expect(find.text(kActSubstitute), findsNothing);
     });
   });
+
+  // ══════════════════════════════════════════════════════════
+  // (8) 過去の日が入っていた回（モック A1・A2）
+  //   ★どの日が過去かは端末で数えない。BE の 409
+  //     SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED と本文の past_dates だけで動く。
+  //   ★期待値（符号・文言）はこの本の中に直書きする（掟F-3）。
+  // ══════════════════════════════════════════════════════════
+  group('(8) 過去の日が入っていた回', () {
+    const restDate = '2026-06-13'; // 土（dow 6）… 休む日
+    const workDate = '2026-06-07'; // 日（dow 0）… 出勤する日
+    const kAgreed   = '取り決めていた（登録する）';
+    const kNotAgreed= '取り決めていない';
+    const kCompOff  = '代休で取る';
+    const kPickAgain= '日を選び直す';
+    const kAskHead  = '過去の日が入っています';
+    const kRefuseHead = '振替休日にはできません';
+    const kAsk      = '事前に会社と取り決めていましたか？';
+    const kPriorDeny = '過去の日を含む振替は、事前に会社と取り決めていた場合に限り登録できます';
+
+    // 画面を【押して】ここまで来る道具。選んでから「この内容で登録する」を押す。
+    //   ★閉じたときの返りは [popped] へ後から入る（押した時点ではまだ閉じていないので、
+    //     ここで受け取って返すと必ず null になる）。呼び手はタップを済ませてから読む。
+    Future<void> pushAndRegister(
+        WidgetTester tester, _FakeSvc api, List<bool?> popped) async {
+      tester.view.physicalSize = const Size(1200, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(builder: (ctx) => ElevatedButton(
+          onPressed: () async {
+            popped.add(await Navigator.of(ctx).push<bool>(MaterialPageRoute(
+              builder: (_) => SubstituteRegisterScreen(
+                  restDate: restDate, service: api))));
+          },
+          child: const Text('開く'),
+        )),
+      ));
+      await tester.tap(find.text('開く'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('6月7日（日）'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kRegisterGo));
+      await tester.pumpAndSettle();
+    }
+
+    _FakeSvc priorRequired({List<String>? pastDates, bool passOnRetry = false}) =>
+        _FakeSvc(
+          days: _week(),
+          registerFail: kPriorDeny,
+          registerFailCode: 'SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED',
+          registerFailPastDates: pastDates ?? const [workDate],
+          failOnlyWithoutPriorAgreement: passOnRetry,
+        );
+
+    testWidgets('★送る形: priorAgreement なしはキー自体が無い／true なら入る',
+        (tester) async {
+      final without =
+          ReportsService.substituteRegisterBody(restDate, workDate);
+      final with_ = ReportsService.substituteRegisterBody(restDate, workDate,
+          priorAgreement: true);
+      expect(without.containsKey('prior_agreement'), isFalse,
+          reason: '答えていない回にキーを送っている（送る形が変わっている）');
+      expect(without, {'rest_date': restDate, 'paired_work_date': workDate});
+      expect(with_['prior_agreement'], isTrue);
+      expect(with_.keys.toList(),
+          ['rest_date', 'paired_work_date', 'prior_agreement']);
+    });
+
+    testWidgets('★409 で A1 が出る（文に「出勤する日 M月D日（曜）」が入る）',
+        (tester) async {
+      final api = priorRequired();
+      await pushAndRegister(tester, api, <bool?>[]);
+
+      expect(find.text(kAskHead), findsOneWidget, reason: 'A1 が出ていない');
+      expect(find.text(kAsk), findsOneWidget);
+      expect(find.text(kAgreed), findsOneWidget);
+      expect(find.text(kNotAgreed), findsOneWidget);
+      // ★過去の日は past_dates のぶんだけ・ラベルつきで出る。
+      expect(find.textContaining('出勤する日 6月7日（日）'), findsWidgets,
+          reason: '過去の日が BE の past_dates どおりに出ていない');
+      expect(find.textContaining('休む日 6月13日（土）は過去'), findsNothing,
+          reason: '過去でない休む日まで過去として並べている');
+    });
+
+    testWidgets('★2つのときは「休む日 …と出勤する日 …」の順で並ぶ', (tester) async {
+      final api = priorRequired(pastDates: const [restDate, workDate]);
+      await pushAndRegister(tester, api, <bool?>[]);
+
+      final span = tester.widget<Text>(find.byWidgetPredicate((w) =>
+          w is Text && (w.textSpan?.toPlainText() ?? '').contains('は過去の日です')));
+      final plain = span.textSpan!.toPlainText();
+      expect(plain.startsWith('休む日 6月13日（土）と出勤する日 6月7日（日）は過去の日です。'),
+          isTrue, reason: '並びかラベルが違う: $plain');
+    });
+
+    testWidgets('★「取り決めていた（登録する）」→ 2回目が prior_agreement: true で送られ、通れば閉じる',
+        (tester) async {
+      final api = priorRequired(passOnRetry: true);
+      final popped = <bool?>[];
+      await pushAndRegister(tester, api, popped);
+      expect(api.registerBodies.length, 1, reason: '1回目が送られていない');
+
+      await tester.tap(find.text(kAgreed));
+      await tester.pumpAndSettle();
+
+      expect(api.registerBodies.length, 2, reason: '出し直していない');
+      expect(api.registerBodies[0].containsKey('prior_agreement'), isFalse,
+          reason: '1回目に答えを付けている');
+      expect(api.registerBodies[1]['prior_agreement'], isTrue,
+          reason: '2回目に答えが付いていない');
+      expect(api.registerBodies[1]['rest_date'], restDate);
+      expect(api.registerBodies[1]['paired_work_date'], workDate,
+          reason: '出し直しで日が変わっている');
+      expect(popped, [true], reason: '通ったのに画面が true で閉じていない');
+    });
+
+    testWidgets('★「取り決めていない」→ A2 に切り替わる（A1 の問いは消える）',
+        (tester) async {
+      final api = priorRequired();
+      await pushAndRegister(tester, api, <bool?>[]);
+
+      await tester.tap(find.text(kNotAgreed));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kRefuseHead), findsOneWidget, reason: 'A2 になっていない');
+      expect(find.text(kCompOff), findsOneWidget);
+      expect(find.text(kPickAgain), findsOneWidget);
+      expect(find.text(kAsk), findsNothing, reason: 'A1 の問いが残っている');
+    });
+
+    testWidgets('★A2「日を選び直す」→ 登録の画面に戻り、選んだ日が消えている',
+        (tester) async {
+      final api = priorRequired();
+      await pushAndRegister(tester, api, <bool?>[]);
+      await tester.tap(find.text(kNotAgreed));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kPickAgain));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kWorkHead), findsOneWidget, reason: '登録の画面に戻っていない');
+      final go = tester.widget<OutlinedButton>(
+          find.widgetWithText(OutlinedButton, kRegisterGo));
+      expect(go.onPressed, isNull, reason: '選んだ日が消えていない（押せたまま）');
+      expect(api.registerBodies.length, 1, reason: '勝手に出し直している');
+    });
+
+    testWidgets('★A2「代休で取る」→ 代休の流れが呼ばれる（差し替えで確かめる）',
+        (tester) async {
+      final compOff = _FakeCompOffSvc();
+      compOffServiceFactory = () => compOff;
+      addTearDown(() => compOffServiceFactory = ReportsService.new);
+
+      final api = priorRequired();
+      await pushAndRegister(tester, api, <bool?>[]);
+      await tester.tap(find.text(kNotAgreed));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kCompOff));
+      await tester.pumpAndSettle();
+
+      expect(compOff.availableCalls, [restDate],
+          reason: '代休の流れが、この休む日で呼ばれていない');
+    });
+
+    testWidgets('★対照: ほかの 409 では A1 が出ず、今までどおりの断りの箱',
+        (tester) async {
+      final api = _FakeSvc(
+        days: _week(),
+        registerFail: '6月7日の日報がありません',
+        registerFailCode: 'SUBSTITUTE_WORK_DATE_NO_REPORT',
+      );
+      await pushAndRegister(tester, api, <bool?>[]);
+
+      expect(find.text(kAskHead), findsNothing, reason: 'A1 を出している');
+      expect(find.text('登録できませんでした'), findsOneWidget,
+          reason: '今までどおりの断りの箱が出ていない');
+      expect(find.text('6月7日の日報がありません'), findsOneWidget,
+          reason: 'BE の文をそのまま出していない');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // (9) 休む日そのものが断られている回（応答の頭の2つ）
+  // ══════════════════════════════════════════════════════════
+  group('(9) 休む日そのものが断られている回', () {
+    testWidgets('★rest_date_reason_code があれば候補も登録のボタンも出さず、BE の文を出す',
+        (tester) async {
+      const reason = '今週より前の日は選べません';
+      await _pump(
+        tester,
+        SubstituteRegisterScreen(
+          restDate: '2026-06-13',
+          service: _FakeSvc(
+            days: _week(),
+            restDateReasonCode: 'past_out_of_week',
+            restDateReason: reason,
+          ),
+        ),
+      );
+
+      expect(find.text(reason), findsOneWidget, reason: 'BE の文が出ていない');
+      expect(find.text(kRegisterGo), findsNothing,
+          reason: '登録のボタンを出している（どの日を選んでも断られる）');
+      expect(find.text(kWorkHead), findsNothing, reason: '候補を並べている');
+      expect(find.text('6月7日（日）'), findsNothing);
+      // ★休む日の行は今までどおり出す（何の話かが分かるように）。
+      expect(find.text('休む日'), findsOneWidget);
+      expect(find.text('6月13日（土）'), findsNothing,
+          reason: '休む日の行に曜日を付けている（今までは M月D日 だけ）');
+      expect(find.text('6月13日'), findsOneWidget);
+    });
+
+    testWidgets('★対照: null なら今までどおり候補も登録のボタンも出る', (tester) async {
+      await _pump(
+        tester,
+        SubstituteRegisterScreen(
+            restDate: '2026-06-13', service: _FakeSvc(days: _week())),
+      );
+      expect(find.text(kRegisterGo), findsOneWidget);
+      expect(find.text(kWorkHead), findsOneWidget);
+      expect(find.text('6月7日（日）'), findsOneWidget);
+    });
+  });
+}
+
+/// 代休の受け皿（showCompOffFlow）の差し替え。★呼ばれたことだけを数える。
+///   取れなかった道で止める（この本が見たいのは「呼ばれたか」であって代休の中身ではない）。
+class _FakeCompOffSvc extends ReportsService {
+  _FakeCompOffSvc() : super.forTest();
+  final List<String> availableCalls = [];
+
+  @override
+  Future<ApiResult<CompOffAvailable>> getCompOffAvailable({String? asOf}) async {
+    availableCalls.add(asOf ?? '');
+    return apiFailure<CompOffAvailable>(
+        statusCode: 0, errorMessage: 'サーバーに接続できませんでした');
+  }
 }

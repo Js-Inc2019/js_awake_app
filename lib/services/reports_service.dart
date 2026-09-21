@@ -656,16 +656,26 @@ class ReportsService {
   //         INVALID_PORTION / SUBSTITUTE_FULL_ONLY / MEMBERSHIP_NOT_FOUND /
   //         SUBSTITUTE_WORK_DATE_NOT_HOLIDAY / SUBSTITUTE_REST_DATE_NOT_WORKDAY /
   //         ALREADY_RESTED / SUBSTITUTE_WORK_DATE_IS_REST /
-  //         SUBSTITUTE_WORK_DATE_TAKEN / SERVER_ERROR
+  //         SUBSTITUTE_WORK_DATE_TAKEN / SERVER_ERROR /
+  //         SUBSTITUTE_PAST_OUT_OF_WEEK / SUBSTITUTE_REST_DATE_HAS_REPORT /
+  //         SUBSTITUTE_WORK_DATE_NO_REPORT / SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED
+  //
+  // [priorAgreement] 「事前に会社と取り決めていた」の答え（本人が画面で答えた値）。
+  //   ★既定は false ＝ 今までどおり【キー自体を送らない】。true のときだけ本文へ入れる。
+  //     過去の日を含む振替は BE が 409 SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED で断り、
+  //     本文に past_dates（BE が数えた過去の日）を添えてくる。答えを聞いてから
+  //     true を付けて出し直すのが呼び手の役目で、ここでは判断しない。
   Future<ApiResult<Map<String, dynamic>>> registerSubstitute(
-      String restDate, String pairedWorkDate) async {
+      String restDate, String pairedWorkDate,
+      {bool priorAgreement = false}) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<Map<String, dynamic>>(
       'ReportsService.registerSubstitute',
       () => http.post(
         Uri.parse('$kApiBaseUrl/rest-days/substitute'),
         headers: headers,
-        body: jsonEncode(substituteRegisterBody(restDate, pairedWorkDate)),
+        body: jsonEncode(substituteRegisterBody(restDate, pairedWorkDate,
+            priorAgreement: priorAgreement)),
       ).timeout(const Duration(seconds: 15)),
       (body) => apiJsonMap(body) ?? <String, dynamic>{},
     );
@@ -674,11 +684,16 @@ class ReportsService {
   /// 送る body を組む部品。★組み立てを名前付きにするのは、送る形そのものを
   ///   検査で固定するため（compOffBody / substituteChangeBody と同じ作法）。
   ///   ★portion を入れない＝上の★のとおり。
+  ///   ★priorAgreement が false のときは 'prior_agreement' の【キー自体を入れない】。
+  ///     false を送ると「取り決めが無いと答えた」ことになり、答えていない回と
+  ///     区別が付かなくなる（BE は true 以外を全部同じに断るので通信の結果は
+  ///     変わらないが、送る形を今までと1バイトも変えないためにキーを出さない）。
   static Map<String, dynamic> substituteRegisterBody(
-          String restDate, String pairedWorkDate) =>
-      <String, dynamic>{
+      String restDate, String pairedWorkDate,
+      {bool priorAgreement = false}) => <String, dynamic>{
         'rest_date': restDate,
         'paired_work_date': pairedWorkDate,
+        if (priorAgreement) 'prior_agreement': true,
       };
 
   // ============================================================

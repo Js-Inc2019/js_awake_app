@@ -32,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:js_awake_app/screens/rest_day_screen.dart' show RestDayScreen;
+import 'package:js_awake_app/screens/substitute_past_day_screen.dart'
+    show SubstitutePastDayScreen;
 import 'package:js_awake_app/screens/substitute_register_screen.dart'
     show SubstituteRegisterScreen;
 import 'package:js_awake_app/services/api_result.dart';
@@ -338,6 +340,87 @@ void main() {
         expect(h <= 48, isTrue,
             reason: '行が $h pt まで伸びている（日付が2行に折れている）');
       }
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // ③ 事前の取り決めを尋ねる画面（A1・A2）も1画面に収まる
+  //   ★過去の日が入っていたときにここで止まるので、答えの2つのボタンまで
+  //     スクロールせずに見えないと、行き止まりが別の形で残る。
+  // ══════════════════════════════════════════════════════════
+  group('③ 事前の取り決めの画面は1画面に収まる', () {
+    // 登録しようとした2つの日と、候補の口が返した曜日（端末で数えない）。
+    const restDate = '2026-06-13'; // 土
+    const workDate = '2026-06-07'; // 日
+    const dowOf = {restDate: 6, workDate: 0};
+    const kAgreed    = '取り決めていた（登録する）';
+    const kNotAgreed = '取り決めていない';
+    const kCompOff   = '代休で取る';
+    const kPickAgain = '日を選び直す';
+
+    Future<void> pumpAsk(WidgetTester tester, List<String> pastDates) =>
+        _pumpPhone(
+          tester,
+          const SubstitutePastDayScreen(
+            restDate: restDate,
+            pairedWorkDate: workDate,
+            pastDates: [restDate, workDate],
+            dowOf: dowOf,
+          ),
+        );
+
+    testWidgets('★A1 がスクロールせずに丸ごと見える（過去の日が2つの最悪の側）',
+        (tester) async {
+      await pumpAsk(tester, const [restDate, workDate]);
+
+      // ★空振り防止: 尋ねる中身が在ることを先に見る。
+      expect(find.text('過去の日が入っています'), findsOneWidget);
+      expect(find.text('事前に会社と取り決めていましたか？'), findsOneWidget);
+      expect(find.text(kAgreed), findsOneWidget);
+      expect(find.text(kNotAgreed), findsOneWidget);
+
+      final left = _scrollLeft(tester);
+      final btn = tester.getRect(find.widgetWithText(OutlinedButton, kNotAgreed));
+      // ignore: avoid_print
+      print('［計測］A1: はみ出し=$left pt / 下のボタン bottom=${btn.bottom} '
+          '/ 見える下端=$kVisibleBottom');
+      expect(left, 0.0, reason: 'スクロールしないと全体が見えない（$left pt はみ出し）');
+      expect(btn.bottom <= kVisibleBottom, isTrue,
+          reason: '下のボタンの下端 ${btn.bottom} が見える下端 $kVisibleBottom より下');
+    });
+
+    testWidgets('★A1 のボタンは2つとも高さ48', (tester) async {
+      await pumpAsk(tester, const [restDate, workDate]);
+      final a = tester.getRect(find.widgetWithText(ElevatedButton, kAgreed));
+      final b = tester.getRect(find.widgetWithText(OutlinedButton, kNotAgreed));
+      // ignore: avoid_print
+      print('［計測］A1 ボタン: 取り決めていた=${a.height} 取り決めていない=${b.height}');
+      expect(a.height, 48.0);
+      expect(b.height, 48.0);
+    });
+
+    testWidgets('★A2 もスクロールせずに丸ごと見える／ボタンは 48 と 44以上',
+        (tester) async {
+      await pumpAsk(tester, const [restDate, workDate]);
+      await tester.tap(find.text(kNotAgreed));
+      await tester.pumpAndSettle();
+
+      expect(find.text('振替休日にはできません'), findsOneWidget);
+      expect(find.text(kCompOff), findsOneWidget);
+      expect(find.text(kPickAgain), findsOneWidget);
+
+      final left = _scrollLeft(tester);
+      final comp = tester.getRect(find.widgetWithText(OutlinedButton, kCompOff));
+      final pick = tester.getRect(find.widgetWithText(TextButton, kPickAgain));
+      // ignore: avoid_print
+      print('［計測］A2: はみ出し=$left pt / 代休で取る=${comp.height} '
+          '日を選び直す=${pick.height} / 下端=${pick.bottom} 見える下端=$kVisibleBottom');
+      expect(left, 0.0, reason: 'スクロールしないと全体が見えない（$left pt はみ出し）');
+      expect(comp.height, 48.0);
+      expect(pick.height >= kMinTapHeight, isTrue,
+          reason: '押せる高さ ${pick.height} が $kMinTapHeight pt を下回る');
+      expect(pick.bottom <= kVisibleBottom, isTrue,
+          reason: '下のボタンの下端 ${pick.bottom} が見える下端 $kVisibleBottom より下');
     });
   });
 }

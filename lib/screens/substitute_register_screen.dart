@@ -32,8 +32,13 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
+import '../widgets/comp_off_dialog.dart' show showCompOffFlow;
 import 'substitute_detail_screen.dart' show showSubstituteDeny;
 import 'substitute_list_screen.dart' show jpMonthDay;
+// ★過去の日が入っていたときに事前の取り決めを尋ねる画面（A1・A2）。
+//   曜日の文字の並び（kWeekdayJa）もあちらが唯一の持ち主で、下の候補の行が使う。
+import 'substitute_past_day_screen.dart'
+    show showSubstitutePastDay, SubstitutePastDayChoice, kWeekdayJa;
 
 class SubstituteRegisterScreen extends StatefulWidget {
   const SubstituteRegisterScreen({
@@ -111,11 +116,75 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
         body: _buildBody(),
       );
 
+  // 「休む日」の箱（上に出す1行）。★候補を出す回と、休む日そのものが断られて
+  //   候補を出さない回の【両方】が使う。写しを作らないために関数へ出した
+  //   （中身は写す前と1バイトも同じ。「変える」を出す条件も同じ）。
+  Widget _restDateBox() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: FieldTokens.surfaceRaised,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Text('休む日',
+                style: TextStyle(
+                    color: FieldTokens.textSupport, fontSize: 12)),
+            const SizedBox(width: 12),
+            Text(jpMonthDay(widget.restDate),
+                style: const TextStyle(
+                    color: FieldTokens.textBody,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
+            const Spacer(),
+            if (widget.onPickAnotherDate != null)
+              TextButton(
+                onPressed: _busy ? null : widget.onPickAnotherDate,
+                child: const Text('変える',
+                    style: TextStyle(color: FieldTokens.accent)),
+              ),
+          ],
+        ),
+      );
+
   Widget _buildBody() {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     final err = _error;
     if (err != null) return _Trouble(text: err, onRetry: _load);
+
+    // ★休む日そのものが断られている回（2026-09-21 の裁定）。
+    //   BE が応答の頭に rest_date_reason_code / rest_date_reason を載せてくる。
+    //   ・候補の7日も「この内容で登録する」も出さない ─ どの日を選んでも登録は
+    //     休む日の側で断られるので、選ばせるのは嘘になる。
+    //   ・出すのは【休む日の行】（「変える」も今までと同じ条件）と、その下に
+    //     BE の文をそのまま。端末で言い換えない・組み立てない。
+    //   ★holiday_def_configured の見張りより【先】に見る。休む日そのものが
+    //     断られているなら、候補の話をする前にそれを言う。
+    final restReasonCode = _data['rest_date_reason_code'];
+    if (restReasonCode != null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        children: [
+          _restDateBox(),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: FieldTokens.surfaceCard,
+              borderRadius: BorderRadius.circular(8),
+              border: const Border(
+                  left: BorderSide(color: FieldTokens.statusWarning, width: 4)),
+            ),
+            child: Text('${_data['rest_date_reason'] ?? ''}',
+                style: const TextStyle(
+                    color: FieldTokens.textBody, fontSize: 13, height: 1.6)),
+          ),
+        ],
+      );
+    }
 
     // ★会社の休みの日が1日も設定されていない回。候補を並べても選びようが無いので、
     //   BE が返した断りの文だけを出す。文は BE のもの（端末で書かない）。
@@ -134,34 +203,7 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       children: [
         // ── 休む日（上）──────────────────────────────────────
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: FieldTokens.surfaceRaised,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              const Text('休む日',
-                  style: TextStyle(
-                      color: FieldTokens.textSupport, fontSize: 12)),
-              const SizedBox(width: 12),
-              Text(jpMonthDay(widget.restDate),
-                  style: const TextStyle(
-                      color: FieldTokens.textBody,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
-              const Spacer(),
-              if (widget.onPickAnotherDate != null)
-                TextButton(
-                  onPressed: _busy ? null : widget.onPickAnotherDate,
-                  child: const Text('変える',
-                      style: TextStyle(color: FieldTokens.accent)),
-                ),
-            ],
-          ),
-        ),
+        _restDateBox(),
         const SizedBox(height: 12),
 
         // ── 区切りの帯 ───────────────────────────────────────
@@ -222,6 +264,19 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     );
   }
 
+  /// 候補の口が返した days[] から「日付 → 曜日の添字」を作る。
+  ///   ★端末で曜日を数えない（BE の dow をそのまま写すだけ）。
+  ///     2つの日は必ずこの週の7日に入っているので、ここから引ける。
+  Map<String, int> _dowOf() {
+    final out = <String, int>{};
+    for (final d in _days) {
+      final date = '${d['date'] ?? ''}';
+      final dow = d['dow'];
+      if (date.isNotEmpty && dow is int) out[date] = dow;
+    }
+    return out;
+  }
+
   Future<void> _register() async {
     final work = _picked;
     if (work == null || _busy) return;
@@ -230,6 +285,13 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (!res.ok) {
+      // ★過去の日が入っていた回だけ、事前の取り決めを尋ねる画面（A1）へ進む。
+      //   ほかの断りは今までどおり showSubstituteDeny（1つも変えていない）。
+      //   ★どの日が過去かは BE の past_dates をそのまま渡す（端末で数えない）。
+      if (res.errorCode == 'SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED') {
+        await _askPriorAgreement(work, res.errorDetails?['past_dates']);
+        return;
+      }
       await showSubstituteDeny(context, '登録できませんでした', res);
       return;
     }
@@ -237,6 +299,51 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     // ★通ったら呼び手へ true を返す。数（要対応・カレンダー・一覧）の読み直しは
     //   呼び手が持っている（この画面はどこから来たかを知らない）。
     Navigator.of(context).pop(true);
+  }
+
+  /// 事前の取り決めを尋ねて、答えで道を分ける（A1・A2 の返りを受ける側）。
+  ///   ・取り決めていた … 同じ2つの日に prior_agreement: true を付けて出し直す。
+  ///   ・代休で取る     … 代休の受け皿（showCompOffFlow）を開く。取れたら閉じる。
+  ///   ・日を選び直す   … 選んだ日を消してこの画面に残る。
+  ///   ・戻る（null）   … 何もせずこの画面に残る。
+  Future<void> _askPriorAgreement(String work, dynamic rawPastDates) async {
+    // past_dates は BE の配列をそのまま文字列にするだけ（中身を作らない）。
+    final pastDates = (rawPastDates is List)
+        ? rawPastDates.map((x) => '$x').toList()
+        : <String>[];
+    final choice = await showSubstitutePastDay(
+      context,
+      restDate: widget.restDate,
+      pairedWorkDate: work,
+      pastDates: pastDates,
+      dowOf: _dowOf(),
+    );
+    if (!mounted || choice == null) return;
+
+    switch (choice) {
+      case SubstitutePastDayChoice.agreed:
+        setState(() => _busy = true);
+        final again = await _api.registerSubstitute(widget.restDate, work,
+            priorAgreement: true);
+        if (!mounted) return;
+        setState(() => _busy = false);
+        if (!again.ok) {
+          // ★2回目の断りは今までどおりの箱（ここでもう一度 A1 を出さない＝
+          //   同じ問いを繰り返しても答えは変わらない）。
+          await showSubstituteDeny(context, '登録できませんでした', again);
+          return;
+        }
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
+      case SubstitutePastDayChoice.compOff:
+        // ★休む日は【この画面が持っている値】をそのまま渡す（入口の★と同じ）。
+        final took = await showCompOffFlow(context, restDate: widget.restDate);
+        if (!mounted || !took) return; // 取らなければこの画面に残る
+        Navigator.of(context).pop(true);
+      case SubstitutePastDayChoice.pickAnother:
+        // 選んだ日を消してこの画面に残る（候補はそのまま・引き直さない）。
+        setState(() => _picked = null);
+    }
   }
 }
 
@@ -282,15 +389,15 @@ class _WorkDateRow extends StatelessWidget {
   final bool busy;
   final VoidCallback onTap;
 
-  static const List<String> _dow = ['日', '月', '火', '水', '木', '金', '土'];
-
   @override
   Widget build(BuildContext context) {
     final selectable = day['selectable'] == true;
     final date = '${day['date'] ?? ''}';
     final dowIdx = day['dow'];
     final dowText = (dowIdx is int && dowIdx >= 0 && dowIdx < 7)
-        ? '（${_dow[dowIdx]}）'
+        // ★曜日の文字の並びは substitute_past_day_screen.dart の kWeekdayJa ただ1本
+        //   （事前の取り決めの画面と同じものを使う＝写しを作らない）。
+        ? '（${kWeekdayJa[dowIdx]}）'
         : '';
     final reason = '${day['reason'] ?? ''}';
 
