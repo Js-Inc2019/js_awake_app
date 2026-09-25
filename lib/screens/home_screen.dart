@@ -5884,7 +5884,9 @@ class _ReviewTabState extends State<ReviewTab> {
 bool canApproveReport(Map<String, dynamic> r) => r['can_approve'] != false;
 
 /// 修正依頼を押せるか。★1つの鍵で2つのボタンは言い当てられない
-///   （例: 社長が自分の日報を見ると、承認は通るのに修正依頼は断られる）。
+///   （例: 差し戻し中の日報は、修正依頼は通るのに承認は断られる）。
+///   （元の例「社長が自分の日報を見ると、承認は通るのに修正依頼は断られる」は
+///    便B15 で社長の差し戻しが通るようになったので当てはまらない）
 bool canRequestRevisionReport(Map<String, dynamic> r) =>
     r['can_request_revision'] != false;
 
