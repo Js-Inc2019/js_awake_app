@@ -32,6 +32,7 @@ import '../main.dart'
         NotificationManager,
         OvertimeDialog;
 import '../core/theme/field_tokens.dart';
+import '../core/permitted_report_labels.dart';
 import 'revision_inbox_screen.dart';
 import 'substitute_list_screen.dart';
 import 'substitute_detail_screen.dart';
@@ -1385,7 +1386,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // ★条件は report_cancel_gate の isPendingApproval ただ1本。
         //   式（is_sent / approved / revision_requested）は従来と同一で、
         //   「取消済でないこと」が先頭に足されている。
-        final count = raw.where(isPendingApproval).length;
+        // ★数えるのは countApprovablePending（押せない日報＝自分の日報・事務だけが
+        //   承認できる許可を得た日報 等を「承認待ち」に数えない・便 F7）。
+        // ★数の範囲（ここは月を問わない50件・承認の一覧は開いた月だけ）の食い違いは
+        //   この便では直さない（承認の一覧の作り直しと一緒にモックで決める＝便 F10）。
+        final count = countApprovablePending(raw);
         setState(() => _pendingApprovalCount = count);
       }
     } catch (e) {
@@ -5854,13 +5859,115 @@ class _ReviewTabState extends State<ReviewTab> {
 // ─────────────────────────────────────────────
 // ④ 承認待ちカード（旧 _PendingApprovalTabState._pendingCard を公開ウィジェット化）
 // ─────────────────────────────────────────────
-// ★承認/修正依頼の判定式・API 呼び出し・確認ダイアログ（OriginConfirmDialog /
-//   _SiteLinkGateDialog / RevisionReasonDialog）は1文字も変更していない。
-//   変更したのは「成功後に呼ぶ再読込コールバック」だけ:
+// ★API 呼び出し・確認ダイアログ（OriginConfirmDialog / _SiteLinkGateDialog /
+//   RevisionReasonDialog）は公開ウィジェット化のときから1文字も変更していない。
+//   公開ウィジェット化で変えたのは「成功後に呼ぶ再読込コールバック」だけ:
 //     旧 (widget.onActionSuccess ?? _loadPending)()  … タブ自身が一覧を保持していたため
 //     新 onActionSuccess()                           … 一覧は呼び出し元（画面）が保持する
 //   一覧の取得（旧 _loadPending の getReports(limit: 50)）は
 //   ReviewTab / ApprovalDayScreen 側へ移した（月指定に変更）。
+//
+// ★便 F7 で判定を変えたのはボタンの押せる条件（onPressed）だけ。今は
+//   (sending || !canApprove) ／ (sending || !canRevision) のとき null＝押せない。
+//   押したあとの処理は変えていない。ほかに足したのは表示だけ（許可を得た日報の印・
+//   押せない理由の行・鍵で押せないときの灰色）。
+//   押せるかは BE が行ごとに返す鍵（can_approve / can_request_revision）ただ1つで決める。
+//   鍵の本体は js-office-api routes/reports.js の attachDecisionKeys
+//   （GET /reports・/reports/today・/reports/:report_id の3つの口が同じ1本を通る）。
+//   端末で役割や user_id を突き合わせない（同じ判定を2箇所に持つと必ず食い違う）。
+//   ★押せないボタンも消さない。灰色で残して押せなくし、下に理由の1行を出す
+//     （事務アプリの report_approval_actions.dart と同じ決まり・ボス裁定【Q98】）。
+//   ★押して断られたときの文は今までの「承認に失敗しました：{サーバの文}」のまま。
+
+/// 承認を押せるか。★キーが無い応答（この鍵を返さない古いサーバ）は【押せる扱い】
+///   ＝`!= false`。画面が勝手に締め出すと、権限のある人が操作できなくなる。
+bool canApproveReport(Map<String, dynamic> r) => r['can_approve'] != false;
+
+/// 修正依頼を押せるか。★1つの鍵で2つのボタンは言い当てられない
+///   （例: 社長が自分の日報を見ると、承認は通るのに修正依頼は断られる）。
+bool canRequestRevisionReport(Map<String, dynamic> r) =>
+    r['can_request_revision'] != false;
+
+/// 押せない理由の行の頭の語（事務アプリと同じ）。
+const String kCannotApproveHead = '承認できません';
+const String kCannotRequestRevisionHead = '修正依頼できません';
+
+/// 押せない理由の1行。「{頭}：{理由}」／理由が無ければ頭の語だけ。
+///   ★理由の文は BE の cannot_*_reason をそのまま（言い換えない）。
+///     cannot_*_code は他社の日報のとき null になるので、code では引かない。
+String approvalDenyLine(String head, Object? reason) {
+  final t = reason is String ? reason.trim() : '';
+  return t.isEmpty ? head : '$head：$t';
+}
+
+/// この1枚で出す理由の行（押せないボタンの数だけ・承認 → 修正依頼の順）。
+List<String> approvalDenyLines(Map<String, dynamic> r) => [
+      if (!canApproveReport(r))
+        approvalDenyLine(kCannotApproveHead, r['cannot_approve_reason']),
+      if (!canRequestRevisionReport(r))
+        approvalDenyLine(
+            kCannotRequestRevisionHead, r['cannot_request_revision_reason']),
+    ];
+
+/// ホームの要対応「承認待ち」の数（_loadPendingApprovalCount が使う）。
+///   ★どの行を承認待ちとみなすかは isPendingApproval ただ1本（変えない）。
+///     そのうち承認を押せない行（can_approve が false）は数えない（便 F7）。
+int countApprovablePending(Iterable<Map<String, dynamic>> rows) =>
+    rows.where((r) => isPendingApproval(r) && canApproveReport(r)).length;
+
+/// 許可を得た日報の印の1行（confirm_type が表に無い・null なら何も出さない）。
+///   ★語は lib/core/permitted_report_labels.dart の表ただ1つ。
+class PermittedReportMark extends StatelessWidget {
+  const PermittedReportMark({super.key, required this.confirmType});
+  final Object? confirmType;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = permittedReportMarkOrNull(confirmType);
+    if (mark == null) return const SizedBox.shrink();
+    return Text(mark,
+        style: const TextStyle(
+            color: FieldTokens.brand,
+            fontSize: 12,
+            fontWeight: FontWeight.bold));
+  }
+}
+
+/// 押せない理由の行（ボタンの直下）。押せるなら何も出さない。
+class ApprovalDenyLines extends StatelessWidget {
+  const ApprovalDenyLines({super.key, required this.report});
+  final Map<String, dynamic> report;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = approvalDenyLines(report);
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final line in lines) ...[
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline,
+                  color: FieldTokens.textSupport, size: 14),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(line,
+                    style: const TextStyle(
+                        color: FieldTokens.textSupport,
+                        fontSize: 12,
+                        height: 1.6)),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class PendingApprovalCard extends StatelessWidget {
   const PendingApprovalCard({
     super.key,
@@ -5890,6 +5997,9 @@ class PendingApprovalCard extends StatelessWidget {
     final r = report;
     final reportId = r['report_id']?.toString() ?? '';
     bool sending = false;
+    final canApprove = canApproveReport(r);
+    final canRevision = canRequestRevisionReport(r);
+    final mark = permittedReportMarkOrNull(r['confirm_type']);
     // カード本体タップで詳細シートを開く。承認/修正依頼ボタンは自前でタップを消費するため干渉しない。
     // JsReportTile は自前 onTap（不完全な旧詳細）を持つため AbsorbPointer で無効化し、導線を一本化する。
     return GestureDetector(
@@ -5904,6 +6014,11 @@ class PendingApprovalCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 許可を得た日報の印（名前の近く＝日報の見出しの直上）。通常の日報は出さない。
+          if (mark != null) ...[
+            PermittedReportMark(confirmType: r['confirm_type']),
+            const SizedBox(height: 6),
+          ],
           AbsorbPointer(child: JsReportTile(report: r, myCompanyId: '')),
           const SizedBox(height: 8),
           ReportPhotos(reportId: reportId, report: r),
@@ -5913,7 +6028,7 @@ class PendingApprovalCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: sending
+                    onPressed: (sending || !canApprove)
                         ? null
                         : () async {
                             String selectedOrigin =
@@ -5994,16 +6109,22 @@ class PendingApprovalCard extends StatelessWidget {
                           },
                     icon: const Icon(Icons.check),
                     label: const Text('承認'),
+                    // 鍵で押せないときの灰色は share_send_screen.dart の押せないボタンと同じ組。
+                    // ★送信中（sending）の見た目は今までどおり（null＝既定のまま）。
                     style: ElevatedButton.styleFrom(
                       backgroundColor: FieldTokens.statusSuccess,
                       foregroundColor: FieldTokens.onAccent,
+                      disabledBackgroundColor:
+                          canApprove ? null : FieldTokens.outlineStrong,
+                      disabledForegroundColor:
+                          canApprove ? null : FieldTokens.textFaint,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: sending
+                    onPressed: (sending || !canRevision)
                         ? null
                         : () async {
                             final result =
@@ -6044,12 +6165,18 @@ class PendingApprovalCard extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: FieldTokens.statusWarning,
                       foregroundColor: FieldTokens.onStatusWarning,
+                      disabledBackgroundColor:
+                          canRevision ? null : FieldTokens.outlineStrong,
+                      disabledForegroundColor:
+                          canRevision ? null : FieldTokens.textFaint,
                     ),
                   ),
                 ),
               ],
             ),
           ),
+          // 押せないボタンの理由（ボタンの直下）。押せるなら何も出さない。
+          ApprovalDenyLines(report: r),
         ],
       ),
       ),

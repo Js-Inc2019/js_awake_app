@@ -613,7 +613,8 @@ class ReportsService {
 
   // GET /rest-days/substitute/candidates?rest_date=YYYY-MM-DD
   // 休む日を決めた人に「出勤する日」に選べる日を返す（2026-09-20）。
-  //   返り＝{ rest_date, rest_date_is_workday, holiday_def_configured, days[] }
+  //   返り＝{ rest_date, rest_date_is_workday, rest_date_reason_code,
+  //           rest_date_reason, holiday_def_configured, days[] }
   //   days[] の1つ＝{ date, dow, selectable, reason_code, reason }
   //   ★上の getChangeCandidates（休む日を変える方）とは【別の口】。あちらは
   //     既に在る振替の「新しい休む日」、こちらは新しく作る振替の「出勤する日」で、
@@ -631,18 +632,29 @@ class ReportsService {
             '?rest_date=$restDate'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
-      (body) {
-        final m = apiJsonMap(body);
-        return {
-          'rest_date': m?['rest_date'],
-          'rest_date_is_workday': m?['rest_date_is_workday'] == true,
-          'holiday_def_configured': m?['holiday_def_configured'] == true,
-          'days': ((m?['days'] as List?) ?? const [])
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList(),
-        };
-      },
+      substituteCandidatesFromBody,
     );
+  }
+
+  /// 候補の口の本文 → 画面へ渡す Map（getSubstituteWorkDateCandidates の取り込み）。
+  ///   ★純関数に切り出したのは、送り手（BE の本文）と受け手（登録の画面）を
+  ///     検査でつなげて測るため（substituteRegisterBody と同じ作法）。
+  ///   ★rest_date_reason_code / rest_date_reason を捨てない（便 F7）。捨てていた間は
+  ///     画面の「休む日そのものの断り」の分かれに本物の口からは入れず、今週より前の
+  ///     休む日でも候補が並び、押すと 409 で断られていた。
+  ///     ★どちらも BE の値をそのまま（null も null のまま）。文は言い換えない。
+  static Map<String, dynamic> substituteCandidatesFromBody(String body) {
+    final m = apiJsonMap(body);
+    return {
+      'rest_date': m?['rest_date'],
+      'rest_date_is_workday': m?['rest_date_is_workday'] == true,
+      'rest_date_reason_code': m?['rest_date_reason_code'],
+      'rest_date_reason': m?['rest_date_reason'],
+      'holiday_def_configured': m?['holiday_def_configured'] == true,
+      'days': ((m?['days'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    };
   }
 
   // POST /rest-days/substitute — 振替休日を登録する（2026-09-20）。

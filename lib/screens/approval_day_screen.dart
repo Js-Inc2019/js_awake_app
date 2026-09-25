@@ -13,10 +13,11 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/field_tokens.dart';
+import '../core/permitted_report_labels.dart' show permittedReportMarkOrNull;
 import '../main.dart' show showJsSnackbar;
 import '../services/auth_service.dart';
 import '../services/work_mode_service.dart';
-import 'home_screen.dart' show PendingApprovalCard;
+import 'home_screen.dart' show PendingApprovalCard, PermittedReportMark;
 import 'revision_inbox_screen.dart' show RevisionCard, ReportDetailSheet;
 import 'revision_edit_screen.dart';
 // 「今日やる仕事」に載せる条件は lib/utils/report_cancel_gate.dart の1本だけを使う。
@@ -238,6 +239,8 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
       labelColor = FieldTokens.textSupport;
     }
 
+    final mark = permittedReportMarkOrNull(e.data['confirm_type']);
+
     return InkWell(
       onTap: () => _openDetailDialog(e),
       child: Padding(
@@ -245,13 +248,25 @@ class _ApprovalDayScreenState extends State<ApprovalDayScreen> {
         child: Row(
           children: [
             Expanded(
-              child: Text(_nameOf(e.kind, e.data),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: FieldTokens.textBody,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_nameOf(e.kind, e.data),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: FieldTokens.textBody,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600)),
+                  // 許可を得た日報の印（名前の直下・便 F7）。語は
+                  //   lib/core/permitted_report_labels.dart の表ただ1つ。
+                  //   ★休憩の行・通常の日報（confirm_type が null）は何も出さない。
+                  if (e.kind != 'break' && mark != null) ...[
+                    const SizedBox(height: 4),
+                    PermittedReportMark(confirmType: e.data['confirm_type']),
+                  ],
+                ],
+              ),
             ),
             const SizedBox(width: 12),
             Text(label,

@@ -6,7 +6,8 @@
 // どちらも手前で注意書き（B2）を読んでから入る。
 //
 // ★出どころは GET /rest-days/substitute/candidates?rest_date=… ただ1本。
-//   返り＝{ rest_date, rest_date_is_workday, holiday_def_configured, days[] }
+//   返り＝{ rest_date, rest_date_is_workday, rest_date_reason_code,
+//           rest_date_reason, holiday_def_configured, days[] }
 //   days[] の1つ＝{ date, dow, selectable, reason_code, reason }
 //   ★選べる／選べないの判定も、選べない理由の文も【BE が返したものをそのまま】。
 //     端末で曜日や休日から組み立て直さない。組み立てた瞬間、同じ判定が
