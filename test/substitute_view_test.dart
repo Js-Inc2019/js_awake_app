@@ -327,13 +327,22 @@ void main() {
 
   // ══════════════════════════════════════════════════════════
   group('(5) 通知の ref_id の解析', () {
-    test('★職人に届く4種類が名簿に在る', () {
+    // （元）★職人に届く4種類が名簿に在る
+    // →再（2026-09-26・便F11）: 便B14c で2種類（substitute_agree_remind・
+    //   substitute_change_withdrawn）増えて6種類。
+    test('★職人に届く6種類が名簿に在る', () {
       expect(kSubstituteNoticeTypes, {
         'substitute_registered',
         'substitute_change_confirmed',
         'substitute_change_auto_settled',
         'substitute_change_blocked',
+        'substitute_agree_remind',
+        'substitute_change_withdrawn',
       });
+    });
+    test('★便B14c の2種類の ref_id（type:<id>）から id が取れる', () {
+      expect(parseSubstituteRefId('substitute_agree_remind:rd_123'), 'rd_123');
+      expect(parseSubstituteRefId('substitute_change_withdrawn:rd_123'), 'rd_123');
     });
     test('★type:<id> の形から id が取れる', () {
       expect(parseSubstituteRefId('substitute_registered:rd_123'), 'rd_123');

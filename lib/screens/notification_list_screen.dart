@@ -464,7 +464,8 @@ class _NotificationRow extends StatelessWidget {
   final bool punchRemindBusy;       // 上のボタンの連打防止（実行中は押せない）
   final VoidCallback onTamper;      // 'tamper_*' 展開時「改ざんの詳細を開く」
   final VoidCallback onShareReceived; // 'share_received' 展開時「受信トレイを開く」
-  // 振替の4種類（kSubstituteNoticeTypes）展開時「振替休日を開く」
+  // （元）振替の4種類（kSubstituteNoticeTypes）展開時「振替休日を開く」
+  // →再（2026-09-26・便F11）: 振替の6種類（kSubstituteNoticeTypes）展開時「振替休日を開く」
   final VoidCallback onSubstitute;
   final VoidCallback onShareSent;     // 'share_sent' 展開時「送信済みを開く」
   final bool shareBusy; // 受信トレイを開く前の権限取得中は押せない（連打防止）
@@ -628,7 +629,8 @@ class _NotificationRow extends StatelessWidget {
                         ),
                       ),
                     ],
-                    // 振替のお知らせ（BE services/notify.js の4種類）。
+                    // （元）振替のお知らせ（BE services/notify.js の4種類）。
+                    // →再（2026-09-26・便F11）: 振替のお知らせ（kSubstituteNoticeTypes の6種類）。
                     //   ★上と同じく独立した if で足す（type は互いに排他）。
                     //   ★ref_id を解析できない回は【ボタンを出さない】。出しても
                     //     どの休みか分からず、押しても別のものを開くことになる。
@@ -725,9 +727,13 @@ String? _parseReportApprovedRefId(String refId) {
 }
 
 // ─── 振替のお知らせ ref_id の解析 ───────────────────────────────────────
-// 職人に届く振替のお知らせは4種類（BE services/notify.js の実測）:
+// （元）職人に届く振替のお知らせは4種類（BE services/notify.js の実測）:
 //   substitute_registered / substitute_change_confirmed /
 //   substitute_change_auto_settled / substitute_change_blocked
+// →再（2026-09-26・便F11）: 便B14c で2種類増えて6種類（BE routes/rest_days.js の実測）:
+//   上の4種類 / substitute_agree_remind（同意のお願いの再送）/
+//   substitute_change_withdrawn（事務による変更の申し出の取り下げ）
+//   ＝どちらも ref_id は 'type:<休みのid>'。
 // ref_id の形（BE routes/rest_days.js・services/substituteChangeSweep.js の実測）:
 //   'type:<休みのid>' か 'type:<休みのid>:<日付など>'
 //   ＝最初の ':' の後ろ、次の ':' までが休みの id。
@@ -739,6 +745,8 @@ const Set<String> kSubstituteNoticeTypes = {
   'substitute_change_confirmed',
   'substitute_change_auto_settled',
   'substitute_change_blocked',
+  'substitute_agree_remind',
+  'substitute_change_withdrawn',
 };
 
 String? parseSubstituteRefId(String refId) {
