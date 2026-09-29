@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
+import '../utils/future_date_limit.dart' show lastSelectableDate;
 import '../main.dart' show showJsSnackbar;
 import '../widgets/comp_off_dialog.dart';
 import 'rest_day_done_screen.dart';
@@ -143,7 +144,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
       // 過去は前日まで（BE は実在日なら受けるが、遡って休みを作る運用は
       // 「本日休み」と同じく事務の仕事なのでここでは開けない）。
       firstDate: now.subtract(const Duration(days: 1)),
-      lastDate: DateTime(now.year + 1, now.month, now.day),
+      // 先の上限は lib/utils/future_date_limit.dart の1本（カレンダーの月送りと同じもの・便F12）。
+      lastDate: lastSelectableDate(now),
     );
     if (picked == null || !mounted) return;
     setState(() => _compOffDate = picked);
@@ -180,7 +182,7 @@ class _RestDayScreenState extends State<RestDayScreen> {
       context: context,
       initialDate: _substituteDate,
       firstDate: now.subtract(const Duration(days: 1)),
-      lastDate: DateTime(now.year + 1, now.month, now.day),
+      lastDate: lastSelectableDate(now),
     );
     if (picked == null || !mounted) return;
     setState(() => _substituteDate = picked);

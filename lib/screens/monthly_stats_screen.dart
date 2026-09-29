@@ -66,7 +66,11 @@ class _MonthlyStatsBodyState extends State<MonthlyStatsBody> {
     _load();
   }
 
-  // ★当月で止める。式は既存5箇所と同一（代表: home_screen.dart の _nextMonth）。
+  // ★当月で止める。（元）式は既存5箇所と同一（代表: home_screen.dart の _nextMonth）。
+  //   →再（2026-09-28・便F12）: 式は既存4箇所と同一＝home_screen.dart の ReviewTab・
+  //   _StaffMonthlySheet・_CooperationTab の _nextMonth と、monthly_history_screen.dart の
+  //   _nextMonth。home_screen.dart の CalendarTab の _nextMonth は便F12 で先の月へ送れる形
+  //   （lib/utils/future_date_limit.dart の canGoToNextMonth）に変わったので、もう同じ式ではない。
   void _nextMonth() {
     final now = DateTime.now();
     if (_selectedMonth.year == now.year &&

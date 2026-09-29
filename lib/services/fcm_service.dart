@@ -10,6 +10,8 @@ import '../config/constants.dart';
 import 'api_result.dart';
 import '../screens/revision_inbox_screen.dart';
 import '../screens/notification_list_screen.dart';
+// 振替休日のお知らせを押したときの行き先（便F12）。
+import '../screens/substitute_detail_screen.dart' show SubstituteDetailScreen;
 import '../screens/tamper_incident_detail_screen.dart';
 import '../screens/share_hub_screen.dart' show ShareKeys;
 import '../screens/share_inbox_screen.dart';
@@ -212,6 +214,50 @@ class FcmService {
 
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
     final type = data['type'];
+    // ★（元）ログインの確かめは下の白リストの【後】にあった（白リストの外はここへ来る前に
+    //   return していた）。→再（2026-09-28・便F12）: 白リストの外も画面を開くようになったので、
+    //   種類の振り分けより前に置く。未ログインなら今までどおり何もしない。
+    final loggedIn = await AuthService().isLoggedIn();
+    if (!loggedIn) {
+      debugPrint('FCM tap: not logged in — navigation for type "$type" skipped');
+      return;
+    }
+
+    // ── 振替休日のお知らせ（kSubstituteNoticeTypes の6種類・便F12）──
+    //  ★（元）白リストに無く「unknown type — ignored」で何も起きなかった（沈黙障害）。
+    //    お知らせの一覧からは「振替休日を開く」で行けるのに、スマホの通知を押すと無反応だった。
+    //  ★開く先は、お知らせの一覧の「振替休日を開く」と同じ1件の画面（SubstituteDetailScreen）。
+    //    ボスの掟「見た場所でそのまま手を打てる」に揃える。
+    //  ★種類の名簿は notification_list_screen.dart の kSubstituteNoticeTypes ただ1本
+    //    （ここへ書き写さない＝種類が増えたときに片方だけ直る形を作らない）。
+    //  ★id は data の rest_day_id だけから取る（BE の6種類の fcmData はどれも rest_day_id を
+    //    載せる）。無い・空なら推測で別の休みを開かず、お知らせの一覧へ倒す（下の改ざんの
+    //    incident_id 欠落時と同じ倒し方）。
+    //    ★事務アプリは id が無いとき振替の一覧へ行く。職人アプリはお知らせの一覧へ行かせる：
+    //      その知らせ自身が一覧にあり、「振替休日を開く」（ref_id から開く）でその1件へ行けるため。
+    if (kSubstituteNoticeTypes.contains(type)) {
+      final restDayId = data['rest_day_id']?.toString() ?? '';
+      if (restDayId.isEmpty) {
+        debugPrint('FCM tap: $type に rest_day_id が無い — 通知一覧へフォールバック');
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+        );
+        return;
+      }
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => SubstituteDetailScreen(restDayId: restDayId),
+        ),
+      );
+      return;
+    }
+
+    // ── 白リスト（下の分岐が行き先を持つ8種類）──
+    //  ★（元）白リストの外は「unknown type — ignored」で何もしなかった。
+    //    →再（2026-09-28・便F12）: 何もしないのをやめ、お知らせの一覧へ倒す（袋小路にしない・
+    //    事務アプリの「知らない種類は通知の一覧へ」と同じ形）。rest_day_cancelled（休みの種類を
+    //    問わない知らせ＝振替だけの画面へは行けない）もここへ来る。
+    //    ★ここで return する。下の report_remind の else（日報のタブへ）へは落とさない。
     if (type != 'revision_request' &&
         // ★旧名 'report_reminder' から是正。BE は services/notify.js の
         //   NOTICE_TYPES.REPORT_REMIND('report_remind') 一本に統一済みで、
@@ -219,6 +265,8 @@ class FcmService {
         //   （BE test/test_notify_unified.js が「FCM に report_reminder が0件」を
         //     機械固定している）。旧名のままでは日報催促のプッシュをタップしても
         //   直下の白リストに掛からず「unknown type — ignored」で無反応だった。
+        //   →再（2026-09-28・便F12）: 今の白リストの外は無反応ではなく、お知らせの一覧が開く
+        //   （上の★）。旧名の是正の理由（日報のタブへ行かなかった）はそのまま。
         type != 'report_remind' &&
         type != 'punch_remind_in' &&
         type != 'punch_remind_out' &&
@@ -226,12 +274,10 @@ class FcmService {
         type != 'tamper_status_changed' &&
         type != 'share_received' &&
         type != 'share_sent') {
-      debugPrint('FCM tap: unknown type "$type" — ignored (no navigation)');
-      return;
-    }
-    final loggedIn = await AuthService().isLoggedIn();
-    if (!loggedIn) {
-      debugPrint('FCM tap: not logged in — navigation for type "$type" skipped');
+      debugPrint('FCM tap: unknown type "$type" — 通知一覧へ');
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => const NotificationListScreen()),
+      );
       return;
     }
 

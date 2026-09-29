@@ -3,6 +3,11 @@
 //
 // 承認済みモック field_substitute_flow_mock_v4.html の C1・D1・D4・D5・D6・E1 の
 // 【表示だけ】。一覧・通知・カレンダーの「振替休日を開く」から来る。
+//   →再（2026-09-28・便F12）: 「表示だけ」は元の姿（操作は下の★のとおり 2026-09-20 に足した）。
+//   来る道は4つ＝振替休日の一覧の行（substitute_list_screen.dart）・お知らせの一覧の
+//   「振替休日を開く」（notification_list_screen.dart）・カレンダーの箱の「振替休日を開く」
+//   （home_screen.dart の CalendarTab）・スマホの通知を押したとき（fcm_service.dart の
+//   handleNotificationTap・便F12 から）。
 //
 // ★2026-09-20 に【操作】を足した（同意する・休む日を変える・申し出を取り下げる・
 //   この振替を取り消す）。どれを出すかは BE の印だけで決める（下の _actions の★）。
@@ -37,6 +42,9 @@ class SubstituteDetailScreen extends StatefulWidget {
   ///   ★なぜ要るか【Q70】と形は substitute_list_screen.dart の同じ引数の★と同じ。
   ///   ★呼び出し側（notification_list_screen.dart / home_screen.dart）は
   ///     restDayId だけを渡しており、1文字も変わらない。
+  ///     →再（2026-09-28・便F12）: 呼び出し側は4つ。notification_list_screen.dart・
+  ///     home_screen.dart・fcm_service.dart（便F12 から）は restDayId だけを渡す。
+  ///     substitute_list_screen.dart は、一覧が受けた service をそのまま下ろして渡す。
   final ReportsService? service;
 
   @override

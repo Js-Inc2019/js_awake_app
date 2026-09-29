@@ -50,6 +50,9 @@ import 'monthly_history_screen.dart' show JsStatChip, JsReportTile;
 import '../utils/report_cancel_gate.dart'
     show isCancelledReport, isPendingApproval, isRevisionRequested,
          withReportStatus;
+// カレンダー（CalendarTab）を先の月へ送れる範囲は lib/utils/future_date_limit.dart の1本
+// （本日休みの画面の日付の窓2つと同じ上限・便F12）。
+import '../utils/future_date_limit.dart' show canGoToNextMonth;
 import 'day_reports_screen.dart';
 import 'management_history_screen.dart';
 import 'profile_screen.dart';
@@ -1948,7 +1951,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           );
           if (mounted) _loadRevisionCount();
         },
-        //   振替休日 → SubstituteListScreen（通知・カレンダーの「振替休日を開く」と同じ画面）
+        //   振替休日 → SubstituteListScreen
+        //   （元）「通知・カレンダーの「振替休日を開く」と同じ画面」
+        //   →再（2026-09-28・便F12）: 一覧を開くのはここ（ホームの要対応）だけ。お知らせの一覧と
+        //   カレンダーの箱の「振替休日を開く」、スマホの通知を押したときは、1件の画面
+        //   （SubstituteDetailScreen）へ行く。
         onOpenSubstitutes: () async {
           await Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const SubstituteListScreen()),
@@ -5540,6 +5547,8 @@ class _ReviewTabState extends State<ReviewTab> {
   }
 
   // 月ナビ（CalendarTab の流儀に揃える）
+  //   →再（2026-09-28・便F12）: ただし先の月へ送れる範囲は別（CalendarTab は便F12 から、
+  //   1年先の日を含む月まで）。ここは過去の記録を見る画面なので、今までどおり今月で止める。
   void _prevMonth() {
     setState(() =>
         _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
@@ -5658,6 +5667,8 @@ class _ReviewTabState extends State<ReviewTab> {
     return Column(
       children: [
         // 月ナビ（CalendarTab の流儀）
+        //   →再（2026-09-28・便F12）: ただし先の月へ送れる範囲は別（CalendarTab は便F12 から、
+        //   1年先の日を含む月まで）。ここの › は今までどおり今月で止まる。
         Container(
           color: FieldTokens.surfaceCard,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -7125,10 +7136,17 @@ class _CalendarTabState extends State<CalendarTab> {
     _loadMonth();
   }
 
+  // （元）今月で止めていた（今月を表示中なら return）。
+  // →再（2026-09-28・便F12）: 本日休みの画面の日付の窓（代休・振替）で選べる最後の日を
+  //   含む月まで送れる。今月で止めると、窓では選べる来月の日の箱（代休で休む・振替で休む・
+  //   振替休日を開く）をカレンダーから開けなかった。上限の式は canGoToNextMonth の1本
+  //   （lib/utils/future_date_limit.dart）で、› のボタンの色と押せるかも同じものを見る。
+  //   ★前の月へ送る（_prevMonth）は今のまま（過去へは今までどおり制限なし）。
+  //   ★ほかの月送り（ReviewTab・_StaffMonthlySheet・_CooperationTab・
+  //     monthly_history_screen.dart・monthly_stats_screen.dart）は過去の記録を見る画面なので、
+  //     今までどおり今月で止める（ここだけが先の日の箱を持つ）。
   void _nextMonth() {
-    final now = DateTime.now();
-    if (_selectedMonth.year == now.year &&
-        _selectedMonth.month == now.month) {
+    if (!canGoToNextMonth(shownMonth: _selectedMonth, today: DateTime.now())) {
       return;
     }
     setState(() {
@@ -7272,9 +7290,9 @@ class _CalendarTabState extends State<CalendarTab> {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final isCurrentMonth = _selectedMonth.year == now.year &&
-        _selectedMonth.month == now.month;
+    // › が押せるかは _nextMonth と同じ canGoToNextMonth の1本（便F12・理由は _nextMonth の★）。
+    final canNext =
+        canGoToNextMonth(shownMonth: _selectedMonth, today: DateTime.now());
 
     return Column(
       children: [
@@ -7302,8 +7320,8 @@ class _CalendarTabState extends State<CalendarTab> {
               ),
               IconButton(
                 icon: Icon(Icons.chevron_right,
-                    color: isCurrentMonth ? FieldTokens.textSupport : FieldTokens.brand),
-                onPressed: isCurrentMonth ? null : _nextMonth,
+                    color: canNext ? FieldTokens.brand : FieldTokens.textSupport),
+                onPressed: canNext ? _nextMonth : null,
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
