@@ -8,6 +8,29 @@
 //   「振替休日を開く」（notification_list_screen.dart）・カレンダーの箱の「振替休日を開く」
 //   （home_screen.dart の CalendarTab）・スマホの通知を押したとき（fcm_service.dart の
 //   handleNotificationTap・便F12 から）。
+//   →再（2026-09-29・便F13）: 道は4つ足した＝ホームの同意待ちの枠（punch_screen.dart）・
+//   同意待ちの振替の休む日で断られた窓の［振替休日を開く］（rest_day_screen.dart・
+//   lib/widgets/comp_off_dialog.dart・substitute_register_screen.dart）・打刻の催促の窓の枠
+//   （lib/widgets/punch_remind_dialog.dart）・振替の登録の画面の休む日の断り（substitute_register_screen.dart）。
+//   どの道で開いても、この画面で状態が変わったら読み直しの知らせ（lib/utils/rest_day_refresh.dart）を鳴らし、
+//   ホームとカレンダーはその1本で読み直す。
+//   →再（2026-09-30・便F13続）: 上の「4つ」と「4つ足した」は数と名簿が合っていなかった（足した道は
+//   ファイルで数えて5つ）。開く道の名簿はここ1か所に置く（lib/utils/rest_day_refresh.dart と下の service の
+//   説明は、ここを指すだけ）。呼ぶ所は、lib で「SubstituteDetailScreen」のすぐ後ろに丸括弧が続く行
+//   （grep -n で数える）から定義の行を除いた9か所で、1ファイルに1か所ずつ:
+//     1. substitute_list_screen.dart … 振替休日の一覧の行（一覧が受けた service をそのまま渡す）
+//     2. notification_list_screen.dart … お知らせの一覧の「振替休日を開く」（restDayId だけ）
+//     3. home_screen.dart … カレンダー（CalendarTab）の箱の［振替休日を開く］（restDayId だけ）
+//     4. lib/services/fcm_service.dart … スマホの通知を押したとき（handleNotificationTap・restDayId だけ）
+//     5. punch_screen.dart … ホームの同意待ちの枠（自分が受けた差し替え口 reports をそのまま渡す）
+//     6. rest_day_screen.dart … 本日休みの断りの窓の［振替休日を開く］（自分が受けた service をそのまま渡す）
+//     7. lib/widgets/comp_off_dialog.dart … 代休の断りの窓の［振替休日を開く］（restDayId だけ）
+//     8. substitute_register_screen.dart … 振替の登録の画面の休む日の断りと、登録の断りの窓の
+//        ［振替休日を開く］（2つの押す所が同じ1つの呼ぶ所 _openPendingSubstitute・自分が受けた service を渡す）
+//     9. lib/widgets/punch_remind_dialog.dart … 打刻の催促の窓の枠の［振替休日を開く］（restDayId だけ）
+//   この画面で状態が変わったら鳴らすのは、この画面（_run の同意・取り下げ・取り消し）と、ここから開く
+//   休む日の変更の画面（substitute_change_screen.dart の _confirm の申し出）。鳴らす所の名簿は
+//   lib/utils/rest_day_refresh.dart の冒頭。
 //
 // ★2026-09-20 に【操作】を足した（同意する・休む日を変える・申し出を取り下げる・
 //   この振替を取り消す）。どれを出すかは BE の印だけで決める（下の _actions の★）。
@@ -26,8 +49,10 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
+import '../utils/rest_day_refresh.dart';
 import 'substitute_change_screen.dart';
-import 'substitute_list_screen.dart' show jpMonthDay, jpMonthDayOfIso;
+import 'substitute_list_screen.dart'
+    show jpMonthDay, jpMonthDayOfIso, kSubstituteWaitColor;
 
 class SubstituteDetailScreen extends StatefulWidget {
   const SubstituteDetailScreen({
@@ -45,6 +70,11 @@ class SubstituteDetailScreen extends StatefulWidget {
   ///     →再（2026-09-28・便F12）: 呼び出し側は4つ。notification_list_screen.dart・
   ///     home_screen.dart・fcm_service.dart（便F12 から）は restDayId だけを渡す。
   ///     substitute_list_screen.dart は、一覧が受けた service をそのまま下ろして渡す。
+  ///     →再（2026-09-29・便F13）: 呼び出し側は増えた（上のファイル冒頭の→再）。punch_screen.dart・
+  ///     rest_day_screen.dart・substitute_register_screen.dart は自分が受けた差し替え口をそのまま渡し、
+  ///     lib/widgets/comp_off_dialog.dart・lib/widgets/punch_remind_dialog.dart は restDayId だけを渡す。
+  ///     →再（2026-09-30・便F13続）: 呼び出し側の名簿（どこが service を渡し、どこが restDayId だけか）は
+  ///     このファイル冒頭の名簿1か所に置く（ここに二重に持たない）。
   final ReportsService? service;
 
   @override
@@ -125,12 +155,14 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
     return '成立';
   }
 
+  /// ★（便F13）同意待ちと事務の確認待ち（振替の「待ち」）は、substitute_list_screen.dart の
+  ///   kSubstituteWaitColor ただ1本（値は今までと同じ statusWarning＝見た目は変わらない）。
   Color get _stateColor {
     if (_cancelled) return FieldTokens.textSupport;
-    if (_restDay['pending_agreement'] == true) return FieldTokens.statusWarning;
+    if (_restDay['pending_agreement'] == true) return kSubstituteWaitColor;
     if (_restDay['change_blocked'] == true) return FieldTokens.statusError;
     if (_restDay['change_requested_rest_date'] != null) {
-      return FieldTokens.statusWarning;
+      return kSubstituteWaitColor;
     }
     return FieldTokens.statusSuccess;
   }
@@ -157,13 +189,18 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     final res = await call();
+    // ★通った（同意・取り下げ・取り消し）＝休みと振替の状態が変わった。ホームとカレンダーへ
+    //   知らせる（lib/utils/rest_day_refresh.dart・便F13）。どの道でこの画面を開いても、
+    //   読み直しはこの1本で届く（道ごとに「戻ったら読み直す」を書き足さない）。
+    //   （元）mounted を見て戻った後に鳴らしていた（通った後にこの画面が閉じていると鳴らない）。
+    //   →再（2026-09-30・便F13続）: 通ったら、この画面が閉じたかを見る前に1回だけ鳴らす。
+    if (res.ok) RestDayRefresh.ring();
     if (!mounted) return;
     setState(() => _busy = false);
     if (!res.ok) {
       await showSubstituteDeny(context, denyTitle, res);
       return;
     }
-    if (!mounted) return;
     if (popOnSuccess) {
       // ★取り消したあとはこの画面に用が無い。一覧へ戻す（一覧は戻ったら読み直す）。
       Navigator.of(context).pop(true);
@@ -188,7 +225,13 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
       ),
     ));
     if (!mounted) return;
-    if (done == true) await _load();
+    if (done == true) {
+      // ★（元）休む日の変更を申し出た（変更の画面は触らない＝受けた done で知らせる・便F13）。
+      //   →再（2026-09-30・便F13続）: 鳴らすのは変更の画面（substitute_change_screen.dart の _confirm）が、
+      //   申し出が通った直後に閉じたかを見る前に鳴らす。ここでは鳴らさない（同じ出来事で2回鳴らさない・
+      //   受けた done で鳴らすと、戻る前にこの画面が閉じた回に鳴らない）。この画面の読み直しはそのまま。
+      await _load();
+    }
   }
 
   Future<void> _withdraw() => _run(
@@ -548,11 +591,19 @@ Future<bool> showSubstituteNotice(BuildContext context) async {
 ///   ★英字の code は出さない（読む人の言葉ではない）。
 ///   ★deadline が返っている回で、BE の文にその日付がまだ入っていないときだけ
 ///     期限を別の行で添える。入っているのに足すと同じ日付を2回言うことになる。
+///   ★（元）受けるのは中身が Map の ApiResult だけ・押す物は［閉じる］（accent）の1つだけ。
+///     →再（2026-09-29・便F13）: 断りの窓を1本にするため、次の2つを足した（今の呼び手の見た目と動きは変えない）:
+///     ・ApiResult の中身の型を問わない（読むのは errorMessage と errorDetails だけ）。本日休み
+///       （RestDayMutation）・代休（CompOffTaken）の断りも同じこの窓に出す。
+///     ・onOpenSubstitute を渡した回だけ［振替休日を開く］を足す。その回の［閉じる］は textSupport、
+///       ［振替休日を開く］は accent の太字（見本 v1 の P2）。押すと窓を閉じてから onOpenSubstitute を呼ぶ。
+///       使うのは、その日が同意待ちの振替の休む日で断られた回（SUBSTITUTE_PENDING_ON_DATE・便B17）。
 Future<void> showSubstituteDeny(
   BuildContext context,
   String title,
-  ApiResult<Map<String, dynamic>> res,
-) async {
+  ApiResult<Object?> res, {
+  VoidCallback? onOpenSubstitute,
+}) async {
   final beText = res.errorMessage ?? '';
   final deadline = res.errorDetails?['deadline'];
   final extra = (deadline != null && !beText.contains(jpMonthDay('$deadline')))
@@ -569,14 +620,62 @@ Future<void> showSubstituteDeny(
         style: const TextStyle(color: FieldTokens.textBody),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('閉じる',
-              style: TextStyle(color: FieldTokens.accent)),
-        ),
+        if (onOpenSubstitute == null)
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('閉じる',
+                style: TextStyle(color: FieldTokens.accent)),
+          )
+        else ...[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('閉じる',
+                style: TextStyle(color: FieldTokens.textSupport)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onOpenSubstitute();
+            },
+            child: const Text('振替休日を開く',
+                style: TextStyle(
+                    color: FieldTokens.accent, fontWeight: FontWeight.bold)),
+          ),
+        ],
       ],
     ),
   );
+}
+
+/// ［振替休日を開く］の形（見本 v1 の P1・便F13）。★この形の置き場はここ1か所。
+///   読む所: ホームの同意待ちの枠（punch_screen.dart）・打刻の催促の窓の枠
+///   （lib/widgets/punch_remind_dialog.dart）・振替の登録の画面の休む日の断り
+///   （substitute_register_screen.dart）。写しを作らない。
+///   ★テーマの OutlinedButton の既定（字 accent・幅いっぱい・高さ52・角丸10・字16 の太字）を
+///     ここで上書きする: 高さ44・左右の余白14・角丸8・枠の線は本文色 1.5・字13 の太さ600・
+///     字は本文色・地は透明・幅は字の幅。左に寄せるのは置く側（Align）。
+///   ★押せる高さは 44（押せる物の決まり＝44以上）。tapTargetSize を shrinkWrap にして、
+///     見た目の44と押せる44を同じにする（padded のままだと 48 の見えない余白が付く）。
+class SubstituteOpenButton extends StatelessWidget {
+  const SubstituteOpenButton({super.key, required this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: FieldTokens.textBody,
+          minimumSize: const Size(0, 44),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          side: const BorderSide(color: FieldTokens.textBody, width: 1.5),
+          textStyle:
+              const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        child: const Text('振替休日を開く'),
+      );
 }
 
 /// 操作ボタンの色の役割。★意味の色だけ（新しい色を作らない）。

@@ -8,6 +8,9 @@
 // ★出どころは GET /rest-days/substitute/candidates?rest_date=… ただ1本。
 //   返り＝{ rest_date, rest_date_is_workday, rest_date_reason_code,
 //           rest_date_reason, holiday_def_configured, days[] }
+//   →再（2026-09-29・便F13）: 頭に rest_date_pending_substitute_id も載る（便B17）。休む日を
+//   同意待ちの振替が塞いでいる回（rest_date_reason_code が rest_date_pending_substitute）の、
+//   その振替の id。この画面は休む日の断りの下に［振替休日を開く］を出すのに使う。
 //   days[] の1つ＝{ date, dow, selectable, reason_code, reason }
 //   ★選べる／選べないの判定も、選べない理由の文も【BE が返したものをそのまま】。
 //     端末で曜日や休日から組み立て直さない。組み立てた瞬間、同じ判定が
@@ -33,8 +36,10 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
+import '../utils/rest_day_refresh.dart';
 import '../widgets/comp_off_dialog.dart' show showCompOffFlow;
-import 'substitute_detail_screen.dart' show showSubstituteDeny;
+import 'substitute_detail_screen.dart'
+    show showSubstituteDeny, SubstituteDetailScreen, SubstituteOpenButton;
 import 'substitute_list_screen.dart' show jpMonthDay;
 // ★過去の日が入っていたときに事前の取り決めを尋ねる画面（A1・A2）。
 //   曜日の文字の並び（kWeekdayJa）もあちらが唯一の持ち主で、下の候補の行が使う。
@@ -183,6 +188,24 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
                 style: const TextStyle(
                     color: FieldTokens.textBody, fontSize: 13, height: 1.6)),
           ),
+          // ★休む日を同意待ちの振替が塞いでいる回（rest_date_pending_substitute・便B17）だけ、
+          //   上の断りの形（枠と BE の文）の下に［振替休日を開く］（便F13）。id は候補の口の
+          //   rest_date_pending_substitute_id。戻ったら候補を引き直す（同意すると、この休む日の
+          //   断りが事実でなくなるため）。
+          if (restReasonCode == 'rest_date_pending_substitute' &&
+              '${_data['rest_date_pending_substitute_id'] ?? ''}'.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SubstituteOpenButton(
+                onPressed: _busy
+                    ? null
+                    : () => _openPendingSubstitute(
+                        '${_data['rest_date_pending_substitute_id']}',
+                        reload: true),
+              ),
+            ),
+          ],
         ],
       );
     }
@@ -283,6 +306,10 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     if (work == null || _busy) return;
     setState(() => _busy = true);
     final res = await _api.registerSubstitute(widget.restDate, work);
+    // ★振替を登録できた＝休みと振替が変わった。ホームとカレンダーへ知らせる（便F13）。
+    //   （元）mounted を見て戻った後に鳴らしていた（通った後にこの画面が閉じていると鳴らない）。
+    //   →再（2026-09-30・便F13続）: 通ったら、この画面が閉じたかを見る前に1回だけ鳴らす。
+    if (res.ok) RestDayRefresh.ring();
     if (!mounted) return;
     setState(() => _busy = false);
     if (!res.ok) {
@@ -293,13 +320,38 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
         await _askPriorAgreement(work, res.errorDetails?['past_dates']);
         return;
       }
-      await showSubstituteDeny(context, '登録できませんでした', res);
+      await showSubstituteDeny(context, '登録できませんでした', res,
+          onOpenSubstitute: _pendingOpenerOf(res));
       return;
     }
-    if (!mounted) return;
-    // ★通ったら呼び手へ true を返す。数（要対応・カレンダー・一覧）の読み直しは
+    // ★（元）通ったら呼び手へ true を返す。数（要対応・カレンダー・一覧）の読み直しは
     //   呼び手が持っている（この画面はどこから来たかを知らない）。
+    //   →再（2026-09-29・便F13）: true は今も返す。ホームの要対応の件数とカレンダーの読み直しは、
+    //   上で鳴らした読み直しの知らせ（lib/utils/rest_day_refresh.dart）が届ける。
     Navigator.of(context).pop(true);
+  }
+
+  // 同意待ちの振替の休む日で断られた回（SUBSTITUTE_PENDING_ON_DATE・便B17）だけ、断りの窓に
+  //   ［振替休日を開く］を足す（便F13）。id は断りの本文の rest_day_id。ほかの断りは null＝今の窓のまま。
+  //   （元）戻っても候補を引き直さなかった。→再（2026-09-30・便F13続）: 休む日の断りの［振替休日を開く］と
+  //   同じく、戻ったら候補を引き直す（reload: true・同意するとこの休む日の断りと候補が事実でなくなるため）。
+  VoidCallback? _pendingOpenerOf(ApiResult<Object?> res) {
+    if (res.errorCode != 'SUBSTITUTE_PENDING_ON_DATE') return null;
+    final id = '${res.errorDetails?['rest_day_id'] ?? ''}';
+    if (id.isEmpty) return null;
+    return () => _openPendingSubstitute(id, reload: true);
+  }
+
+  // その1件の画面を開く（便F13）。★差し替え口はそのまま下ろす。
+  //   （元）reload が true（休む日の断りの［振替休日を開く］）なら、戻ったら候補を引き直す。
+  //   →再（2026-09-30・便F13続）: reload が true なのは、休む日の断りと断りの窓（_pendingOpenerOf）の
+  //   ［振替休日を開く］の両方＝今の呼び手はどちらも引き直す。引き直すと選んだ出勤する日は消える（_load）。
+  Future<void> _openPendingSubstitute(String id, {bool reload = false}) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) =>
+          SubstituteDetailScreen(restDayId: id, service: widget.service),
+    ));
+    if (reload && mounted) await _load();
   }
 
   /// 事前の取り決めを尋ねて、答えで道を分ける（A1・A2 の返りを受ける側）。
@@ -326,15 +378,17 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
         setState(() => _busy = true);
         final again = await _api.registerSubstitute(widget.restDate, work,
             priorAgreement: true);
+        // ★登録できた（便F13・上の _register と同じ）。→再（2026-09-30・便F13続）: 閉じたかを見る前に1回だけ鳴らす。
+        if (again.ok) RestDayRefresh.ring();
         if (!mounted) return;
         setState(() => _busy = false);
         if (!again.ok) {
           // ★2回目の断りは今までどおりの箱（ここでもう一度 A1 を出さない＝
           //   同じ問いを繰り返しても答えは変わらない）。
-          await showSubstituteDeny(context, '登録できませんでした', again);
+          await showSubstituteDeny(context, '登録できませんでした', again,
+              onOpenSubstitute: _pendingOpenerOf(again));
           return;
         }
-        if (!mounted) return;
         Navigator.of(context).pop(true);
       case SubstitutePastDayChoice.compOff:
         // ★休む日は【この画面が持っている値】をそのまま渡す（入口の★と同じ）。

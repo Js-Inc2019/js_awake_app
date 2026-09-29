@@ -24,6 +24,15 @@ import '../core/theme/field_tokens.dart';
 import '../main.dart' show showJsSnackbar;
 import '../services/reports_service.dart';
 import '../services/work_mode_service.dart';
+import '../utils/rest_day_refresh.dart';
+// ★lib/widgets から lib/screens を読み込むのは、このファイルと comp_off_dialog.dart だけ（便F13）。
+//   今までは無い形。読むのは1件の画面（SubstituteDetailScreen）・［振替休日を開く］の形
+//   （SubstituteOpenButton）・振替の待ちの色（kSubstituteWaitColor）で、本日休みが同意待ちの振替の
+//   休む日で断られた回（SUBSTITUTE_PENDING_ON_DATE・便B17）に、ホームの枠と同じ形で1件を開くため。
+//   形と色の写しをここに作ると、同じ断りが道によって2通りの見た目になる。
+import '../screens/substitute_detail_screen.dart'
+    show SubstituteDetailScreen, SubstituteOpenButton;
+import '../screens/substitute_list_screen.dart' show kSubstituteWaitColor;
 
 /// 打刻のお知らせ通知からの入口。
 ///   side      : 'in' | 'out'      （出勤側 / 退勤側）
@@ -87,6 +96,14 @@ Future<void> showPunchRemindFlow(
         if (!context.mounted) return;
         showJsSnackbar(context, message, isError: isError);
       },
+      // 枠の［振替休日を開く］（便F13）。★窓はダイアログの側で閉じてから呼ばれる。
+      //   開くのは showPunchRemindFlow の context（背後の生きている画面）で、上の onNotify と同じ理由。
+      onOpenSubstitute: (id) {
+        if (!context.mounted) return;
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => SubstituteDetailScreen(restDayId: id),
+        ));
+      },
     ),
   );
 }
@@ -98,7 +115,11 @@ class _PunchRemindDialog extends StatefulWidget {
     required this.workDate,
     required this.unknownState,
     required this.onNotify,
+    required this.onOpenSubstitute,
   });
+
+  /// 同意待ちの振替の1件を開く（便F13）。id は断りの本文の rest_day_id。
+  final void Function(String restDayId) onOpenSubstitute;
 
   final String side;         // 'in' | 'out'
   final String shiftType;    // 'day' | 'night'
@@ -114,6 +135,10 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   // 多重送信ガード。home_screen.dart の _ShortBreakSheetState と同型。
   bool _submitting = false;
   String? _error;   // ダイアログ内エラー（snackbar だけだと最前面に隠れるため両方に出す）
+  // 本日休みが同意待ちの振替の休む日で断られた回（便F13・見本 v1 の P3）の BE の文と、その振替の id。
+  //   ★あるときは赤の字（_error）ではなく、待ちの色の枠（BE の文と［振替休日を開く］）を窓の中に出す。
+  String? _pendingText;
+  String? _pendingId;
 
   bool get _isOut => widget.side == 'out';
 
@@ -174,8 +199,17 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
   //     BE の許容は当日/前日のみ。範囲外は 400 INVALID_REST_DATE で返る。
   Future<void> _restDay() async {
     if (_submitting) return;
-    setState(() { _error = null; _submitting = true; });
+    setState(() {
+      _error = null;
+      _pendingText = null;
+      _pendingId = null;
+      _submitting = true;
+    });
     final res = await ReportsService().createRestDay(restDate: widget.workDate);
+    // ★休みが変わった。ホームとカレンダーへ知らせる（lib/utils/rest_day_refresh.dart・便F13）。
+    //   （元）mounted を見て戻った後に鳴らしていた（通った後にこの窓が閉じていると鳴らない）。
+    //   →再（2026-09-30・便F13続）: 通ったら、この窓が閉じたかを見る前に1回だけ鳴らす。
+    if (res.ok) RestDayRefresh.ring();
     if (!mounted) return;
     if (res.ok) {
       Navigator.of(context).pop();
@@ -188,6 +222,20 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
       widget.onNotify('すでに休みで登録されています。', false);
       return;
     }
+    // 同意待ちの振替の休む日（SUBSTITUTE_PENDING_ON_DATE・便B17）。★窓は閉じない。赤の字ではなく
+    //   「※あとから通知一覧でも申告できます」の下に枠（BE の文と［振替休日を開く］）を出す（便F13・P3）。
+    //   snackbar への知らせは今の _fail と同じく出す（最前面の窓に隠れても理由が残るように）。
+    if (res.errorCode == 'SUBSTITUTE_PENDING_ON_DATE') {
+      final text = res.errorMessage ?? '本日休みを登録できませんでした。';
+      final id = '${res.errorDetails?['rest_day_id'] ?? ''}';
+      setState(() {
+        _submitting = false;
+        _pendingText = text;
+        _pendingId = id.isEmpty ? null : id;
+      });
+      widget.onNotify(text, true);
+      return;
+    }
     // 400 INVALID_REST_DATE は rest_date を送るようになって初めて起こりうる。
     // ベル一覧に残った古いお知らせ（当日/前日より前）を開いた場合がこれ。
     // 打刻漏れ側の INVALID_WORK_DATE（_declareMessage）と同じ言い方に揃える。
@@ -198,6 +246,14 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
     // ★statusCode:0 ＝ サーバまで届かなかった。統一前は「statusCode キーが無い」で
     //   同じ判定をしていた（例外時だけ積んでいなかった）。文言・分岐とも不変。
     _fail(res.statusCode == 0 ? '通信に失敗しました。' : '本日休みを登録できませんでした。');
+  }
+
+  // 枠の［振替休日を開く］（便F13）。★窓を閉じてから、背後の画面でその1件を開く。
+  void _openPending() {
+    final id = _pendingId;
+    if (id == null) return;
+    Navigator.of(context).pop();
+    widget.onOpenSubstitute(id);
   }
 
   // ── 勤務継続中（APIは呼ばない）────────────────────────────────────
@@ -287,6 +343,33 @@ class _PunchRemindDialogState extends State<_PunchRemindDialog> {
             const Text('※あとから通知一覧でも申告できます',
                 style: TextStyle(
                     color: FieldTokens.textFaint, fontSize: 11)),
+            // 同意待ちの振替の休む日で断られた回の枠（便F13・見本 v1 の P3）。
+            //   ★線は待ちの色の1・角丸8・中の余白は上下10×左右12・中の並びの間8。
+            //   ★BE の文（本文色・12.5）と［振替休日を開く］（ホームの枠と同じ形＝SubstituteOpenButton）。
+            if (_pendingText != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: kSubstituteWaitColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_pendingText!,
+                        style: const TextStyle(
+                            color: FieldTokens.textBody, fontSize: 12.5)),
+                    if (_pendingId != null) ...[
+                      const SizedBox(height: 8),
+                      SubstituteOpenButton(onPressed: _openPending),
+                    ],
+                  ],
+                ),
+              ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!,

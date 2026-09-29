@@ -49,12 +49,24 @@ class RestDayToday {
     required this.rested,
     required this.reason,
     required this.portion,
+    this.pendingSubstituteRestDayId,
   });
   final bool rested;
   final dynamic reason;
 
   /// 半休。BE未対応の間は欠落し得るため 'full' 後方互換。
   final String portion;
+
+  /// 今日が【事務から持ちかけられた振替休日の休む日】で、ご本人がまだ同意していないとき、
+  /// その振替の id（便F13）。ほかの日は null。
+  ///   ★BE の GET /rest-days/today の pending_substitute_rest_day_id をそのまま（便B17）。
+  ///     →再（2026-09-30・便F13続）: 「そのまま」ではない。getRestDayToday は、null と空の文字を null にし、
+  ///     ほかの値は文字にして入れる（文字でない値も '$値' の文字になる）。
+  ///     BE はその日を休みに数えず、rested:false・reason:null・portion:'full' と一緒に返す。
+  ///   ★キーが無い（便B17 より前の BE）ときは null と同じに扱う（今までどおりの姿）。
+  ///   ★任意の名前付き引数（既定 null）にしたのは、今の呼び手と検査の組み方
+  ///     （const RestDayToday(rested:…, reason:…, portion:…)）を1文字も変えないため。
+  final String? pendingSubstituteRestDayId;
 }
 
 /// 取れる代休の候補1件（GET /rest-days/comp-off/available の candidates[]）。
@@ -615,6 +627,9 @@ class ReportsService {
   // 休む日を決めた人に「出勤する日」に選べる日を返す（2026-09-20）。
   //   返り＝{ rest_date, rest_date_is_workday, rest_date_reason_code,
   //           rest_date_reason, holiday_def_configured, days[] }
+  //   →再（2026-09-29・便F13）: 頭に rest_date_pending_substitute_id も載る（便B17）。休む日を
+  //   同意待ちの振替が塞いでいるとき（rest_date_reason_code が rest_date_pending_substitute）だけ
+  //   その振替の id で、ほかの回は null。
   //   days[] の1つ＝{ date, dow, selectable, reason_code, reason }
   //   ★上の getChangeCandidates（休む日を変える方）とは【別の口】。あちらは
   //     既に在る振替の「新しい休む日」、こちらは新しく作る振替の「出勤する日」で、
@@ -650,6 +665,10 @@ class ReportsService {
       'rest_date_is_workday': m?['rest_date_is_workday'] == true,
       'rest_date_reason_code': m?['rest_date_reason_code'],
       'rest_date_reason': m?['rest_date_reason'],
+      // ★休む日を同意待ちの振替が塞いでいる回（rest_date_reason_code が
+      //   rest_date_pending_substitute・便B17）の、その振替の id。画面が［振替休日を開く］で
+      //   その1件を開くのに使う（便F13）。BE の値をそのまま（null も null のまま）。
+      'rest_date_pending_substitute_id': m?['rest_date_pending_substitute_id'],
       'holiday_def_configured': m?['holiday_def_configured'] == true,
       'days': ((m?['days'] as List?) ?? const [])
           .map((e) => Map<String, dynamic>.from(e as Map))
@@ -667,7 +686,8 @@ class ReportsService {
   //         INVALID_PAIRED_WORK_DATE / SUBSTITUTE_SAME_DATE / SUBSTITUTE_DIFFERENT_WEEK /
   //         INVALID_PORTION / SUBSTITUTE_FULL_ONLY / MEMBERSHIP_NOT_FOUND /
   //         SUBSTITUTE_WORK_DATE_NOT_HOLIDAY / SUBSTITUTE_REST_DATE_NOT_WORKDAY /
-  //         ALREADY_RESTED / SUBSTITUTE_WORK_DATE_IS_REST /
+  //         ALREADY_RESTED / SUBSTITUTE_PENDING_ON_DATE（→再 2026-09-29・便F13 で足した・便B17・本文に rest_day_id）/
+  //         SUBSTITUTE_WORK_DATE_IS_REST /
   //         SUBSTITUTE_WORK_DATE_TAKEN / SERVER_ERROR /
   //         SUBSTITUTE_PAST_OUT_OF_WEEK / SUBSTITUTE_REST_DATE_HAS_REPORT /
   //         SUBSTITUTE_WORK_DATE_NO_REPORT / SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED
@@ -771,7 +791,12 @@ class ReportsService {
   //         SUBSTITUTE_CHANGE_ALREADY_SETTLED / SUBSTITUTE_CHANGE_ALREADY_REQUESTED /
   //         SUBSTITUTE_CHANGE_SAME_DATE / SUBSTITUTE_CHANGE_NOT_FUTURE /
   //         SUBSTITUTE_CHANGE_DEADLINE_PASSED / SUBSTITUTE_SAME_DATE /
-  //         SUBSTITUTE_DIFFERENT_WEEK / SUBSTITUTE_REST_DATE_NOT_WORKDAY
+  //         SUBSTITUTE_DIFFERENT_WEEK / SUBSTITUTE_REST_DATE_NOT_WORKDAY /
+  //         ALREADY_RESTED（→再 2026-09-30・便F13続 で足した・新しい休む日に休みの行が既にある）/
+  //         SUBSTITUTE_PENDING_ON_DATE（→再 2026-09-30・便F13続 で足した・その行が同意待ちの振替・
+  //         便B17・本文に rest_day_id）
+  //   ★（便F13続）名簿の範囲は BE（js-office-api 999cca0）の routes/rest_days.js の POST /:id/change-request の
+  //     説明の名簿と同じ＝口の中の断り（4xx）だけ（500 の SERVER_ERROR と、口の前の門の断りは数えない）。
   //   ★SUBSTITUTE_CHANGE_DEADLINE_PASSED のときは本文に deadline も載る。
   //     握り潰さない＝runApiCall が errorDetails に応答本文をそのまま入れる。
   Future<ApiResult<Map<String, dynamic>>> requestSubstituteChange(
@@ -828,6 +853,9 @@ class ReportsService {
   }
 
   // GET /rest-days/today → { rested: bool, reason: string|null }
+  //   →再（2026-09-29・便F13）: { rested, reason, portion, pending_substitute_rest_day_id }（便B17）。
+  //   pending_substitute_rest_day_id は、今日が同意待ちの振替の休む日ならその振替の id（文字列）、
+  //   ほかの日は null。キーが無い（便B17 より前の BE）ときも null（今までどおりの姿）。
   Future<ApiResult<RestDayToday>> getRestDayToday() async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<RestDayToday>(
@@ -838,16 +866,23 @@ class ReportsService {
       ).timeout(const Duration(seconds: 15)),
       (body) {
         final data = apiJsonMap(body);
+        final pending = data?['pending_substitute_rest_day_id'];
         return RestDayToday(
           rested:  data?['rested'] == true,
           reason:  data?['reason'],
           portion: (data?['portion'] as String?) ?? 'full',
+          // ★空の文字は「無い」と同じ（押しても開けない id を持たない）。
+          pendingSubstituteRestDayId:
+              (pending == null || '$pending'.isEmpty) ? null : '$pending',
         );
       },
     );
   }
 
   // POST /rest-days body {reason?, portion, rest_date?} → 201 成功 / 409 ALREADY_RESTED
+  //   →再（2026-09-29・便F13）: 409 はもう1つある。その日が事務から持ちかけられた振替休日の
+  //   同意待ちなら 409 SUBSTITUTE_PENDING_ON_DATE（便B17）。本文に rest_day_id・rest_date・
+  //   paired_work_date が載り、errorDetails にそのまま入る（文は BE の error をそのまま出す）。
   // portion（full/am_half/pm_half）は BE 並行実装中＝未対応の間は無視されるだけで害なし。
   //   ★409 の code は errorCode に載る（呼び手が「すでに休みで登録されています」を出す根拠）。
   //   ★restDate は任意。BE は未指定なら JST 業務日で確定するため、通常の休み申告
@@ -955,6 +990,7 @@ class ReportsService {
   //         / INVALID_SOURCE_WORK_DATE / INVALID_PORTION
   //     409 COMP_OFF_SOURCE_NOT_FOUND / COMP_OFF_EXPIRED / INSUFFICIENT_COMP_OFF
   //         / NO_COMP_OFF / ALREADY_RESTED
+  //         / SUBSTITUTE_PENDING_ON_DATE（→再 2026-09-29・便F13 で足した・その日が同意待ちの振替の休む日・便B17。本文に rest_day_id）
   //     404 MEMBERSHIP_NOT_FOUND ／ 403 FORBIDDEN
   //   ★sourceWorkDate と undecided はどちらか一方だけ。両方・どちらも無しは
   //     BE が 400 で断る。ここで先に潰さないのは、判定を2箇所に持たないため

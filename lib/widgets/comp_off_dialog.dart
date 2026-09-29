@@ -3,6 +3,9 @@
 //
 // ★なぜ1本にするか:
 //   入口は2つある（「本日休み」の画面と、「管理・履歴」のカレンダーで選んだ日）。
+//   →再（2026-09-30・便F13続）: 入口（showCompOffFlow の呼び手）は3つ＝rest_day_screen.dart の
+//   _openCompOff・home_screen.dart の CalendarTab（箱の「代休で休む」）・substitute_register_screen.dart の
+//   _askPriorAgreement（「代休で取る」）。
 //   同じ操作を入口ごとに書くと、片方だけ直したときに「ある入口では候補が全部出て、
 //   別の入口では先頭が既定になっている」といった食い違いが生まれる。
 //   選ばせる部品と書く口はここ【ただ1つ】にする。
@@ -11,6 +14,7 @@
 // ★休む日はここで決めない。入口から受け取る（restDate）。
 //   ・「本日休み」の画面 … その画面が持っている日（既定は今日・先の日も選べる）
 //   ・カレンダー         … 人がタップして選んだ日
+//   ・振替の登録の画面   … →再（2026-09-30・便F13続）: その画面が持っている休む日（3つ目の入口）
 //   同じ日付を2箇所で決めると、画面に出ている日と実際に送る日がずれる。
 //
 // ★BE の契約（js-office-api の routes/rest_days.js）:
@@ -41,6 +45,14 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
+import '../utils/rest_day_refresh.dart';
+// ★lib/widgets から lib/screens を読み込むのは、このファイルと punch_remind_dialog.dart だけ（便F13）。
+//   今までは無い形。読むのは断りの窓（showSubstituteDeny）と1件の画面（SubstituteDetailScreen）で、
+//   同意待ちの振替の休む日で断られた回（SUBSTITUTE_PENDING_ON_DATE・便B17）に、本日休み・振替の
+//   登録と【同じ断りの窓】から［振替休日を開く］で1件を開くため。窓と開き方の写しをここに作ると、
+//   同じ断りが道によって2通りの見た目になる（袋小路を作らない決まりと、断りの窓を1本にする決まり）。
+import '../screens/substitute_detail_screen.dart'
+    show showSubstituteDeny, SubstituteDetailScreen;
 
 /// 検査から実物の流れ（候補→選ばせる→取る）を通すための差し替え口。
 ///   ★なぜ要るか: FIELD には provider のような注入の仕組みが無く、画面は
@@ -72,6 +84,9 @@ const String _kNoCompOffBody  = '休日に出勤したぶんの代休が、こ�
     '（代休は期限を過ぎると取れなくなります）';
 
 /// 代休を取る一連。取れたら true（呼び手は一覧を読み直す）。
+///   →再（2026-09-30・便F13続）: 取れたら true は同じ。読み直しは、取れた直後にここで鳴らす読み直しの
+///   知らせ（lib/utils/rest_day_refresh.dart）が届ける（カレンダーは便F13 で true を受けての読み直しを
+///   やめた）。true を受けた呼び手は、画面を閉じるかどうかだけを決める。
 ///
 /// [restDate] 休む日 'YYYY-MM-DD'。★入口が持つ値をそのまま渡すこと。
 Future<bool> showCompOffFlow(BuildContext context, {required String restDate}) async {
@@ -107,9 +122,39 @@ Future<bool> showCompOffFlow(BuildContext context, {required String restDate}) a
     undecided: picked.undecided,
     portion: picked.portion,
   );
+  // ★代休を取れた＝休みが変わった。ホームとカレンダーへ知らせる（lib/utils/rest_day_refresh.dart・便F13）。
+  //   （元）context.mounted を見て戻った後に鳴らしていた（通った後に呼び手の画面が閉じていると鳴らない）。
+  //   →再（2026-09-30・便F13続）: 通ったら、呼び手の画面が閉じたかを見る前に1回だけ鳴らす。
+  if (res.ok) RestDayRefresh.ring();
   if (!context.mounted) return false;
 
   if (!res.ok) {
+    // ★その日が事務から持ちかけられた振替休日の同意待ち（便B17）。本日休み・振替の登録と同じ
+    //   断りの窓（showSubstituteDeny）に［振替休日を開く］を足す（便F13）。題はこの画面の題のまま・
+    //   文は BE のまま。（元）押したら窓を閉じてその1件の画面を開く（今の画面の上に積む）。
+    //   →再（2026-09-30・便F13続）: 本日休みの画面の断り（rest_day_screen.dart の _submit）と同じく、先に
+    //   Navigator を取っておき、窓と積まれた画面を最初の画面まで閉じて（popUntil の isFirst）から1件の
+    //   画面を開く。同意すると代休を取ろうとした日が休みになり、下に残した画面（本日休み・振替の登録・
+    //   カレンダーの箱）の中身が事実でなくなるため。3つの呼び手はどれも、false を受けたら閉じた後の
+    //   自分に触らない（mounted を見て戻る・カレンダーは最初の画面のまま）。
+    if (res.errorCode == 'SUBSTITUTE_PENDING_ON_DATE') {
+      final id = '${res.errorDetails?['rest_day_id'] ?? ''}';
+      final nav = Navigator.of(context);
+      await showSubstituteDeny(
+        context,
+        '代休を登録できませんでした',
+        res,
+        onOpenSubstitute: id.isEmpty
+            ? null
+            : () {
+                nav.popUntil((r) => r.isFirst);
+                nav.push(MaterialPageRoute(
+                  builder: (_) => SubstituteDetailScreen(restDayId: id),
+                ));
+              },
+      );
+      return false;
+    }
     // 期限切れ・残不足・同じ日に既に休み など。★BE の文言をそのまま出す。
     await _showReason(context, '代休を登録できませんでした',
         res.errorMessage ?? '登録に失敗しました');

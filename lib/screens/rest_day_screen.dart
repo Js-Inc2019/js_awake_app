@@ -9,9 +9,11 @@ import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
 import '../utils/future_date_limit.dart' show lastSelectableDate;
 import '../main.dart' show showJsSnackbar;
+import '../utils/rest_day_refresh.dart';
 import '../widgets/comp_off_dialog.dart';
 import 'rest_day_done_screen.dart';
-import 'substitute_detail_screen.dart' show showSubstituteNotice;
+import 'substitute_detail_screen.dart'
+    show showSubstituteNotice, showSubstituteDeny, SubstituteDetailScreen;
 import 'substitute_register_screen.dart';
 
 // 理由4値（null=未選択）。表示ラベルと BE キーの対応。
@@ -85,12 +87,15 @@ class _RestDayScreenState extends State<RestDayScreen> {
           ? await _svc.updateRestDay(reason: _selectedReason, portion: _selectedPortion)
           : await _svc.createRestDay(reason: _selectedReason, portion: _selectedPortion);
 
-      final ok = res.ok;
-      // 新規登録で 409 ALREADY_RESTED は「既に休み」なので成功扱い（ねぎらい画面へ）。
-      final alreadyRested = !widget.editMode &&
-          (res.statusCode == 409 || res.errorCode == 'ALREADY_RESTED');
-
-      if (ok || alreadyRested) {
+      // ★（元）「新規登録で 409 ALREADY_RESTED は「既に休み」なので成功扱い（ねぎらい画面へ）」と
+      //   書き、実物は 409 を符号を問わず成功扱いにしていた（statusCode == 409 か
+      //   errorCode == ALREADY_RESTED なら完了の画面へ）。
+      //   →再（2026-09-29・便F13）: 409 を符号を問わず成功にしない。登録していないのに「休んだ」
+      //   ことになるため（便B17 で、同意待ちの振替の休む日に新しい断りが返る）。分け方は下の★。
+      if (res.ok) {
+        // ★今日の休みが変わった（新規も変更も＝終日と半休を変えるとカレンダーの輪と箱の行も
+        //   変わる）。ホームとカレンダーへ知らせる（lib/utils/rest_day_refresh.dart・便F13）。
+        RestDayRefresh.ring();
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -104,6 +109,42 @@ class _RestDayScreenState extends State<RestDayScreen> {
       }
 
       if (!mounted) return;
+      // ★新規の断りの分け方（便F13）。どれも完了の画面へ進まない:
+      //   ・SUBSTITUTE_PENDING_ON_DATE（今日が事務から持ちかけられた振替休日の同意待ち・便B17）
+      //     … 断りの窓（showSubstituteDeny＝断りの窓を1本にする）。題は見本 v1 の P2
+      //       「休みを登録できませんでした」・本文は BE の文そのまま・［閉じる］［振替休日を開く］。
+      //       ［振替休日を開く］は、窓とこの画面を閉じてホームへ戻してから、その1件の画面を開く
+      //       （同意すると今日は休みになり、この画面の中身が事実でなくなるため）。
+      //       ホームは本日休みのボタンの onChanged で読み直す（今の道）。
+      //   ・ALREADY_RESTED … BE の文を snackbar で出してホームへ戻す（ホームは同じく読み直す）。
+      //   ・ほかの失敗 … 今の snackbar に BE の文（下の今の道）。
+      if (!widget.editMode && res.errorCode == 'SUBSTITUTE_PENDING_ON_DATE') {
+        final id = '${res.errorDetails?['rest_day_id'] ?? ''}';
+        final nav = Navigator.of(context);
+        // ★窓を出す前に「通信中」を下ろす（窓の後ろでスピナーが回り続けないように）。
+        setState(() => _busy = false);
+        await showSubstituteDeny(
+          context,
+          '休みを登録できませんでした',
+          res,
+          onOpenSubstitute: id.isEmpty
+              ? null
+              : () {
+                  nav.popUntil((r) => r.isFirst);
+                  nav.push(MaterialPageRoute(
+                    builder: (_) => SubstituteDetailScreen(
+                        restDayId: id, service: widget.service),
+                  ));
+                },
+        );
+        return;
+      }
+      if (!widget.editMode && res.errorCode == 'ALREADY_RESTED') {
+        showJsSnackbar(context, res.errorMessage ?? '休みの登録に失敗しました',
+            isError: true);
+        Navigator.of(context).popUntil((r) => r.isFirst);
+        return;
+      }
       // ★statusCode:0 ＝ サーバまで届かなかった。統一前は例外時に statusCode を
       //   積んでいなかったため「（N）」が付かなかった。同じ見た目を保つため 0 は出さない。
       showJsSnackbar(
@@ -200,8 +241,11 @@ class _RestDayScreenState extends State<RestDayScreen> {
       ),
     ));
     if (!mounted || done != true) return;
-    // 登録できたらホームへ戻す。★ホームが休みの状態・カレンダー・要対応の件数を
+    // 登録できたらホームへ戻す。★（元）ホームが休みの状態・カレンダー・要対応の件数を
     //   取り直す道（代休の _openCompOff とまったく同じ＝数が古いまま残らない）。
+    //   →再（2026-09-29・便F13）: ホームが戻って取り直すのは本日休みの状態だけ（本日休みのボタンの
+    //   onChanged）。カレンダーと要対応の件数は、登録の画面が鳴らす読み直しの知らせ
+    //   （lib/utils/rest_day_refresh.dart）で取り直す。
     Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
@@ -232,6 +276,8 @@ class _RestDayScreenState extends State<RestDayScreen> {
     try {
       final res = await _svc.deleteRestDay();
       if (res.ok) {
+        // ★今日の休みが変わった。ホームとカレンダーへ知らせる（便F13）。
+        RestDayRefresh.ring();
         if (!mounted) return;
         Navigator.of(context).popUntil((r) => r.isFirst); // ホームへ（スタックを畳む）
         return;

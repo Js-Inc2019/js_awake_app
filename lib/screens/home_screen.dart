@@ -16,6 +16,8 @@ import '../widgets/search_suggest_field.dart';
 import '../widgets/closing_period_dialog.dart';
 // 代休を取る受け皿。★「本日休み」の画面（rest_day_screen.dart）と同じ1本を使う
 //   ＝入口は2つでも、選ばせる部品と書く口は1つ（同じ操作を2通りに書かない）。
+//   →再（2026-09-30・便F13続）: 入口（呼び手）は3つ＝本日休みの画面・このカレンダー・振替の登録の画面
+//   （名簿は lib/widgets/comp_off_dialog.dart の冒頭）。部品と書く口が1つなのは同じ。
 import '../widgets/comp_off_dialog.dart';
 import '../utils/business_date.dart';
 
@@ -53,6 +55,7 @@ import '../utils/report_cancel_gate.dart'
 // カレンダー（CalendarTab）を先の月へ送れる範囲は lib/utils/future_date_limit.dart の1本
 // （本日休みの画面の日付の窓2つと同じ上限・便F12）。
 import '../utils/future_date_limit.dart' show canGoToNextMonth;
+import '../utils/rest_day_refresh.dart';
 import 'day_reports_screen.dart';
 import 'management_history_screen.dart';
 import 'profile_screen.dart';
@@ -288,6 +291,8 @@ Future<T> _withRetry<T>(
 // ReportTabNavigator — 日報作成画面（JsMainShell の日報タブ index0）への
 // 単一の入口。通知一覧の 'report_remind' タップと FCM 'report_reminder' の
 // 両方が「■2と同じルート」でここを経由する。
+//   →再（2026-09-29・便F13）: FCM の種類も 'report_remind'（lib/services/fcm_service.dart の
+//   handleNotificationTap が旧名 'report_reminder' から是正した）。
 // シェルが initState で register / dispose で unregister する。
 // go() は成功で true、シェル未生成時は false（呼び出し側はフォールバック可）。
 // ============================================================
@@ -315,6 +320,7 @@ class ReportTabNavigator {
 //     （当リポジトリに showDialog での使用実績が無いため）。
 //   ・未登録（シェル未生成）のときは false を返し、呼び手が通知一覧へ
 //     フォールバックする（fcm_service.dart の report_reminder と同じ形）。
+//     →再（2026-09-29・便F13）: fcm_service.dart の種類の綴りは 'report_remind'（旧名から是正済み）。
 typedef PunchRemindHandler =
     void Function(String side, String shiftType, String bizDate);
 
@@ -356,6 +362,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   ★ボトムバッジからのタブ切替(_BottomTabItem の onTap)はこの2値を触らない＝挙動不変。
   String? _mgmtSegment;
   int _mgmtSegmentRequestId = 0;
+
+  // 「本日休みの状態をもう一度読んで」を PunchScreen へ届ける通し番号（便F13）。
+  //   ★+1 するのは、ホームのタブ（index 0）へ入ったときと、🔔 のお知らせの一覧から戻ったとき。
+  //     日が変わった後や、別の端末での同意に追いつくため（前例＝上の _mgmtSegmentRequestId）。
+  //   ★アプリが前に戻ったとき（resumed）は進めない。PunchScreen が自分の
+  //     didChangeAppLifecycleState で読み直す（2回引かない）。
+  int _restStatusRequestId = 0;
 
   // ─── ユーザー情報 ───
   bool _initialLoading = true;
@@ -554,6 +567,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     ReportTabNavigator.register(_openReportTabCb);
     PunchRemindDialogNavigator.register(_punchRemindCb);
+    // ★読み直しの知らせ（lib/utils/rest_day_refresh.dart・便F13）。休みや振替がどの道で
+    //   変わっても、要対応の件数をこの1本で読み直す（件数を持つのはシェル）。
+    RestDayRefresh.changes.addListener(_onRestDayChanged);
     _loadCacheAndStart();
     _loadUnreadCount();
     _restoreTabIndex();
@@ -1066,9 +1082,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (mounted) setState(() => _tabIndex = saved);
   }
 
+  // 読み直しの知らせを受けたら、シェルが持つ要対応の件数を読み直す（便F13）。
+  void _onRestDayChanged() {
+    if (mounted) _loadSubstituteCount();
+  }
+
+  // ホームの2つ（本日休みの状態と要対応の件数）だけを読み直す（便F13）。
+  //   ★呼ぶのは、ホームのタブへ入ったときと 🔔 のお知らせの一覧から戻ったとき。
+  //   ★カレンダーは読み直さない（下の _setTab の★＝全部のタブで読み直すと API の連打になる）。
+  //   ★本日休みの状態は PunchScreen が持つので、番号を進めて頼む（PunchScreen の restStatusRequestId）。
+  void _refreshHomeRestState() {
+    setState(() => _restStatusRequestId++);
+    _loadSubstituteCount();
+  }
+
   // タブ切り替え＋保存
   void _setTab(int index) {
     setState(() => _tabIndex = index);
+    // ホーム(index0)へ入ったときは本日休みの状態と要対応の件数を読み直す（便F13・上の★）。
+    if (index == 0) _refreshHomeRestState();
     // 承認セグメントを含む「管理・履歴」タブ(index1)進入時のみバッジ2値を再取得
     // （全index一律はAPI連打になるため回避）。旧 index3=承認・是正 から付け替え。
     if (index == 1) {
@@ -1100,6 +1132,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _reportScrollCtrl.dispose();   // 4ステップ化で新設したスクロール制御
     ReportTabNavigator.unregister(_openReportTabCb);
     PunchRemindDialogNavigator.unregister(_punchRemindCb);
+    RestDayRefresh.changes.removeListener(_onRestDayChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1118,6 +1151,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _fetchGps();
       _loadUnreadCount();
+      // ★要対応の件数も読み直す（便F13）。本日休みの状態は PunchScreen が自分の
+      //   didChangeAppLifecycleState で読み直す（番号は進めない＝2回引かない）。
+      _loadSubstituteCount();
     }
   }
 
@@ -1920,6 +1956,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //     残業/休憩短縮の出し分けも実処理も _openExtraDeclarationPicker のまま＝入口が増えただけ。
         todayClosed: _todayClosed,
         onExtraDeclaration: _openExtraDeclarationPicker,
+        // 本日休みの状態の読み直しの番号（便F13・_restStatusRequestId の★）。
+        restStatusRequestId: _restStatusRequestId,
         // 勤務区分の真実は当State側（送信で使う）。値+変更通知を下ろす既存の流儀に追随。
         shiftType: _shiftType,
         onShiftTypeChanged: (v) {
@@ -2090,6 +2128,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               MaterialPageRoute(builder: (_) => const NotificationListScreen()),
             );
             if (mounted) _loadUnreadCount();
+            // ★お知らせから振替の画面へ行って同意した回などに追いつく（便F13）。
+            //   ホームの2つ（本日休みの状態と要対応の件数）だけを読み直す。
+            if (mounted) _refreshHomeRestState();
           },
           icon: Stack(
             clipBehavior: Clip.none,
@@ -6821,6 +6862,16 @@ class _CoopCard extends StatelessWidget {
 // 曜日ラベル（日=0 起点）。グリッド見出しと選択日ラベルで共有する。
 const List<String> _kWeekLabels = ['日', '月', '火', '水', '木', '金', '土'];
 
+/// カレンダーの月送り（‹ ›）と ↻ の押せる大きさ（便F13）。★型は IconButton のまま。
+///   ★高さ・幅とも44（押せる物の決まり＝44以上）。visualDensity を使わないのは、compact だと
+///     最小の大きさから8を引かれて 44 に届かないため（元は compact で 40×40）。
+///   ★tapTargetSize を shrinkWrap にして、見た目の44と押せる44を同じにする（padded のままだと
+///     48 の見えない余白が付き、帯の高さが変わる）。アイコンの大きさ・色はそれぞれの呼び手のまま。
+final ButtonStyle _kMonthNavButtonStyle = IconButton.styleFrom(
+  minimumSize: const Size(44, 44),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
+
 // ─────────────────────────────────────────────
 // カレンダーの高さ配分（純関数と、その入力になる定数）
 // ─────────────────────────────────────────────
@@ -7055,19 +7106,39 @@ class _CalendarTabState extends State<CalendarTab> {
   /// 'YYYY-MM-DD' → その日に関わる振替の id。
   ///   ★休む日と【対の出勤日】の両方を鍵にする（モック A4＝どちらの箱からも開ける）。
   ///   ★端末で「振替の日か」を判定しない。BE が返した一覧に在るかどうかだけ。
-  ///   ★月では切らない（振替の一覧の口は期間で切らない）。月を送っても取り直さない
+  ///   ★月では切らない（振替の一覧の口は期間で切らない）。（元）月を送っても取り直さない
   ///     ＝この地図は月と無関係なので、画面に入ったときに1回だけ引く。
+  ///     →再（2026-09-29・便F13）: _loadMonth の中で一緒に取り直す（↻・再試行・締めの帯・月送り・
+  ///     読み直しの知らせのどの道も同じ1本）。画面に入ったときの1回だけだと、振替の画面で同意・
+  ///     取り消しをして戻っても、箱の［振替休日を開く］と同意待ちの印が古いまま残るため。
   Map<String, String> _substituteByDate = const {};
+
+  /// 同意待ちの振替の【出勤する日】（'YYYY-MM-DD'）の集まり（便F13・見本 v1 の K3）。
+  ///   ★出どころは _substituteByDate と同じ行（GET /rest-days/my/substitutes）の pending_agreement と
+  ///     paired_work_date。BE の真偽をそのまま読む（端末で条件を組み立て直さない）。
+  Set<String> _pendingWorkDates = const {};
+
+  /// 振替の日付（GET /rest-days/my/substitutes）が取れなかった（便F13続）。
+  ///   ★（元）便F13 では答えが ok でないときも例外のときも黙って戻っていた（注意バーに出ない沈黙）。
+  ///   →再（2026-09-30・便F13続）: 他の3本（_reportsFailed・_holidayFailed・_restFailed）と同じく旗を立て、
+  ///   注意バー（_buildFailureBar）に「振替休日」と出す。失敗しても今の地図（_substituteByDate・
+  ///   _pendingWorkDates）は消さない（_loadMyRestDays と同じ形＝消すと箱の［振替休日を開く］が黙って消える）。
+  bool _substituteFailed = false;
 
   Future<void> _loadSubstituteDates() async {
     try {
       final res = await ReportsService().getMySubstitutes();
-      if (!res.ok || !mounted) return;
+      if (!mounted) return;
+      if (!res.ok) {
+        setState(() => _substituteFailed = true);
+        return;
+      }
       final rows = (((res.data ?? const {})['rows'] as List?) ?? const [])
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
       final byDate = <String, String>{};
+      final pendingWork = <String>{};
       for (final r in rows) {
         final id = '${r['id'] ?? ''}';
         if (id.isEmpty) continue;
@@ -7075,10 +7146,19 @@ class _CalendarTabState extends State<CalendarTab> {
           final d0 = r[k];
           if (d0 is String && d0.isNotEmpty) byDate.putIfAbsent(d0, () => id);
         }
+        final work = r['paired_work_date'];
+        if (r['pending_agreement'] == true && work is String && work.isNotEmpty) {
+          pendingWork.add(work);
+        }
       }
-      setState(() => _substituteByDate = byDate);
+      setState(() {
+        _substituteByDate = byDate;
+        _pendingWorkDates = pendingWork;
+        _substituteFailed = false;
+      });
     } catch (e) {
       debugPrint('振替の日付取得エラー: $e');
+      if (mounted) setState(() => _substituteFailed = true);
     }
   }
 
@@ -7117,9 +7197,22 @@ class _CalendarTabState extends State<CalendarTab> {
   void initState() {
     super.initState();
     _initCompanyId();
+    // ★（元）ここで _loadSubstituteDates も別に呼んでいた（画面に入ったときに1回だけ）。
+    //   →再（2026-09-29・便F13）: _loadMonth の中で一緒に引く（2回引かないよう、ここでは呼ばない）。
     _loadMonth();
-    // 振替の日付は月と無関係（一覧の口は期間で切らない）。画面に入ったときに1回だけ。
-    _loadSubstituteDates();
+    // ★読み直しの知らせ（lib/utils/rest_day_refresh.dart・便F13）。休みや振替がどの道で
+    //   変わっても（箱の［振替休日を開く］で開いた画面での同意を含む）、_loadMonth の1本で読み直す。
+    RestDayRefresh.changes.addListener(_onRestDayChanged);
+  }
+
+  void _onRestDayChanged() {
+    if (mounted) _loadMonth();
+  }
+
+  @override
+  void dispose() {
+    RestDayRefresh.changes.removeListener(_onRestDayChanged);
+    super.dispose();
   }
 
   Future<void> _initCompanyId() async {
@@ -7158,9 +7251,14 @@ class _CalendarTabState extends State<CalendarTab> {
   }
 
   // ── 月切替のたびに3本を並列取得（fail-soft）──────────────────
-  //   ・日報 / 会社休日 / 自分の休み を Future.wait で同時に投げる。
+  //   →再（2026-09-29・便F13）: 4本（振替の日付＝_loadSubstituteDates を足した）。呼ぶ道は
+  //   月送り・↻・再試行・締めの帯と、読み直しの知らせ（lib/utils/rest_day_refresh.dart）。
+  //   ・（元）日報 / 会社休日 / 自分の休み を Future.wait で同時に投げる。
+  //     →再（2026-09-30・便F13続）: 日報 / 会社休日 / 自分の休み / 振替の日付 の4本を Future.wait で同時に投げる。
   //   ・どれか1本が失敗しても他は描画する。失敗したものは _*Failed を立て、
   //     画面上部の注意バー（_buildFailureBar）で必ず可視化する（黙って空にしない）。
+  //     →再（2026-09-30・便F13続）: 便F13 の振替の日付だけは旗が無く黙っていた。_substituteFailed を足し、
+  //     4本のどれが失敗しても注意バーに出る。
   //   ・祝日は「年単位」なので月ではなく年が変わったときだけ追加取得する。
   Future<void> _loadMonth() async {
     _closing.beginRound();
@@ -7171,12 +7269,15 @@ class _CalendarTabState extends State<CalendarTab> {
       _reportsFailed  = false;
       _holidayFailed  = false;
       _restFailed     = false;
+      _substituteFailed = false;
     });
 
     await Future.wait([
       _loadReports(),
       _loadCompanyHolidays(),
       _loadMyRestDays(),
+      // ★振替の日付（月と無関係の地図）も同じ1本で取り直す（便F13・_substituteByDate の★）。
+      _loadSubstituteDates(),
     ]);
 
     if (!mounted) return;
@@ -7297,15 +7398,18 @@ class _CalendarTabState extends State<CalendarTab> {
     return Column(
       children: [
         // ① 月ナビ
+        // ★（元）上下の余白4・‹ › ↻ は visualDensity compact で 40×40（44に届かない）。
+        //   →再（2026-09-29・便F13）: 押せる物を高さ・幅とも44にし（型は IconButton のまま）、帯の高さは
+        //   今の48のまま（上下の余白を4→2に詰める＝2＋44＋2）。字の大きさ・色・並びは変えていない。
         Container(
           color: FieldTokens.surfaceCard,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           child: Row(
             children: [
               IconButton(
                 icon: const Icon(Icons.chevron_left, color: FieldTokens.brand),
                 onPressed: _prevMonth,
-                visualDensity: VisualDensity.compact,
+                style: _kMonthNavButtonStyle,
               ),
               Expanded(
                 child: Center(
@@ -7322,13 +7426,13 @@ class _CalendarTabState extends State<CalendarTab> {
                 icon: Icon(Icons.chevron_right,
                     color: canNext ? FieldTokens.brand : FieldTokens.textSupport),
                 onPressed: canNext ? _nextMonth : null,
-                visualDensity: VisualDensity.compact,
+                style: _kMonthNavButtonStyle,
               ),
               IconButton(
                 icon: const Icon(Icons.refresh,
                     color: FieldTokens.textSupport, size: 18),
                 onPressed: _loadMonth,
-                visualDensity: VisualDensity.compact,
+                style: _kMonthNavButtonStyle,
               ),
             ],
           ),
@@ -7382,18 +7486,25 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // ── 取得失敗バー ────────────────────────────────────────────
   // fail-soft の相方。取れなかったものを必ず名指しで出す（沈黙障害の禁止）。
+  //   →再（2026-09-30・便F13続）: 並びに「振替休日」（_substituteFailed）を足した。並びは _loadMonth で
+  //   投げる順（日報・会社休日・自分の休み・振替休日）の後に祝日。
   Widget _buildFailureBar() {
     final failed = <String>[
       if (_reportsFailed) '日報',
       if (_holidayFailed) '会社休日',
       if (_restFailed)    '自分の休み',
+      if (_substituteFailed) '振替休日',
       if (_jpFailed)      '祝日',
     ];
     if (failed.isEmpty) return const SizedBox.shrink();
+    // ★（元）上下の余白8・［再試行］は余白 左右4×上下2 と字12（押せる所が44に届かない）。
+    //   →再（2026-09-30・便F13続）: ［再試行］の押せる所を高さ・幅とも44以上にし（押せる物の決まり・
+    //   型は GestureDetector のまま・字の大きさと色と太さは変えない）、上下の余白を 0 にして帯の高さを
+    //   ［再試行］の44にそろえる（印と文は Row の既定で縦の真ん中・左右の余白12はそのまま）。
     return Container(
       width: double.infinity,
       color: FieldTokens.surfaceCard,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(children: [
         const Icon(Icons.error_outline, color: FieldTokens.statusWarning, size: 16),
         const SizedBox(width: 8),
@@ -7404,13 +7515,19 @@ class _CalendarTabState extends State<CalendarTab> {
         GestureDetector(
           onTap: _loadMonth,
           behavior: HitTestBehavior.opaque,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Text('再試行',
-                style: TextStyle(
-                    color: FieldTokens.accent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Center(
+                widthFactor: 1,
+                child: Text('再試行',
+                    style: TextStyle(
+                        color: FieldTokens.accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold)),
+              ),
+            ),
           ),
         ),
       ]),
@@ -7490,6 +7607,8 @@ class _CalendarTabState extends State<CalendarTab> {
                     date.month == now.month &&
                     date.day == now.day;
                 final rest = _myRestDays[ds];
+                // ★同意待ちの振替の休む日は休みに数えない（便F13・見本 v1 の K1）。輪は待ちの色の点線。
+                final pendingRest = _isPendingSubstituteRest(rest);
                 return _DayCell(
                   day: dayNum,
                   hasReport: _submittedDates.contains(ds),
@@ -7499,7 +7618,9 @@ class _CalendarTabState extends State<CalendarTab> {
                   isSaturday: weekdayIdx == 6,
                   isJpHoliday: _jpHolidays.containsKey(ds),
                   isCompanyHoliday: _companyHolidayType(ds, weekdayIdx) != null,
-                  restPortion: rest?['portion'] as String?,
+                  restPortion:
+                      pendingRest ? null : rest?['portion'] as String?,
+                  pendingSubstituteRest: pendingRest,
                   cellHeight: cellHeight,
                   // ★既存の1文（選択日を変えるだけ）は消していない。
                   //   その後にシートを開く1行を足しただけ。選択の枠は
@@ -7538,6 +7659,14 @@ class _CalendarTabState extends State<CalendarTab> {
     return CalendarDayPanel(info: _dayInfoOf(ds));
   }
 
+  // その日の自分の休みの行が、事務から持ちかけられた振替休日の同意待ちか（便F13）。
+  //   ★BE の GET /rest-days/my の行の pending_agreement をそのまま読む（端末で組み立て直さない）。
+  //   ★同意待ちの行は休みに数えない（便B17 と同じ扱い＝同意するまでこの日は休みではない）。
+  //   →再（2026-09-30・便F13続）: 置き場を下の _dayInfoOf の説明の前へ動かした（中身は同じ）。便F13 では
+  //   _dayInfoOf の説明とその本体の間に挟まり、あちらの説明がこの関数に付いて読めた。
+  static bool _isPendingSubstituteRest(Map<String, dynamic>? rest) =>
+      rest?['pending_agreement'] == true;
+
   // その日ぶんの中身を1本にまとめて作る。
   // ★要約（CalendarDayPanel）とシート（CalendarDaySheet）が同じこれを読む
   //   ＝同じ日について2通りの数え方が生まれない。
@@ -7545,12 +7674,23 @@ class _CalendarTabState extends State<CalendarTab> {
     final parts = ds.split('-').map(int.parse).toList();
     final date = DateTime(parts[0], parts[1], parts[2]);
     final rest = _myRestDays[ds];
+    final pendingRest = _isPendingSubstituteRest(rest);
+    final paired = rest?['paired_work_date'];
     return CalendarDayInfo(
       date: date,
       jpHolidayName: _jpHolidays[ds],
       companyHolidayType: _companyHolidayType(ds, date.weekday % 7),
-      restPortion: rest?['portion'] as String?,
-      restReason: rest?['reason'] as String?,
+      // ★同意待ちの休む日は休みに数えない（便F13・K2＝休みの無い日と同じ行になる）。
+      restPortion: pendingRest ? null : rest?['portion'] as String?,
+      restReason: pendingRest ? null : rest?['reason'] as String?,
+      substitutePendingRest: pendingRest,
+      substitutePendingWork: _pendingWorkDates.contains(ds),
+      // A4 の「出勤する日：…と入れ替え」は振替の休む日の行（成立も同意待ちも）だけ（便F13）。
+      substitutePairedWorkDate: (rest?['reason'] == 'substitute' &&
+              paired is String &&
+              paired.isNotEmpty)
+          ? paired
+          : null,
       // ★取消済を含む全部を渡す（DayReportsScreen へ渡す元もこれ）。
       reports:
           _monthReports.where((r) => r['report_date'] == ds).toList(),
@@ -7572,6 +7712,9 @@ class _CalendarTabState extends State<CalendarTab> {
   // 日付タップで開く箱。開き方の本体は showCalendarDaySheet（検査も同じ1本を呼ぶ）。
   // ★旧パネルが持っていた2つの導線（代休で休む／日報を確認）はここへ移した。
   //   どちらも押した後の後始末（_loadMonth / _loadReports）は旧と同じ。
+  //   →再（2026-09-30・便F13続）: 日報を確認の後の _loadReports は旧と同じ。代休の後の _loadMonth は、
+  //   ここから直接呼ぶのをやめ、取れたら showCompOffFlow が鳴らす読み直しの知らせ
+  //   （lib/utils/rest_day_refresh.dart）で呼ばれる（下の onCompOff の→再）。
   Future<void> _openDaySheet(String ds) async {
     final info = _dayInfoOf(ds);
     await showCalendarDaySheet(
@@ -7589,10 +7732,12 @@ class _CalendarTabState extends State<CalendarTab> {
           builder: (_) => SubstituteDetailScreen(restDayId: id),
         ));
       },
+      // ★（元）取れたら _loadMonth で BE の真実へ追随していた。
+      //   →再（2026-09-29・便F13）: 取れたら showCompOffFlow が読み直しの知らせを鳴らし、このタブは
+      //   その知らせで _loadMonth する（道ごとに読み直しを書き足さない＝2回引かない）。
       onCompOff: () async {
         Navigator.pop(context);
-        final took = await showCompOffFlow(context, restDate: ds);
-        if (took && mounted) _loadMonth();   // BE の真実へ追随
+        await showCompOffFlow(context, restDate: ds);
       },
       // 振替で休む。★代休と同じ道＝箱を閉じてから進み、通ったら読み直す。
       //   手前の注意書きは1件の画面が持つ showSubstituteNotice ただ1本
@@ -7601,12 +7746,14 @@ class _CalendarTabState extends State<CalendarTab> {
         Navigator.pop(context);
         if (!await showSubstituteNotice(context)) return;
         if (!mounted) return;
-        final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        await Navigator.of(context).push<bool>(MaterialPageRoute(
           builder: (_) => SubstituteRegisterScreen(restDate: ds),
         ));
-        // ★数が古いまま残らないように読み直す。_loadMonth はカレンダーと
+        // ★（元）数が古いまま残らないように読み直す。_loadMonth はカレンダーと
         //   要対応の件数の両方を取り直す（代休の道と同じ1本）。
-        if (done == true && mounted) _loadMonth();
+        //   →再（2026-09-29・便F13）: _loadMonth は件数を取らない（件数はシェルの _loadSubstituteCount）。
+        //   登録できたら登録の画面が読み直しの知らせを鳴らし、このタブ（_loadMonth）とシェル
+        //   （件数）の両方がその知らせで読み直す。ここでは読み直しを書き足さない（2回引かない）。
       },
       onOpenDayReports: () async {
         Navigator.pop(context);
@@ -7671,7 +7818,41 @@ class CalendarDayInfo {
     this.restPortion,
     this.restReason,
     this.reports = const <Map<String, dynamic>>[],
+    this.substitutePendingRest = false,
+    this.substitutePendingWork = false,
+    this.substitutePairedWorkDate,
   });
+
+  /// この日が、事務から持ちかけられた振替休日の【休む日】で、まだ同意していないか（便F13・K1・K2）。
+  ///   ★true のとき restPortion と restReason は null（休みに数えない＝便B17 と同じ）。
+  ///   ★出どころは GET /rest-days/my の行の pending_agreement（BE の真偽をそのまま）。
+  final bool substitutePendingRest;
+
+  /// この日が、同意待ちの振替休日の【出勤する日】か（便F13・K3）。
+  ///   ★出どころは GET /rest-days/my/substitutes の行の pending_agreement と paired_work_date。
+  final bool substitutePendingWork;
+
+  /// この日が振替休日の【休む日】（成立も同意待ちも）のとき、入れ替える出勤する日（'YYYY-MM-DD'）。
+  ///   A4 の行「出勤する日：M月D日（曜）と入れ替え」に使う（便F13・見本 v4 の A4）。ほかの日は null。
+  ///   ★出どころは GET /rest-days/my の行（reason が substitute）の paired_work_date。
+  final String? substitutePairedWorkDate;
+
+  /// 同意待ちの行の文（見本 v1 の K2・K3・一字一句）。どちらでもない日は null。
+  String? get substitutePendingLine {
+    if (substitutePendingRest) return '振替休日：同意待ち（同意すると、この日は休みになります）';
+    if (substitutePendingWork) return '振替休日：同意待ち（同意すると、この日は出勤する日になります）';
+    return null;
+  }
+
+  /// A4 の行（見本 v4 の A4）。休む日の箱にだけ出す（出勤する日の箱には出さない）。
+  String? get substitutePairLine {
+    final d = substitutePairedWorkDate;
+    if (d == null) return null;
+    final p = d.split('-').map(int.tryParse).toList();
+    if (p.length != 3 || p.any((x) => x == null)) return null;
+    final dt = DateTime(p[0]!, p[1]!, p[2]!);
+    return '出勤する日：${dt.month}月${dt.day}日（${_kWeekLabels[dt.weekday % 7]}）と入れ替え';
+  }
 
   final DateTime date;
 
@@ -7786,6 +7967,45 @@ class _DayInfoRow extends StatelessWidget {
             ),
           ),
         ]),
+      );
+}
+
+/// 箱（CalendarDaySheet）にだけ出す、折り返す1行（便F13・同意待ちの行と A4 の行）。
+///   ★_DayInfoRow（高さ固定・1行・…で切る）を使わない。393 幅の電話でも文を切らずに読ませるため。
+///   ★字は本文色 13・印は 14 で _DayInfoRow と同じ。印の色だけ呼び手が決める（同意待ちは待ちの色）。
+///   ★既定のパネル（CalendarDayPanel）には出さない。あちらは kCalendarPanelReservedHeight の
+///     3行に釣り合わせてあり、行を足すと切れる。
+class _DayInfoWrapRow extends StatelessWidget {
+  const _DayInfoWrapRow({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(icon, color: color, size: 14),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(
+                    color: FieldTokens.textBody, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
       );
 }
 
@@ -7939,6 +8159,9 @@ class CalendarDaySheet extends StatelessWidget {
   ///   ★出す条件は「代休で休む」と同じ＝その日にまだ休みが入っていないこと。
   ///     既に休みが在る日に出しても BE が ALREADY_RESTED で断るだけで、
   ///     押せるのに必ず失敗するボタンになる。
+  ///     →再（2026-09-30・便F13続）: 条件は「その日にまだ休みが入っていない」かつ「その日が同意待ちの
+  ///     振替の休む日（substitutePendingRest）でない」（代休と同じ・便F13）。同意待ちの休む日は休みに
+  ///     数えないが、BE は SUBSTITUTE_PENDING_ON_DATE で断る（押せるのに必ず失敗するボタンになる）。
   final VoidCallback? onSubstitute;
 
   @override
@@ -7994,11 +8217,30 @@ class CalendarDaySheet extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ..._dayRestRows(info),
+                    // 同意待ちの行（便F13・見本 v1 の K2・K3）。★箱にだけ出す（パネルには出さない）。
+                    //   印は待ちの色（substitute_list_screen.dart の kSubstituteWaitColor ただ1本）。
+                    if (info.substitutePendingLine != null)
+                      _DayInfoWrapRow(
+                        icon: Icons.swap_horiz,
+                        color: kSubstituteWaitColor,
+                        text: info.substitutePendingLine!,
+                      ),
+                    // A4 の行（振替の休む日の箱だけ・成立も同意待ちも）。印は補足の色。
+                    if (info.substitutePairLine != null)
+                      _DayInfoWrapRow(
+                        icon: Icons.event_outlined,
+                        color: FieldTokens.textSupport,
+                        text: info.substitutePairLine!,
+                      ),
                     // 代休で休む（旧パネルの入口②をここへ移した）。
                     // ★既に休みが在る日には出さない。出しても BE が
                     //   ALREADY_RESTED で断るだけの、必ず失敗するボタンになる
                     //   （旧パネルの裁定をそのまま引き継ぐ）。
-                    if (info.restPortion == null && onCompOff != null) ...[
+                    //   →再（2026-09-29・便F13）: 同意待ちの振替の休む日にも出さない（休みには数えないが、
+                    //   振替の持ちかけでその日は埋まっている＝BE は SUBSTITUTE_PENDING_ON_DATE で断る）。
+                    if (info.restPortion == null &&
+                        !info.substitutePendingRest &&
+                        onCompOff != null) ...[
                       const SizedBox(height: 8),
                       SizedBox(
                         width: double.infinity,
@@ -8020,7 +8262,10 @@ class CalendarDaySheet extends StatelessWidget {
                     // ★出す条件も代休と同じ＝その日にまだ休みが入っていないとき。
                     //   振替の日・対の出勤日の箱には、下の「振替休日を開く」が出る
                     //   （あちらは既に在る振替を見る道で、これとは別の入口）。
-                    if (info.restPortion == null && onSubstitute != null) ...[
+                    // ★（便F13）同意待ちの振替の休む日にも出さない（上の代休と同じ理由）。
+                    if (info.restPortion == null &&
+                        !info.substitutePendingRest &&
+                        onSubstitute != null) ...[
                       const SizedBox(height: 8),
                       SizedBox(
                         width: double.infinity,
@@ -8137,10 +8382,17 @@ Future<void> showCalendarDaySheet(
 // ─────────────────────────────────────────────
 // カレンダーのセル
 // ─────────────────────────────────────────────
-// 意味の役割分離（この5つは互いに独立し、同時に出てよい）:
+// 意味の役割分離（元「この5つは互いに独立し、同時に出てよい」）:
+//   →再（2026-09-30・便F13続）: 印は7つ（下の行は6つで、最後の行に枠が2つ）。同時に出るかは組ごとに違う:
+//   ・セル塗り・輪・ドット・枠 の4組は互いに独立し、同時に出てよい。
+//   ・輪は 実線・破線・待ちの色の点線 のどれか1つだけ。待ちの色の点線は休みの輪と同時に出ない
+//     （同意待ちは休みに数えないので restPortion は null で渡り、休みの輪が無いときだけ描く）。
+//   ・枠は 選択中 が 今日 より先（選んだ今日は本文色の枠だけ）。
 //   セル塗り   = 会社の休業日（isCompanyHoliday）
 //   実線リング = 自分の休み full（restPortion=='full'）
-//   破線リング = 自分の休み 半休（am_half / pm_half）
+//   破線リング = 自分の休み 半休（am_half / pm_half・_DashedRingPainter）
+//   待ちの色の点線リング = 事務から持ちかけられた振替休日の休む日で、まだ同意していない
+//              （pendingSubstituteRest・休みに数えない＝便F13・見本 v1 の K1・_DottedRingPainter）
 //   ドット     = 日報提出済（hasReport）
 //   今日=金の枠 / 選択中=本文色の枠
 // 文字色は「その日の性質」であり休日設定とは無関係に固定（OFFICE
@@ -8156,9 +8408,16 @@ class _DayCell extends StatelessWidget {
     this.isJpHoliday = false,
     this.isCompanyHoliday = false,
     this.restPortion,
+    this.pendingSubstituteRest = false,
     required this.cellHeight,
     required this.onTap,
   });
+  /// 事務から持ちかけられた振替休日の休む日で、まだ同意していない（便F13・見本 v1 の K1）。
+  ///   ★休みに数えない（restPortion は null で渡る）。輪は休みの輪（accent の実線）ではなく、
+  ///     待ちの色（kSubstituteWaitColor）の点線（太さは今の輪と同じ 1.5）。同意したら今までどおりの輪。
+  ///     →再（2026-09-30・便F13続）: 点線は _DottedRingPainter（丸い点）で描く。便F13 では半休と同じ
+  ///     _DashedRingPainter（破線）で描いており、説明の「点線」と実物が違っていた。
+  final bool pendingSubstituteRest;
   final int day;
   final bool hasReport;
   final bool isSelected;
@@ -8214,6 +8473,18 @@ class _DayCell extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
+            // 同意待ちの振替の休む日: 待ちの色の点線リング（便F13・K1）。
+            //   （元）便F13 では _DashedRingPainter（破線）で描いていた。
+            //   →再（2026-09-30・便F13続）: 見本 v1 の K1（dotted）どおり _DottedRingPainter（丸い点）で描く。
+            if (!hasRest && pendingSubstituteRest)
+              const Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.all(5),
+                  child: CustomPaint(
+                    painter: _DottedRingPainter(color: kSubstituteWaitColor),
+                  ),
+                ),
+              ),
             // 自分の休み: full=実線リング / 半休=破線リング
             if (hasRest)
               Positioned.fill(
@@ -8294,6 +8565,36 @@ class _DashedRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DashedRingPainter old) => old.color != color;
+}
+
+// 点線リング（事務から持ちかけられた振替休日の休む日で、まだ同意していない日＝見本 v1 の K1・便F13続）。
+//   ★形: 丸い点（直径＝線の太さ 1.5）を、破線リングと同じ形（同じ四角に内接する楕円＝Path.addOval）に
+//     沿って、中心の間 3 で並べる（見本の CSS の dotted＝点の大きさと同じ間）。
+//   ★見本 v1 の K1 の※のとおり、半休の丸（青緑の破線・_DashedRingPainter）とは、色と線の形で見分ける。
+//     そのため破線の painter を色違いで使い回さない（便F13 ではそうしていて、形で見分けられなかった）。
+//   色は呼び出し側から受け取るだけで、新しい色は定義しない。
+class _DottedRingPainter extends CustomPainter {
+  const _DottedRingPainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const stroke = 1.5, pitch = 3.0;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final path = Path()
+      ..addOval(Rect.fromLTWH(0, 0, size.width, size.height));
+    for (final metric in path.computeMetrics()) {
+      for (double d = 0; d < metric.length; d += pitch) {
+        final t = metric.getTangentForOffset(d);
+        if (t != null) canvas.drawCircle(t.position, stroke / 2, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedRingPainter old) => old.color != color;
 }
 
 // ─────────────────────────────────────────────

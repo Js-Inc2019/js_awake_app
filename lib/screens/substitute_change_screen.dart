@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
+import '../utils/rest_day_refresh.dart';
 import 'substitute_detail_screen.dart' show showSubstituteDeny;
 import 'substitute_list_screen.dart' show jpMonthDay;
 
@@ -197,6 +198,8 @@ class _SubstituteChangeScreenState extends State<SubstituteChangeScreen> {
 
     setState(() => _busy = true);
     final res = await _api.requestSubstituteChange(widget.restDayId, newDate);
+    // ★申し出が通った＝振替の状態が変わった。この画面が閉じたかを見る前に1回だけ鳴らす（便F13続・lib/utils/rest_day_refresh.dart）。
+    if (res.ok) RestDayRefresh.ring();
     if (!mounted) return;
     setState(() => _busy = false);
     if (!res.ok) {

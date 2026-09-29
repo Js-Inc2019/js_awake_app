@@ -73,11 +73,25 @@ String substituteStateLabel(Map<String, dynamic> r) {
   return '成立';
 }
 
+/// 振替休日の「待ち」の色（同意待ち・事務の確認待ち）。★振替の待ちの色の置き場はここ1か所。
+///   ★根拠: ボス裁定【Q112】＝２（見本 claude/field_substitute_wait_color_mock_v1.html の案2）。
+///     日報の未承認と同じ橙（【Q10】＝3）にそろえる。見本 v1（claude/field_substitute_pending_mock_v1.html）
+///     の金は使わない。
+///   ★新しい色ではなく、意味の色（FieldTokens.statusWarning）の別名。値を変えるなら FieldTokens の側。
+///   ★読む所: 下の substituteStateColor の同意待ち・1件の画面（substitute_detail_screen.dart）の
+///     _stateColor の同意待ちと事務の確認待ち・ホームの同意待ちの枠（punch_screen.dart）・
+///     打刻の催促の窓の枠（lib/widgets/punch_remind_dialog.dart）・カレンダーの点線の輪と
+///     箱の同意待ちの行の印（home_screen.dart）。ほかに振替の待ちの色の置き場を作らない（便F13）。
+///   ★この説明を定数の行の後ろに書かない（検査の見張りは // で始まる行だけを除くので、
+///     後ろに書くと見張りの語が色の名前と同じ行に並んで数えられる）。
+const Color kSubstituteWaitColor = FieldTokens.statusWarning;
+
 /// 状態の色。★意味の色だけを使う（FieldTokens の外に作らない）。
 ///   ★語（substituteStateLabel）と同じ条件を同じ順で見る。片方だけ直すと
 ///     「成立できません」が緑で出るような食い違いが起きる。
+///   ★同意待ちは上の kSubstituteWaitColor（便F13・値は今と同じ statusWarning）。
 Color substituteStateColor(Map<String, dynamic> r) {
-  if (r['pending_agreement'] == true) return FieldTokens.statusWarning;
+  if (r['pending_agreement'] == true) return kSubstituteWaitColor;
   if (r['change_blocked'] == true) return FieldTokens.statusError;
   return FieldTokens.statusSuccess;
 }

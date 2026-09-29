@@ -7,8 +7,12 @@ import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
+import '../utils/rest_day_refresh.dart';
 import 'rest_day_screen.dart';
 import 'rest_day_done_screen.dart';
+import 'substitute_detail_screen.dart'
+    show SubstituteDetailScreen, SubstituteOpenButton;
+import 'substitute_list_screen.dart' show kSubstituteWaitColor;
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
 const _bg     = FieldTokens.bgBase;
@@ -69,7 +73,14 @@ class PunchScreen extends StatefulWidget {
     this.todayClosed = false,
     this.onExtraDeclaration,
     this.reports,
+    this.restStatusRequestId = 0,
   });
+  /// 本日休みの状態をもう一度読んでほしいときに親（シェル）が +1 する通し番号（便F13）。
+  ///   ★前例＝management_history_screen.dart の segmentRequestId（「今もう一度開いてほしい」の番号）。
+  ///   ★この数が【進んだとき】だけ didUpdateWidget で読み直す（同じ数のままの再描画では読まない）。
+  ///   ★親が進めるのは、ホームのタブ（index 0）へ入ったときと、🔔 のお知らせの一覧から戻ったとき
+  ///     （日が変わった後や、別の端末での同意に追いつくため）。既定 0＝今の呼び手は1文字も変わらない。
+  final int restStatusRequestId;
   /// 口の差し替え（検査だけが渡す）。
   ///   ★なぜ要るか【Q70】: この画面は initState から実 HTTP へ行くため、
   ///     要対応の行（0件なら出ない／押すと進む／天井で切れたら + が付く）を
@@ -160,6 +171,10 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   bool _rested      = false;
   String? _restReason;
   String _restPortion = 'full'; // full / am_half / pm_half（応答に無ければ full）
+  // 今日が同意待ちの振替の休む日なら、その振替の id（便F13・BE の pending_substitute_rest_day_id）。
+  //   ★あるときだけ要対応の行の下に同意待ちの枠を出す。BE はこの日を休みに数えない
+  //     （rested:false）ので、下の「本日休み」は「登録済み」にならない。照会の失敗は null（枠を出さない）。
+  String? _pendingSubstituteRestDayId;
 
   // 実勤務モードか。判定式はこの1本だけ（build:_isActual / K1の通知 / K5のガードが共有する）。
   bool get _isActual => _settings.mode == WorkModeType.actual;
@@ -177,6 +192,13 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     widget.onPunchOutHandlerReady?.call(_punchOutForClose);
     _init();
     _loadRestStatus();
+    // ★読み直しの知らせ（lib/utils/rest_day_refresh.dart・便F13）。どの道で休みや振替が
+    //   変わっても、本日休みの状態をこの1本で読み直す。
+    RestDayRefresh.changes.addListener(_onRestDayChanged);
+  }
+
+  void _onRestDayChanged() {
+    if (mounted) _loadRestStatus();
   }
 
   Future<void> _loadRestStatus() async {
@@ -189,10 +211,12 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         _rested      = rest.rested;
         _restReason  = rest.reason as String?;
         _restPortion = rest.portion;
+        _pendingSubstituteRestDayId = rest.pendingSubstituteRestDayId;
       } else {
         _rested      = false; // fail-open
         _restReason  = null;
         _restPortion = 'full';
+        _pendingSubstituteRestDayId = null;
       }
     });
   }
@@ -238,6 +262,10 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (proceed != true) return;
 
     final res = await _reports.deleteRestDay(); // 既存メソッドを再利用
+    // ★今日の休みが変わった。カレンダーとシェルへも知らせる（便F13）。
+    //   （元）mounted を見て戻った後に鳴らしていた（通った後にこの画面が閉じていると鳴らない）。
+    //   →再（2026-09-30・便F13続）: 通ったら、この画面が閉じたかを見る前に1回だけ鳴らす。
+    if (res.ok) RestDayRefresh.ring();
     if (!mounted) return;
     if (res.ok) {
       await _loadRestStatus();               // ボタン表示も最新化
@@ -254,9 +282,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     }
   }
 
+  // ★（元）前に戻ったとき（resumed）は _init だけで、本日休みの状態は読み直さなかった。
+  //   →再（2026-09-29・便F13）: 本日休みの状態も読み直す（日が変わった後や、別の端末での
+  //   同意に追いつくため）。要対応の件数はシェルの resumed が読み直す。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _init();
+    if (state == AppLifecycleState.resumed) {
+      _init();
+      _loadRestStatus();
+    }
   }
 
   // ── シフト切替時の再取得 ────────────────────────────────────────────────
@@ -273,6 +307,10 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   void didUpdateWidget(covariant PunchScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.shiftType != oldWidget.shiftType) _reloadForShiftChange();
+    // 親が「もう一度読んで」の番号を進めたときだけ本日休みの状態を読み直す（便F13）。
+    if (widget.restStatusRequestId != oldWidget.restStatusRequestId) {
+      _loadRestStatus();
+    }
   }
 
   // 再取得そのものは既存の取得経路 _init をそのまま呼ぶ。
@@ -328,9 +366,22 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    RestDayRefresh.changes.removeListener(_onRestDayChanged);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
+  }
+
+  // 同意待ちの枠の［振替休日を開く］（便F13）。★読み直しは1件の画面が鳴らす知らせで届く
+  //   （lib/utils/rest_day_refresh.dart）ので、ここで戻った後の読み直しを書き足さない。
+  //   →再（2026-09-30・便F13続）: 鳴らすのは1件の画面（同意・取り下げ・取り消し）と、そこから開く
+  //   休む日の変更の画面（申し出）。鳴らす所の名簿は lib/utils/rest_day_refresh.dart の冒頭。
+  //   ★差し替え口（検査の reports）はそのまま1件の画面へ下ろす。
+  Future<void> _openPendingSubstitute(String id) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) =>
+          SubstituteDetailScreen(restDayId: id, service: widget.reports),
+    ));
   }
 
   // N3: 完了ビュー「今日はここまで」から親が呼ぶ退勤の口。
@@ -656,6 +707,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                         count:  widget.substituteCount,
                         countTruncated: widget.substituteTruncated,
                         onTap:  widget.onOpenSubstitutes,
+                      ),
+                    // 今日が同意待ちの振替の休む日（便F13・見本 v1 の P1）。★振替休日の行の直後・
+                    //   承認待ちの行の前（振替休日の行が出ない回も同じ位置）。要対応の行は今までどおり。
+                    //   →再（2026-09-30・便F13続）: 下に次の行が続く回だけ枠の下に間を入れる（枠の★）。
+                    if (_pendingSubstituteRestDayId != null)
+                      _PendingSubstituteBox(
+                        onOpen: () => _openPendingSubstitute(
+                            _pendingSubstituteRestDayId!),
+                        rowFollows: widget.pendingApprovalCount > 0,
                       ),
                     if (widget.pendingApprovalCount > 0)
                       _AttentionRow(
@@ -1132,6 +1192,66 @@ class _SupportLine extends StatelessWidget {
         runSpacing: 4,
         children: children,
       );
+}
+
+// ── _PendingSubstituteBox ─────────────────────────────────────────────────────
+// 今日が事務から持ちかけられた振替休日の休む日で、まだ同意していないときの枠（便F13・見本 v1 の P1）。
+//   ★形: 線は待ちの色の1・左だけ待ちの色の3・角丸8・中は surfaceCard・中の余白は上下11×左右12・
+//     中の並びの間8。札「同意待ち」（待ちの色の枠1・待ちの色の字11.5・角は丸いきり・余白は上下3×左右10・
+//     左に寄せる）・文2つ・［振替休日を開く］（形は substitute_detail_screen.dart の SubstituteOpenButton
+//     ただ1本・左に寄せる）。
+//   ★待ちの色は substitute_list_screen.dart の kSubstituteWaitColor ただ1本（【Q112】＝２・橙）。
+//   ★文は見本 v1 の P1 のまま（一字一句）。
+//   ★間（元は上だけ 8・下は無し）。→再（2026-09-30・便F13続）: 見本 v1 の P1（.screen{gap:14px}）に合わせ、
+//     上は 14。下は、枠の後ろに要対応の行が続く回（rowFollows）だけ 14（続かない回は、要対応の塊の
+//     後ろの SizedBox 28 のまま足さない）。下を無しにしていたため、続く行が枠の下の線に付いていた。
+class _PendingSubstituteBox extends StatelessWidget {
+  const _PendingSubstituteBox({required this.onOpen, required this.rowFollows});
+  final VoidCallback onOpen;
+  final bool rowFollows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.only(top: 14, bottom: rowFollows ? 14 : 0),
+      padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(8),
+        border: const Border(
+          top: BorderSide(color: kSubstituteWaitColor),
+          right: BorderSide(color: kSubstituteWaitColor),
+          bottom: BorderSide(color: kSubstituteWaitColor),
+          left: BorderSide(color: kSubstituteWaitColor, width: 3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: kSubstituteWaitColor),
+            ),
+            child: const Text('同意待ち',
+                style: TextStyle(color: kSubstituteWaitColor, fontSize: 11.5)),
+          ),
+          const SizedBox(height: 8),
+          const Text('今日は、事務から持ちかけられた振替休日の休む日です。',
+              style: TextStyle(color: _text, fontSize: 13)),
+          const SizedBox(height: 8),
+          const Text('同意すると、今日は休みになります。',
+              style: TextStyle(color: _label, fontSize: 12)),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SubstituteOpenButton(onPressed: onOpen),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── _AttentionRow ─────────────────────────────────────────────────────────────
