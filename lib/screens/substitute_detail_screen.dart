@@ -50,9 +50,24 @@ import '../core/theme/field_tokens.dart';
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
 import '../utils/rest_day_refresh.dart';
+import '../widgets/deny_reason_line.dart';
 import 'substitute_change_screen.dart';
 import 'substitute_list_screen.dart'
     show jpMonthDay, jpMonthDayOfIso, kSubstituteWaitColor;
+
+/// 振替休日に同意できない理由の行の頭の語（便F14・ボス裁定【Q113】＝1・見本 claude/substitute_cannot_agree_mock_v1.html）。
+///   ★置き場はここ1か所。1件の画面（C1・このファイル）・ホームの同意待ちの枠（P1・punch_screen.dart）・
+///     カレンダーの箱（K2・K3・home_screen.dart）が同じこの1つを使う（同じ頭の語を3つのファイルに書き写さない）。
+///     前例は home_screen.dart の kCannotApproveHead（承認の理由の行の頭の語を1つに置く）と、
+///     SubstituteOpenButton をこのファイルに置いて3か所（ホームの枠・打刻の催促の窓・振替の登録の画面）で
+///     使う形。行の文は lib/widgets/deny_reason_line.dart の denyReasonText で「{この語}：{理由}」に組む。
+///   ★理由は BE の cannot_agree_reason をそのまま（端末で日付や日報を比べて作り直さない）。
+const String kCannotAgreeHead = '同意できません';
+
+/// その行（BE の rest_day・GET /rest-days/my の行・GET /rest-days/my/substitutes の行）に、ご本人が同意できるか。
+///   ★BE の can_agree をそのまま読む（便B18）。鍵が無い答え（便B18 より前の BE）と null は【押せる扱い】
+///     ＝`!= false`（今までどおりの姿・前例は home_screen.dart の canApproveReport）。
+bool canAgreeSubstitute(Map<String, dynamic>? row) => row?['can_agree'] != false;
 
 class SubstituteDetailScreen extends StatefulWidget {
   const SubstituteDetailScreen({
@@ -170,8 +185,12 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
   // ══════════════ 操作 ══════════════════════════════════════
   // ★どれを出すかは【BE の印だけ】で決める。日付や期限から端末で組み立てない。
   //   状態の見分け方は上の _stateLabel と【同じ順・同じ条件】。2つの置き場を作らない。
+  //   →再（2026-10-04・便F14続）: 同意待ちの枝だけは、_stateLabel に無い BE の can_agree も見る
+  //   （同意できない行の操作を選ぶため）。
   //     ・取消済み       … 操作なし（無い理由を言い切る）
   //     ・同意待ち       … 同意する ／ まだ決めない            （モック C1）
+  //       →再（2026-10-04・便F14続）: 同意待ちで can_agree が false の行は、押せない［この振替に同意する］＋
+  //       理由の行（DenyReasonLine）＋※の行（［まだ決めない］は出さない・見本 substitute_cannot_agree_mock_v1 の C1）。
   //     ・成立できない   … 申し出を取り下げる                  （E1）
   //     ・事務の確認待ち … 申し出を取り下げる                  （D4）
   //     ・変更済み       … この振替を取り消す だけ            （D6）
@@ -181,10 +200,18 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
   //     ・成立           … 休む日を変える ／ この振替を取り消す（D1）
   bool _busy = false;
 
+  // ★（元）断られたら断りの窓を出して戻るだけ（読み直さない）。
+  //   →再（2026-10-01・便F14）: reloadOnDeny を立てた回（今は同意＝_agree だけ）は、BE が符号を返した断り
+  //   （errorCode がある回・今の8つの符号も便B18 の3つも）なら、窓を閉じた後に mounted を確かめてから
+  //   _load で読み直す。画面を開いたまま日付が変わって押せた回も、読み直すと BE の can_agree が false に
+  //   なって灰色になる（鍵と口は同じ今日のときだけ一致する＝BE の judgeAgreeSubstitute の★）。
+  //   通信の失敗（符号が無い回）は今のまま読み直さない（読み直しても同じく引けない）。
+  //   取り下げ・取り消しの道は今のまま（立てない）。
   Future<void> _run(
     String denyTitle,
     Future<ApiResult<Map<String, dynamic>>> Function() call, {
     bool popOnSuccess = false,
+    bool reloadOnDeny = false,
   }) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -199,6 +226,7 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
     setState(() => _busy = false);
     if (!res.ok) {
       await showSubstituteDeny(context, denyTitle, res);
+      if (reloadOnDeny && res.errorCode != null && mounted) await _load();
       return;
     }
     if (popOnSuccess) {
@@ -212,7 +240,8 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
   Future<void> _agree() async {
     if (!await showSubstituteNotice(context)) return;
     if (!mounted) return;
-    await _run('同意できませんでした', () => _api.agreeSubstitute(widget.restDayId));
+    await _run('同意できませんでした', () => _api.agreeSubstitute(widget.restDayId),
+        reloadOnDeny: true);
   }
 
   Future<void> _openChange() async {
@@ -285,8 +314,35 @@ class _SubstituteDetailScreenState extends State<SubstituteDetailScreen> {
   }
 
   /// その状態に要る操作だけ。★条件は _stateLabel と同じ順・同じ印。
+  ///   →再（2026-10-04・便F14続）: 同意待ちの枝だけは、_stateLabel に無い BE の can_agree も見る
+  ///   （同意できない行の操作を選ぶため）。
+  ///   ★（2026-10-01・便F14・見本 substitute_cannot_agree_mock_v1 の C1）同意待ちで、BE の can_agree が
+  ///     false の行（ご本人がこの振替に同意できない。BE の can_agree は同意の口の判定そのもの＝便B18 の
+  ///     judgeAgreeSubstitute（同意の口の今の8つの断りと過去の日の決まり①②③）から作るので、①②③のほかに
+  ///     例えば所属の顔が違う行（MEMBERSHIP_MISMATCH）でも false になる。理由の文は BE の
+  ///     cannot_agree_reason をそのまま出す）は、
+  ///     ［この振替に同意する］を押せない灰色で残し（消さない・【Q98】の決まり）、すぐ下に理由の1行
+  ///     （DenyReasonLine・頭の語は kCannotAgreeHead・理由は BE の cannot_agree_reason をそのまま）と
+  ///     ※の1行を出す。［まだ決めない］は出さない（決めることが無いため）。
+  ///     理由の行と※の行に外側の余白は足さない（ボタンの下の余白 10 と、操作の後の SizedBox 20 のままで
+  ///     見本の間になる）。can_agree が true・null・鍵なしのときは今のまま（canAgreeSubstitute）。
   List<Widget> get _actions {
     if (_cancelled) return const [];
+    if (_restDay['pending_agreement'] == true &&
+        !canAgreeSubstitute(_restDay)) {
+      return [
+        _ActionButton(
+            label: 'この振替に同意する',
+            tone: _Tone.accent,
+            busy: _busy,
+            enabled: false,
+            onTap: _agree),
+        DenyReasonLine(
+            denyReasonText(kCannotAgreeHead, _restDay['cannot_agree_reason'])),
+        const Text('※事務へご連絡ください。事務がこの振替を取り消します。',
+            style: _noticeNote),
+      ];
+    }
     if (_restDay['pending_agreement'] == true) {
       return [
         _ActionButton(
@@ -683,17 +739,23 @@ enum _Tone { accent, danger, quiet }
 
 /// 画面の下に並べる操作ボタン1つ。
 ///   ★処理中は押せなくする（二度押しで同じ口を2回叩かない）。
+///   ★（元）押せなくなるのは busy の間だけで、押せないときの色の指定は無かった（線は _color のまま）。
+///     →再（2026-10-01・便F14）: enabled（押せるか・既定は押せる）を足した。enabled が false のときは
+///     押せない灰色＝線 outlineStrong・字 textFaint（前例 home_screen.dart の日報の承認と修正依頼の押せない
+///     ボタンと同じ組・【Q98】）。高さと形は今のまま。busy の間の見た目は今のまま（線の色を変えない）。
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.label,
     required this.tone,
     required this.busy,
     required this.onTap,
+    this.enabled = true,
   });
   final String label;
   final _Tone tone;
   final bool busy;
   final VoidCallback onTap;
+  final bool enabled;
 
   Color get _color => switch (tone) {
         _Tone.accent => FieldTokens.accent,
@@ -707,10 +769,12 @@ class _ActionButton extends StatelessWidget {
         child: SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: busy ? null : onTap,
+            onPressed: (busy || !enabled) ? null : onTap,
             style: OutlinedButton.styleFrom(
               foregroundColor: _color,
-              side: BorderSide(color: _color, width: 1),
+              disabledForegroundColor: enabled ? null : FieldTokens.textFaint,
+              side: BorderSide(
+                  color: enabled ? _color : FieldTokens.outlineStrong, width: 1),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: Text(label,

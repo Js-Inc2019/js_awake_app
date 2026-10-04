@@ -50,6 +50,8 @@ class RestDayToday {
     required this.reason,
     required this.portion,
     this.pendingSubstituteRestDayId,
+    this.pendingSubstituteCanAgree = true,
+    this.pendingSubstituteCannotAgreeReason,
   });
   final bool rested;
   final dynamic reason;
@@ -67,6 +69,20 @@ class RestDayToday {
   ///   ★任意の名前付き引数（既定 null）にしたのは、今の呼び手と検査の組み方
   ///     （const RestDayToday(rested:…, reason:…, portion:…)）を1文字も変えないため。
   final String? pendingSubstituteRestDayId;
+
+  /// 今日の同意待ちの振替に、ご本人が同意できるか（便F14・BE の pending_substitute_can_agree・便B18）。
+  ///   ★false のときだけ「同意できない」。キーが無い（便B18 より前の BE）・null・true は true
+  ///     （押せる扱い＝今までどおりの姿・前例は home_screen.dart の canApproveReport の `!= false`）。
+  ///   ★端末で日付や日報を比べて作り直さない（BE の真偽をそのまま）。
+  ///   ★任意の名前付き引数（既定 true）にしたのは、今の呼び手と検査の組み方を1文字も変えないため
+  ///     （pendingSubstituteRestDayId と同じ理由）。
+  final bool pendingSubstituteCanAgree;
+
+  /// 同意できない理由（便F14）。BE の pending_substitute_cannot_agree_reason が文字のときだけその文・
+  ///   それ以外は null（getRestDayToday）。
+  ///   ★出すのはホームの同意待ちの枠（punch_screen.dart）が「同意できません：{理由}」に組むときだけ。
+  ///     符号（pending_substitute_cannot_agree_code）は読まない（文は BE の理由の文で足りる）。
+  final String? pendingSubstituteCannotAgreeReason;
 }
 
 /// 取れる代休の候補1件（GET /rest-days/comp-off/available の candidates[]）。
@@ -539,7 +555,13 @@ class ReportsService {
   // 非200は握り潰さず statusCode + errorCode(BE の code) を載せて返す。
   // ============================================================
 
-  // GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
+  // （元）GET /rest-days/my?month=YYYY-MM → { days: [ {rest_date,reason,portion} ] }
+  //   →再（2026-10-01・便F14）: BE は頭に period も返し（period は純追加・ここでは読まない）、行には
+  //   rest_date・reason・portion のほかに id・paired_work_date・paired_undecided・pending_agreement・proposed_at・
+  //   agreed_at・change_*・settled も返す。便B18 から同意待ちの行（pending_agreement が真）にだけ
+  //   can_agree・cannot_agree_code・cannot_agree_reason が載る。この便で読むのはそのうち can_agree と
+  //   cannot_agree_reason の2つ（カレンダーの箱の K2・home_screen.dart）。cannot_agree_code は読まない。
+  //   この関数は days の行をそのまま返す（行の中身は呼び手が読む）。
   // 本人の月次の休み一覧（カレンダー表示用・BE routes/rest_days.js の GET /rest-days/my）。
   // 取消済(cancelled_at)は BE 側で除外済み＝返るのは「いま有効な休み」だけ。
   Future<ApiResult<List<Map<String, dynamic>>>> getRestDaysMy(String month,
@@ -742,6 +764,10 @@ class ReportsService {
   //   本文は無し（BE は body を1つも読まない）。
   //   断り＝NOT_FOUND / NOT_YOUR_REST_DAY / MEMBERSHIP_MISMATCH / NOT_SUBSTITUTE /
   //         CANCELLED / NOT_PROPOSED / ALREADY_AGREED / SELF_PROPOSED
+  //   →再（2026-10-01・便F14）: 便B18 で3つ増えた（ご本人がこの振替に同意できない＝過去の日の決まり）＝
+  //         SUBSTITUTE_PAST_OUT_OF_WEEK / SUBSTITUTE_REST_DATE_HAS_REPORT / SUBSTITUTE_WORK_DATE_NO_REPORT
+  //         （どれも 409・文は BE の文をそのまま出す）。1件の画面（substitute_detail_screen.dart の _run）は、
+  //         符号がある断りの後に読み直す。
   Future<ApiResult<Map<String, dynamic>>> agreeSubstitute(String id) async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<Map<String, dynamic>>(
@@ -856,6 +882,10 @@ class ReportsService {
   //   →再（2026-09-29・便F13）: { rested, reason, portion, pending_substitute_rest_day_id }（便B17）。
   //   pending_substitute_rest_day_id は、今日が同意待ちの振替の休む日ならその振替の id（文字列）、
   //   ほかの日は null。キーが無い（便B17 より前の BE）ときも null（今までどおりの姿）。
+  //   →再（2026-10-01・便F14）: { rested, reason, portion, pending_substitute_rest_day_id,
+  //   pending_substitute_can_agree, pending_substitute_cannot_agree_code, pending_substitute_cannot_agree_reason }（便B18）。
+  //   読むのは pending_substitute_can_agree（false のときだけ同意できない・キーなしと null は押せる扱い）と
+  //   pending_substitute_cannot_agree_reason（文字のときだけ・それ以外は null）。符号は読まない。
   Future<ApiResult<RestDayToday>> getRestDayToday() async {
     final headers = await _auth.getAuthHeaders();
     return runApiCall<RestDayToday>(
@@ -874,6 +904,12 @@ class ReportsService {
           // ★空の文字は「無い」と同じ（押しても開けない id を持たない）。
           pendingSubstituteRestDayId:
               (pending == null || '$pending'.isEmpty) ? null : '$pending',
+          // ★false のときだけ同意できない（キーなし・null は押せる扱い・便F14）。
+          pendingSubstituteCanAgree: data?['pending_substitute_can_agree'] != false,
+          pendingSubstituteCannotAgreeReason:
+              data?['pending_substitute_cannot_agree_reason'] is String
+                  ? data!['pending_substitute_cannot_agree_reason'] as String
+                  : null,
         );
       },
     );

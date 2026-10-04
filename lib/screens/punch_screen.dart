@@ -8,10 +8,11 @@ import '../services/reports_service.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 import '../utils/rest_day_refresh.dart';
+import '../widgets/deny_reason_line.dart' show denyReasonText;
 import 'rest_day_screen.dart';
 import 'rest_day_done_screen.dart';
 import 'substitute_detail_screen.dart'
-    show SubstituteDetailScreen, SubstituteOpenButton;
+    show SubstituteDetailScreen, SubstituteOpenButton, kCannotAgreeHead;
 import 'substitute_list_screen.dart' show kSubstituteWaitColor;
 
 // ── Asphalt Dawn palette ──────────────────────────────────────────────────────
@@ -175,6 +176,10 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   ★あるときだけ要対応の行の下に同意待ちの枠を出す。BE はこの日を休みに数えない
   //     （rested:false）ので、下の「本日休み」は「登録済み」にならない。照会の失敗は null（枠を出さない）。
   String? _pendingSubstituteRestDayId;
+  // その同意待ちの振替に、ご本人が同意できるかと、できない理由（便F14・BE の pending_substitute_can_agree・
+  //   pending_substitute_cannot_agree_reason をそのまま）。照会の失敗は「同意できる」（枠そのものを出さない）。
+  bool _pendingSubstituteCanAgree = true;
+  String? _pendingSubstituteCannotAgreeReason;
 
   // 実勤務モードか。判定式はこの1本だけ（build:_isActual / K1の通知 / K5のガードが共有する）。
   bool get _isActual => _settings.mode == WorkModeType.actual;
@@ -212,11 +217,15 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
         _restReason  = rest.reason as String?;
         _restPortion = rest.portion;
         _pendingSubstituteRestDayId = rest.pendingSubstituteRestDayId;
+        _pendingSubstituteCanAgree = rest.pendingSubstituteCanAgree;
+        _pendingSubstituteCannotAgreeReason = rest.pendingSubstituteCannotAgreeReason;
       } else {
         _rested      = false; // fail-open
         _restReason  = null;
         _restPortion = 'full';
         _pendingSubstituteRestDayId = null;
+        _pendingSubstituteCanAgree = true;
+        _pendingSubstituteCannotAgreeReason = null;
       }
     });
   }
@@ -716,6 +725,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                         onOpen: () => _openPendingSubstitute(
                             _pendingSubstituteRestDayId!),
                         rowFollows: widget.pendingApprovalCount > 0,
+                        canAgree: _pendingSubstituteCanAgree,
+                        cannotAgreeReason: _pendingSubstituteCannotAgreeReason,
                       ),
                     if (widget.pendingApprovalCount > 0)
                       _AttentionRow(
@@ -1205,10 +1216,25 @@ class _SupportLine extends StatelessWidget {
 //   ★間（元は上だけ 8・下は無し）。→再（2026-09-30・便F13続）: 見本 v1 の P1（.screen{gap:14px}）に合わせ、
 //     上は 14。下は、枠の後ろに要対応の行が続く回（rowFollows）だけ 14（続かない回は、要対応の塊の
 //     後ろの SizedBox 28 のまま足さない）。下を無しにしていたため、続く行が枠の下の線に付いていた。
+//   ★（元）文2つ（1行目と「同意すると、今日は休みになります。」）。
+//     →再（2026-10-01・便F14・見本 substitute_cannot_agree_mock_v1 の P1）: ご本人がこの振替に同意できない回
+//     （canAgree が false＝BE の pending_substitute_can_agree が false）は、2行目の代わりに
+//     「同意できません：{理由}」（頭の語は substitute_detail_screen.dart の kCannotAgreeHead・組み方は
+//     lib/widgets/deny_reason_line.dart の denyReasonText・理由は BE の文をそのまま）と
+//     「休むときは、事務へご連絡ください。」の2行。どちらも今の2行目と同じ色と大きさ・2行の間は 0・
+//     1行目との間と［振替休日を開く］との間は今の 8。札・枠・1行目・ボタン・枠の上下の間は今のまま。
+//     同意できる回（true・キーなし）は今のまま。
 class _PendingSubstituteBox extends StatelessWidget {
-  const _PendingSubstituteBox({required this.onOpen, required this.rowFollows});
+  const _PendingSubstituteBox({
+    required this.onOpen,
+    required this.rowFollows,
+    this.canAgree = true,
+    this.cannotAgreeReason,
+  });
   final VoidCallback onOpen;
   final bool rowFollows;
+  final bool canAgree;
+  final String? cannotAgreeReason;
 
   @override
   Widget build(BuildContext context) {
@@ -1241,8 +1267,15 @@ class _PendingSubstituteBox extends StatelessWidget {
           const Text('今日は、事務から持ちかけられた振替休日の休む日です。',
               style: TextStyle(color: _text, fontSize: 13)),
           const SizedBox(height: 8),
-          const Text('同意すると、今日は休みになります。',
-              style: TextStyle(color: _label, fontSize: 12)),
+          if (canAgree)
+            const Text('同意すると、今日は休みになります。',
+                style: TextStyle(color: _label, fontSize: 12))
+          else ...[
+            Text(denyReasonText(kCannotAgreeHead, cannotAgreeReason),
+                style: const TextStyle(color: _label, fontSize: 12)),
+            const Text('休むときは、事務へご連絡ください。',
+                style: TextStyle(color: _label, fontSize: 12)),
+          ],
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,

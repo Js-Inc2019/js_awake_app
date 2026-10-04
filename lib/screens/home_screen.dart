@@ -35,6 +35,8 @@ import '../main.dart'
         OvertimeDialog;
 import '../core/theme/field_tokens.dart';
 import '../core/permitted_report_labels.dart';
+// 押せない理由の1行と、その文の組み方（便F14・承認の理由の行と振替の同意の理由の行が同じ1本を使う）。
+import '../widgets/deny_reason_line.dart';
 import 'revision_inbox_screen.dart';
 import 'substitute_list_screen.dart';
 import 'substitute_detail_screen.dart';
@@ -5949,10 +5951,13 @@ const String kCannotRequestRevisionHead = '修正依頼できません';
 /// 押せない理由の1行。「{頭}：{理由}」／理由が無ければ頭の語だけ。
 ///   ★理由の文は BE の cannot_*_reason をそのまま（言い換えない）。
 ///     cannot_*_code は他社の日報のとき null になるので、code では引かない。
-String approvalDenyLine(String head, Object? reason) {
-  final t = reason is String ? reason.trim() : '';
-  return t.isEmpty ? head : '$head：$t';
-}
+///   ★（元）組み方はこの関数の中に書いていた。
+///     →再（2026-10-01・便F14）: lib/widgets/deny_reason_line.dart の denyReasonText を呼ぶ（中身は同じ・
+///     返す文は1字も変わらない）。振替の同意の理由の行も同じ1本で組むため（書き写さない）。
+///     名前は今の呼び手（このファイルの approvalDenyLines）と検査（test/f14_substitute_cannot_agree_test.dart）
+///     のために残す。test/f7_decision_keys_test.dart が読むのは複数形の approvalDenyLines。
+String approvalDenyLine(String head, Object? reason) =>
+    denyReasonText(head, reason);
 
 /// この1枚で出す理由の行（押せないボタンの数だけ・承認 → 修正依頼の順）。
 List<String> approvalDenyLines(Map<String, dynamic> r) => [
@@ -5988,6 +5993,9 @@ class PermittedReportMark extends StatelessWidget {
 }
 
 /// 押せない理由の行（ボタンの直下）。押せるなら何も出さない。
+///   ★（元）1行の形（印・間・字）はこの中に書いていた。
+///     →再（2026-10-01・便F14）: 1行は lib/widgets/deny_reason_line.dart の DenyReasonLine（形は1つも
+///     変えていない）。前の余白 8 はこの置き場の物なので、ここに残す（部品は外側の余白を持たない）。
 class ApprovalDenyLines extends StatelessWidget {
   const ApprovalDenyLines({super.key, required this.report});
   final Map<String, dynamic> report;
@@ -6001,21 +6009,7 @@ class ApprovalDenyLines extends StatelessWidget {
       children: [
         for (final line in lines) ...[
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.info_outline,
-                  color: FieldTokens.textSupport, size: 14),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(line,
-                    style: const TextStyle(
-                        color: FieldTokens.textSupport,
-                        fontSize: 12,
-                        height: 1.6)),
-              ),
-            ],
-          ),
+          DenyReasonLine(line),
         ],
       ],
     );
@@ -7118,11 +7112,18 @@ class _CalendarTabState extends State<CalendarTab> {
   ///     paired_work_date。BE の真偽をそのまま読む（端末で条件を組み立て直さない）。
   Set<String> _pendingWorkDates = const {};
 
+  /// 同意待ちの振替のうち、ご本人が同意できない行の【出勤する日】→ 箱の文（便F14・見本 substitute_cannot_agree_mock_v1 の K3）。
+  ///   ★出どころは _pendingWorkDates と同じ行（GET /rest-days/my/substitutes）の can_agree が false の行。
+  ///     値は denyReasonText(kCannotAgreeHead, cannot_agree_reason)（理由が null や空なら「同意できません」）。
+  ///   ★同じ回に作り、失敗しても消さない（_pendingWorkDates と同じ形）。
+  Map<String, String> _pendingWorkDenyByDate = const {};
+
   /// 振替の日付（GET /rest-days/my/substitutes）が取れなかった（便F13続）。
   ///   ★（元）便F13 では答えが ok でないときも例外のときも黙って戻っていた（注意バーに出ない沈黙）。
   ///   →再（2026-09-30・便F13続）: 他の3本（_reportsFailed・_holidayFailed・_restFailed）と同じく旗を立て、
   ///   注意バー（_buildFailureBar）に「振替休日」と出す。失敗しても今の地図（_substituteByDate・
   ///   _pendingWorkDates）は消さない（_loadMyRestDays と同じ形＝消すと箱の［振替休日を開く］が黙って消える）。
+  ///   →再（2026-10-01・便F14）: 消さない地図は3つ（_substituteByDate・_pendingWorkDates・_pendingWorkDenyByDate）。
   bool _substituteFailed = false;
 
   Future<void> _loadSubstituteDates() async {
@@ -7139,6 +7140,8 @@ class _CalendarTabState extends State<CalendarTab> {
           .toList();
       final byDate = <String, String>{};
       final pendingWork = <String>{};
+      // ★（2026-10-01・便F14）同意できない同意待ちの行の出勤する日 → 箱の文（K3）。同じ行・同じ回に作る。
+      final pendingWorkDeny = <String, String>{};
       for (final r in rows) {
         final id = '${r['id'] ?? ''}';
         if (id.isEmpty) continue;
@@ -7149,11 +7152,16 @@ class _CalendarTabState extends State<CalendarTab> {
         final work = r['paired_work_date'];
         if (r['pending_agreement'] == true && work is String && work.isNotEmpty) {
           pendingWork.add(work);
+          if (!canAgreeSubstitute(r)) {
+            pendingWorkDeny[work] =
+                denyReasonText(kCannotAgreeHead, r['cannot_agree_reason']);
+          }
         }
       }
       setState(() {
         _substituteByDate = byDate;
         _pendingWorkDates = pendingWork;
+        _pendingWorkDenyByDate = pendingWorkDeny;
         _substituteFailed = false;
       });
     } catch (e) {
@@ -7171,6 +7179,9 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // ── 自分の休み（GET /rest-days/my?month=）──
   //   'YYYY-MM-DD' → portion('full'|'am_half'|'pm_half') / reason
+  //   →再（2026-10-04・便F14続）: 地図の値は GET /rest-days/my の行を丸ごと（rest_date・reason・portion・id・
+  //   paired_work_date・pending_agreement ほか・便B18 から同意待ちの行には can_agree・cannot_agree_code・
+  //   cannot_agree_reason も）。カレンダーの箱の K2 は can_agree と cannot_agree_reason を読む（便F14）。
   Map<String, Map<String, dynamic>> _myRestDays = {};
   bool _restFailed = false;
 
@@ -7685,6 +7696,12 @@ class _CalendarTabState extends State<CalendarTab> {
       restReason: pendingRest ? null : rest?['reason'] as String?,
       substitutePendingRest: pendingRest,
       substitutePendingWork: _pendingWorkDates.contains(ds),
+      // ★（2026-10-01・便F14）同意できない回の文（K2 は GET /rest-days/my の行の can_agree・
+      //   K3 は _loadSubstituteDates が作った地図）。同意できる回は null。
+      substitutePendingRestDenyText: (pendingRest && !canAgreeSubstitute(rest))
+          ? denyReasonText(kCannotAgreeHead, rest?['cannot_agree_reason'])
+          : null,
+      substitutePendingWorkDenyText: _pendingWorkDenyByDate[ds],
       // A4 の「出勤する日：…と入れ替え」は振替の休む日の行（成立も同意待ちも）だけ（便F13）。
       substitutePairedWorkDate: (rest?['reason'] == 'substitute' &&
               paired is String &&
@@ -7821,16 +7838,31 @@ class CalendarDayInfo {
     this.substitutePendingRest = false,
     this.substitutePendingWork = false,
     this.substitutePairedWorkDate,
+    this.substitutePendingRestDenyText,
+    this.substitutePendingWorkDenyText,
   });
 
   /// この日が、事務から持ちかけられた振替休日の【休む日】で、まだ同意していないか（便F13・K1・K2）。
   ///   ★true のとき restPortion と restReason は null（休みに数えない＝便B17 と同じ）。
   ///   ★出どころは GET /rest-days/my の行の pending_agreement（BE の真偽をそのまま）。
+  ///   ★（2026-10-01・便F14）ご本人が同意できない回は、文が substitutePendingRestDenyText で変わる（真偽は同じ）。
   final bool substitutePendingRest;
 
   /// この日が、同意待ちの振替休日の【出勤する日】か（便F13・K3）。
   ///   ★出どころは GET /rest-days/my/substitutes の行の pending_agreement と paired_work_date。
+  ///   ★（2026-10-01・便F14）ご本人が同意できない回は、文が substitutePendingWorkDenyText で変わる（真偽は同じ）。
   final bool substitutePendingWork;
+
+  /// 休む日の箱（K2）で、ご本人がその振替に同意できない回の文（便F14・見本 substitute_cannot_agree_mock_v1）。
+  ///   ★中身は denyReasonText(kCannotAgreeHead, cannot_agree_reason)＝「同意できません：{理由}」（理由が null や
+  ///     空なら「同意できません」）で null にならない。同意できる回（can_agree が true・null・鍵なし）は null。
+  ///   ★出どころは GET /rest-days/my の行の can_agree と cannot_agree_reason（BE の文をそのまま）。
+  ///   ★任意の名前付き引数（既定 null）＝今の呼び手と検査の組み方を変えない。
+  final String? substitutePendingRestDenyText;
+
+  /// 出勤する日の箱（K3）で、ご本人がその振替に同意できない回の文（便F14）。形は上と同じ。
+  ///   ★出どころは GET /rest-days/my/substitutes の行の can_agree と cannot_agree_reason。
+  final String? substitutePendingWorkDenyText;
 
   /// この日が振替休日の【休む日】（成立も同意待ちも）のとき、入れ替える出勤する日（'YYYY-MM-DD'）。
   ///   A4 の行「出勤する日：M月D日（曜）と入れ替え」に使う（便F13・見本 v4 の A4）。ほかの日は null。
@@ -7838,9 +7870,22 @@ class CalendarDayInfo {
   final String? substitutePairedWorkDate;
 
   /// 同意待ちの行の文（見本 v1 の K2・K3・一字一句）。どちらでもない日は null。
+  ///   ★（元）文は同意できるときの2つだけ。
+  ///     →再（2026-10-01・便F14・見本 substitute_cannot_agree_mock_v1 の K2・K3）: ご本人が同意できない回は
+  ///     「振替休日：同意待ち（{同意できない回の文}）」。文を組むのはこの1か所。同意できるときの2つの文は1字も変えていない。
   String? get substitutePendingLine {
-    if (substitutePendingRest) return '振替休日：同意待ち（同意すると、この日は休みになります）';
-    if (substitutePendingWork) return '振替休日：同意待ち（同意すると、この日は出勤する日になります）';
+    if (substitutePendingRest) {
+      final deny = substitutePendingRestDenyText;
+      return deny != null
+          ? '振替休日：同意待ち（$deny）'
+          : '振替休日：同意待ち（同意すると、この日は休みになります）';
+    }
+    if (substitutePendingWork) {
+      final deny = substitutePendingWorkDenyText;
+      return deny != null
+          ? '振替休日：同意待ち（$deny）'
+          : '振替休日：同意待ち（同意すると、この日は出勤する日になります）';
+    }
     return null;
   }
 
