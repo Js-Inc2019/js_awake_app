@@ -16,6 +16,11 @@
 //     端末で曜日や休日から組み立て直さない。組み立てた瞬間、同じ判定が
 //     BE と端末の2箇所に並び、片方だけ直せる二重真実になる。
 //   ★並びも BE が返した順のまま（日曜〜土曜の7日）。端末で並べ替えない。
+//   （元）days[] の reason_code は読んでいなかった（選べるかは selectable だけ・理由は reason の文だけ）。
+//   →再（2026-10-07・便F8・見本 field_substitute_past_mock_v5 の A3・B1）: reason_code を1つだけ読む＝
+//   no_report（「この日の日報がありません」）の行は、選べないが押せる行にして、押すと3択の画面
+//   （substitute_past_day_screen.dart の showWorkDateNoReport）を開く。どの行が no_report かは BE が決める
+//   （端末で過去の日か・会社の休みの日かを数えない）。ほかの reason_code は今までどおり読まない。
 //
 // ★端末で先回りして弾かない:
 //   ・rest_date_is_workday が false（休む日そのものが会社の休みの日）でも、
@@ -43,8 +48,15 @@ import 'substitute_detail_screen.dart'
 import 'substitute_list_screen.dart' show jpMonthDay;
 // ★過去の日が入っていたときに事前の取り決めを尋ねる画面（A1・A2）。
 //   曜日の文字の並び（kWeekdayJa）もあちらが唯一の持ち主で、下の候補の行が使う。
+//   →再（2026-10-07・便F8）: 出勤する日の候補で no_report の行を押した時の3択の画面（B1・
+//   showWorkDateNoReport）も、あちらに在る。
 import 'substitute_past_day_screen.dart'
-    show showSubstitutePastDay, SubstitutePastDayChoice, kWeekdayJa;
+    show
+        showSubstitutePastDay,
+        SubstitutePastDayChoice,
+        kWeekdayJa,
+        showWorkDateNoReport,
+        WorkDateNoReportChoice;
 
 class SubstituteRegisterScreen extends StatefulWidget {
   const SubstituteRegisterScreen({
@@ -258,13 +270,19 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
             picked: _picked != null && _picked == '${d['date']}',
             busy: _busy,
             onTap: () => setState(() => _picked = '${d['date']}'),
+            // ★便F8: BE が reason_code に no_report を付けた行だけ、押すと3択の画面（B1）を開く。
+            onNoReportTap: () => _openNoReport(d),
           ),
 
         const SizedBox(height: 12),
-        // ── ※（モック B3 の2行）──────────────────────────────
+        // ── ※（モック B3 の2行・→再 便F8 で3行）──────────────────
         //   ★週の両端は BE が返した days[] の最初と最後から出す。
         //   ★1行目は同じ意味のまま短くした（1画面に収めるため）。
+        //   →再（2026-10-07・便F8）: 3行（見本 field_substitute_past_mock_v5 の A3 の1行を、週の※の
+        //   すぐ下に足した）。字の形は今の※と同じ。
         Text('※同じ週（$_weekFirst〜$_weekLast）の会社休みの日から選びます。',
+            style: _note),
+        const Text('※過去の日を選べるのは、今日が入っている週の中だけです。',
             style: _note),
         const Text('※出勤する日を決めないと登録できません。', style: _note),
 
@@ -357,6 +375,7 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
   /// 事前の取り決めを尋ねて、答えで道を分ける（A1・A2 の返りを受ける側）。
   ///   ・取り決めていた … 同じ2つの日に prior_agreement: true を付けて出し直す。
   ///   ・代休で取る     … 代休の受け皿（showCompOffFlow）を開く。取れたら閉じる。
+  ///                      →再（2026-10-07・便F8）: 中身は _goCompOff へ出した（3択の画面と同じ1つの道）。
   ///   ・日を選び直す   … 選んだ日を消してこの画面に残る。
   ///   ・戻る（null）   … 何もせずこの画面に残る。
   Future<void> _askPriorAgreement(String work, dynamic rawPastDates) async {
@@ -391,15 +410,63 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
         }
         Navigator.of(context).pop(true);
       case SubstitutePastDayChoice.compOff:
-        // ★休む日は【この画面が持っている値】をそのまま渡す（入口の★と同じ）。
-        final took = await showCompOffFlow(context, restDate: widget.restDate);
-        if (!mounted || !took) return; // 取らなければこの画面に残る
-        Navigator.of(context).pop(true);
+        await _goCompOff();
       case SubstitutePastDayChoice.pickAnother:
         // 選んだ日を消してこの画面に残る（候補はそのまま・引き直さない）。
         setState(() => _picked = null);
     }
   }
+
+  /// 「代休で取る」の道（事前の取り決めの画面 A2 と、3択の画面 B1 の両方から来る）。
+  ///   （元）_askPriorAgreement の中に直に書いていた。
+  ///   →再（2026-10-07・便F8）: 3択の「代休で取る」も同じ1つの道へ寄せるため、中身を変えずにここへ出した
+  ///   （代休の受け皿 showCompOffFlow を呼ぶ所は、この画面に1か所のまま＝呼ぶ所を増やさない）。
+  Future<void> _goCompOff() async {
+    // ★休む日は【この画面が持っている値】をそのまま渡す（入口の★と同じ）。
+    final took = await showCompOffFlow(context, restDate: widget.restDate);
+    if (!mounted || !took) return; // 取らなければこの画面に残る
+    Navigator.of(context).pop(true);
+  }
+
+  /// 候補で no_report の行（「この日の日報がありません」）を押した時（便F8・見本 v5 の A3 → B1）。
+  ///   ・出勤の修正依頼を送れた … 候補を引き直す（引き直すと選んでいた日は消える＝_load の動き）
+  ///   ・代休で取る … 事前の取り決めの「代休で取る」と同じ道（_goCompOff）
+  ///   ・日を選び直す … 選んだ日を消してこの画面に残る
+  ///   ・戻る（null） … 何もせずこの画面に残る（選んだ日は残る）
+  ///   ★曜日・依頼の※の期限は候補の口の days[] から字で渡す（端末で数えない）。期限＝その週の土曜＝
+  ///     days[] の最後の日（_weekLast と同じ端）。
+  Future<void> _openNoReport(Map<String, dynamic> d) async {
+    final choice = await showWorkDateNoReport(
+      context,
+      workDate: '${d['date'] ?? ''}',
+      dateText: _dayText(d),
+      permitUntilText: _days.isEmpty ? '—' : _dayText(_days.last),
+      service: widget.service,
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case WorkDateNoReportChoice.requested:
+        await _load();
+      case WorkDateNoReportChoice.compOff:
+        await _goCompOff();
+      case WorkDateNoReportChoice.pickAnother:
+        setState(() => _picked = null);
+    }
+  }
+}
+
+/// 候補の1日の「M月D日（曜）」。曜日は BE の dow をそのまま（分からなければ付けない）。
+///   ★便F8 で関数へ出した（候補の行の字と、3択・依頼の画面へ渡す字を同じ1本で作る）。
+///     中身は今の候補の行が組んでいた字と1字も同じ。
+String _dayText(Map<String, dynamic> day) {
+  final date = '${day['date'] ?? ''}';
+  final dowIdx = day['dow'];
+  final dowText = (dowIdx is int && dowIdx >= 0 && dowIdx < 7)
+      // ★曜日の文字の並びは substitute_past_day_screen.dart の kWeekdayJa ただ1本
+      //   （事前の取り決めの画面と同じものを使う＝写しを作らない）。
+      ? '（${kWeekdayJa[dowIdx]}）'
+      : '';
+  return '${jpMonthDay(date)}$dowText';
 }
 
 const TextStyle _note =
@@ -432,32 +499,37 @@ class _Trouble extends StatelessWidget {
 /// 出勤する日の候補1行。
 ///   ★selectable が false なら押せない見た目にして、横に BE の reason を出す。
 ///     消さないのは「その日がなぜ選べないか」を読めるようにするため。
+///   →再（2026-10-07・便F8・見本 field_substitute_past_mock_v5 の A3）: reason_code が no_report の行
+///     （「この日の日報がありません」）だけは、選べないが押せる行にする。薄くしない（不透明度も日付の字の色も
+///     選べる行と同じ）・枠の線を brand の1・右の字（BE の reason）を brand・その右に chevron（brand）。
+///     押すと onNoReportTap（3択の画面 B1）。登録を送っている間は押せない（今の行と同じ）。
+///     ★過去の日か・会社の休みの日かを端末で数えない（BE が no_report を付けた行だけ）。
+///     ほかの選べない行（report_unapproved を含む）と選べる行は今のまま。
 class _WorkDateRow extends StatelessWidget {
   const _WorkDateRow({
     required this.day,
     required this.picked,
     required this.busy,
     required this.onTap,
+    required this.onNoReportTap,
   });
   final Map<String, dynamic> day;
   final bool picked;
   final bool busy;
   final VoidCallback onTap;
+  final VoidCallback onNoReportTap;
 
   @override
   Widget build(BuildContext context) {
     final selectable = day['selectable'] == true;
-    final date = '${day['date'] ?? ''}';
-    final dowIdx = day['dow'];
-    final dowText = (dowIdx is int && dowIdx >= 0 && dowIdx < 7)
-        // ★曜日の文字の並びは substitute_past_day_screen.dart の kWeekdayJa ただ1本
-        //   （事前の取り決めの画面と同じものを使う＝写しを作らない）。
-        ? '（${kWeekdayJa[dowIdx]}）'
-        : '';
+    // ★選べない行のうち、BE が no_report を付けた行だけ（便F8）。
+    final noReport = !selectable && day['reason_code'] == 'no_report';
+    // 見た目を選べる行と同じにするか（不透明度と日付の字の色）。
+    final lively = selectable || noReport;
     final reason = '${day['reason'] ?? ''}';
 
     return Opacity(
-      opacity: selectable ? 1.0 : 0.55,
+      opacity: lively ? 1.0 : 0.55,
       child: Container(
         // ★行の間だけ詰める（8 → 4）。行そのものの高さは下の padding で保つ。
         margin: const EdgeInsets.only(bottom: 4),
@@ -466,10 +538,18 @@ class _WorkDateRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: picked
               ? Border.all(color: FieldTokens.accent, width: 2)
-              : null,
+              : noReport
+                  ? Border.all(color: FieldTokens.brand, width: 1)
+                  : null,
         ),
         child: InkWell(
-          onTap: (selectable && !busy) ? onTap : null,
+          onTap: busy
+              ? null
+              : selectable
+                  ? onTap
+                  : noReport
+                      ? onNoReportTap
+                      : null,
           child: Padding(
             // ★押せる高さは 44pt 以上を保つ。行の高さは日付1行（15pt）が決める。
             //   実測: 21〜22 + 12 * 2 = 45（検査の書体）／46（実機）。
@@ -486,9 +566,9 @@ class _WorkDateRow extends StatelessWidget {
                   //     列を 144 にすると行の高さは 46pt（1行のまま）
                   //   ★144 は検査で使う書体（'12月31日（水）' = 137.3pt）でも折れない幅。
                   width: 144,
-                  child: Text('${jpMonthDay(date)}$dowText',
+                  child: Text(_dayText(day),
                       style: TextStyle(
-                          color: selectable
+                          color: lively
                               ? FieldTokens.textBody
                               : FieldTokens.textFaint,
                           fontSize: 15,
@@ -499,15 +579,21 @@ class _WorkDateRow extends StatelessWidget {
                       ? const SizedBox.shrink()
                       // ★選べない理由は BE の文をそのまま。端末で言い換えない。
                       : Text(reason,
-                          style: const TextStyle(
-                              color: FieldTokens.textFaint, fontSize: 12)),
+                          style: TextStyle(
+                              color: noReport
+                                  ? FieldTokens.brand
+                                  : FieldTokens.textFaint,
+                              fontSize: 12)),
                 ),
                 if (picked)
                   const Icon(Icons.check,
                       color: FieldTokens.accent, size: 20)
                 else if (selectable)
                   const Icon(Icons.chevron_right,
-                      color: FieldTokens.textFaint, size: 20),
+                      color: FieldTokens.textFaint, size: 20)
+                else if (noReport)
+                  const Icon(Icons.chevron_right,
+                      color: FieldTokens.brand, size: 20),
               ],
             ),
           ),

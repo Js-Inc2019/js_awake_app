@@ -713,6 +713,8 @@ class ReportsService {
   //         SUBSTITUTE_WORK_DATE_TAKEN / SERVER_ERROR /
   //         SUBSTITUTE_PAST_OUT_OF_WEEK / SUBSTITUTE_REST_DATE_HAS_REPORT /
   //         SUBSTITUTE_WORK_DATE_NO_REPORT / SUBSTITUTE_PRIOR_AGREEMENT_REQUIRED
+  //   →再（2026-10-07・便F8）: 名簿に1つ足した＝SUBSTITUTE_WORK_DATE_REPORT_UNAPPROVED（出勤する日の日報は
+  //         出ているが事務の承認の前・BE の登録の口の③が NO_REPORT と分けて返す。文は BE の文をそのまま出す）。
   //
   // [priorAgreement] 「事前に会社と取り決めていた」の答え（本人が画面で答えた値）。
   //   ★既定は false ＝ 今までどおり【キー自体を送らない】。true のときだけ本文へ入れる。
@@ -748,6 +750,107 @@ class ReportsService {
         'rest_date': restDate,
         'paired_work_date': pairedWorkDate,
         if (priorAgreement) 'prior_agreement': true,
+      };
+
+  // ============================================================
+  // 日の依頼・申告（便F8・2026-10-07）。出勤した日の日報を出し忘れた職人が、
+  // 事務に「後から日報を出す許可」を頼む口2本と、押す前に頼めるかを尋ねる口1本。
+  //
+  // ★出せるかどうかは尋ねる口の答えだけで決める（端末で週や締め期間を数えない）。
+  //   BE は尋ねる口も申告の口も同じ判定（services/dayRequests.js の judge）を通すので、
+  //   「出せると言われたのに、出したら断られる」が構造的に起きない。
+  // ★文（reason・error）は BE が書く。ここで言い換えない・組み立てない。
+  // ★待ち時間は振替の口（getSubstituteWorkDateCandidates・registerSubstitute）と同じ15秒。
+  // ============================================================
+
+  // GET /attendance/day-requests/eligibility?type=…&work_date=YYYY-MM-DD
+  //   type は attendance_fix（出勤の修正依頼）か report_missing（日報漏れの申告）。
+  //   返り＝{ type, work_date, can_declare, code, reason, permit_until, request_id, confirm_type }
+  //   ★出せる日は can_declare が true で、ほかの7つのうち code・reason・permit_until・
+  //     request_id・confirm_type は null。出せない日は can_declare が false で code と reason（BE の文）。
+  //   ★request_id・confirm_type・permit_until は次の便（F8b・許可が出ている日の入口）が読む。
+  //     この便の画面は読まないが、捨てずに Map のまま渡す。
+  //   断り＝403 ATTENDANCE_EMPLOYEE_ONLY（従業員でない人）/ 400 INVALID_TYPE / 400 INVALID_WORK_DATE /
+  //         500 SERVER_ERROR（どれも { error, code }）。
+  Future<ApiResult<Map<String, dynamic>>> getDayRequestEligibility(
+      String type, String workDate) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.getDayRequestEligibility',
+      () => http.get(
+        Uri.parse('$kApiBaseUrl/attendance/day-requests/eligibility'
+            '?type=$type&work_date=$workDate'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15)),
+      dayRequestEligibilityFromBody,
+    );
+  }
+
+  /// 尋ねる口の本文 → 画面へ渡す Map（getDayRequestEligibility の取り込み）。
+  ///   ★8つのキーを BE の値のまま（null も null のまま・真偽も型を直さない）。
+  ///     can_declare を == true で丸めないのは、答えの形が読めない回（true でも false でもない）を
+  ///     画面が「聞けなかった時」として見分けるため（丸めると黙って「出せない」か「出せる」に化ける）。
+  ///   ★純関数に切り出したのは、送り手（BE の本文）と受け手（画面）を検査でつなげて測るため
+  ///     （substituteCandidatesFromBody と同じ作法）。
+  static Map<String, dynamic> dayRequestEligibilityFromBody(String body) {
+    final m = apiJsonMap(body);
+    return {
+      'type': m?['type'],
+      'work_date': m?['work_date'],
+      'can_declare': m?['can_declare'],
+      'code': m?['code'],
+      'reason': m?['reason'],
+      'permit_until': m?['permit_until'],
+      'request_id': m?['request_id'],
+      'confirm_type': m?['confirm_type'],
+    };
+  }
+
+  // POST /attendance/attendance-fix-request — 出勤の修正依頼（便F8）。
+  //   本文＝{ "work_date": "YYYY-MM-DD", "reason_text": "…" }（dayRequestBody）
+  //   201＝{ declared: true, id }（新しく積めた）／200＝{ already_declared: true, id }（同じ種類の未処理が
+  //   もう在る）。★どちらも通った答えとして返す（画面が statusCode で分ける＝打刻漏れの申告と同じ）。
+  //   断り＝400 REASON_REQUIRED / 400 INVALID_WORK_DATE / 403 ATTENDANCE_EMPLOYEE_ONLY /
+  //         409 { error, code }（尋ねる口と同じ判定の断り）/ 500 SERVER_ERROR。
+  Future<ApiResult<Map<String, dynamic>>> requestAttendanceFix(
+      String workDate, String reasonText) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.requestAttendanceFix',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/attendance/attendance-fix-request'),
+        headers: headers,
+        body: jsonEncode(dayRequestBody(workDate, reasonText)),
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  // POST /attendance/report-missing-declare — 日報漏れの申告（便F8）。
+  //   本文・答え・断りは上の requestAttendanceFix と同じ形（BE の口の本体が同じ1本）。
+  Future<ApiResult<Map<String, dynamic>>> declareReportMissing(
+      String workDate, String reasonText) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.declareReportMissing',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/attendance/report-missing-declare'),
+        headers: headers,
+        body: jsonEncode(dayRequestBody(workDate, reasonText)),
+      ).timeout(const Duration(seconds: 15)),
+      (body) => apiJsonMap(body) ?? <String, dynamic>{},
+    );
+  }
+
+  /// 依頼・申告の口2本が送る body（便F8）。★キーは work_date と reason_text の2つだけ。
+  ///   ★理由は前後の空白を除いて送る（BE も除いてから空かを見る＝画面が空でないと確かめた字を
+  ///     そのままの形で届ける）。組み立てを名前付きにするのは、送る形を検査で固定するため
+  ///     （substituteRegisterBody と同じ作法）。
+  static Map<String, dynamic> dayRequestBody(
+          String workDate, String reasonText) =>
+      <String, dynamic>{
+        'work_date': workDate,
+        'reason_text': reasonText.trim(),
       };
 
   // ============================================================

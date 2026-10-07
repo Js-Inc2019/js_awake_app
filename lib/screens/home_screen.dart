@@ -19,6 +19,7 @@ import '../widgets/closing_period_dialog.dart';
 //   →再（2026-09-30・便F13続）: 入口（呼び手）は3つ＝本日休みの画面・このカレンダー・振替の登録の画面
 //   （名簿は lib/widgets/comp_off_dialog.dart の冒頭）。部品と書く口が1つなのは同じ。
 import '../widgets/comp_off_dialog.dart';
+import '../widgets/day_request_entry.dart';
 import '../utils/business_date.dart';
 
 import '../main.dart'
@@ -7080,6 +7081,13 @@ class _CalendarTabState extends State<CalendarTab> {
   bool _monthLoading = false;
   String _myCompanyId = '';
 
+  /// 自分の id（端末の保存 'user_id'＝ログインの答えの user_id）。読めていない間は null（便F8）。
+  ///   ★箱の「日報漏れを申告する」の入口を出すかを決める時に、その日の日報の行の user_id と比べて
+  ///     自分の日報を数える（ownLiveReportCount）。職長などの役ではカレンダーの日報が会社ぶん返るため。
+  ///   ★読み方は今の本人の見分けの前例（approval_day_screen.dart の _loadMyUserId）と同じ形。
+  ///     null の間は、日報が1枚でも在る日には入口を出さない側に倒れる（ownLiveReportCount の★）。
+  String? _myUserId;
+
   // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
   //   ★日報と自分の休みの2本で共有する（同じ月・同じ期間で切るため）。
   //   ★カレンダーは他の情報（会社休日・祝日）と並ぶので、理由は全面ではなく
@@ -7208,6 +7216,7 @@ class _CalendarTabState extends State<CalendarTab> {
   void initState() {
     super.initState();
     _initCompanyId();
+    _loadMyUserId();
     // ★（元）ここで _loadSubstituteDates も別に呼んでいた（画面に入ったときに1回だけ）。
     //   →再（2026-09-29・便F13）: _loadMonth の中で一緒に引く（2回引かないよう、ここでは呼ばない）。
     _loadMonth();
@@ -7229,6 +7238,13 @@ class _CalendarTabState extends State<CalendarTab> {
   Future<void> _initCompanyId() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) setState(() => _myCompanyId = prefs.getString('company_id') ?? '');
+  }
+
+  // 自分の id を1回だけ読んで持つ（便F8・上の _myUserId の★）。
+  Future<void> _loadMyUserId() async {
+    final uid = await AuthService().getUserId();
+    if (!mounted) return;
+    setState(() => _myUserId = uid);
   }
 
   void _prevMonth() {
@@ -7739,6 +7755,19 @@ class _CalendarTabState extends State<CalendarTab> {
       info: info,
       maxHeight: _sheetMaxHeight(),
       myCompanyId: _myCompanyId,
+      // 日報漏れの申告の入口（便F8・見本 v5 の D1・D3）。出す日でなければ null＝今の箱のまま。
+      //   ★出す日かは dayRequestEntryOrNull の中の決まり1本。今日はここで1回だけ読む（JST）。
+      //   ★自分の日報の数は、その日の生きている日報のうち、行の user_id が自分の id と同じ物
+      //     （ownLiveReportCount）。info.liveCount は職長などの役では会社ぶんの数なので渡さない。
+      dayRequestEntry: dayRequestEntryOrNull(
+        workDate: ds,
+        today: jstDateString(DateTime.now()),
+        ownReportCount: ownLiveReportCount(info.liveReports, _myUserId),
+        hasOwnRest: info.restPortion != null,
+        substitutePendingRest: info.substitutePendingRest,
+        dateText: info.dateText,
+        service: ReportsService(),
+      ),
       // 振替の日（休む日 または 対の出勤日）の箱にだけ出す入口。null=出さない。
       substituteId: _substituteByDate[ds],
       onOpenSubstitute: () {
@@ -7933,10 +7962,17 @@ class CalendarDayInfo {
   ///   「切れずに1枚まるごと読める量」に収める必要があり、祝日の日だけ
   ///   1行増えると確保した高さ(kCalendarPanelReservedHeight)を超えるため。
   String get title {
-    final base = '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）';
+    // →再（2026-10-07・便F8）: 頭の「M月D日（曜）」は下の dateText から採る（字は1字も変えていない）。
+    final base = dateText;
     final jp = jpHolidayName;
     return jp == null ? base : '$base・祝日：$jp';
   }
+
+  /// 日付だけの字「M月D日（曜）」（祝日の名前は付けない）。便F8 で足した。
+  ///   ★見出し（title）の頭と同じ1本。箱の「日報漏れを申告する」から申告の画面へ渡す対象の日の字に使う
+  ///     （曜日を数える所を新しく作らない）。
+  String get dateText =>
+      '${date.month}月${date.day}日（${_kWeekLabels[weekdayIdx]}）';
 
   String get restLabel {
     switch (restPortion) {
@@ -8176,6 +8212,7 @@ class CalendarDaySheet extends StatelessWidget {
     this.substituteId,
     this.onOpenSubstitute,
     this.onSubstitute,
+    this.dayRequestEntry,
   });
 
   final CalendarDayInfo info;
@@ -8208,6 +8245,11 @@ class CalendarDaySheet extends StatelessWidget {
   ///     振替の休む日（substitutePendingRest）でない」（代休と同じ・便F13）。同意待ちの休む日は休みに
   ///     数えないが、BE は SUBSTITUTE_PENDING_ON_DATE で断る（押せるのに必ず失敗するボタンになる）。
   final VoidCallback? onSubstitute;
+
+  /// 日報漏れの申告の入口（便F8・lib/widgets/day_request_entry.dart の dayRequestEntryOrNull の答え）。
+  ///   null=出さない（今の箱と1ピクセルも同じ）。置き場は日報の行のすぐ下・日報の一覧の上。
+  ///   ★箱そのものは今までどおり通信しない。通信するのは渡された入口の部品だけ（口は箱を開く所が渡す）。
+  final Widget? dayRequestEntry;
 
   @override
   Widget build(BuildContext context) {
@@ -8348,6 +8390,9 @@ class CalendarDaySheet extends StatelessWidget {
                     ],
                     const SizedBox(height: 8),
                     _dayReportRow(info),
+                    // 日報漏れの申告の入口（便F8）。日報の行のすぐ下（職長の箱でほかの人の日報だけが在る日も、
+                    //   日報の一覧の上）。上の 8 の間は入口の部品が持つ。
+                    if (dayRequestEntry != null) dayRequestEntry!,
                     // (b) その日の日報を1枚ずつ全部出す。
                     // ★取消済も並べる（info.reports は取消済を含む全部）。
                     //   語と色は JsReportTile が対応表から採る。
@@ -8401,6 +8446,7 @@ Future<void> showCalendarDaySheet(
   String? substituteId,
   VoidCallback? onOpenSubstitute,
   VoidCallback? onSubstitute,
+  Widget? dayRequestEntry,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -8420,6 +8466,7 @@ Future<void> showCalendarDaySheet(
       substituteId: substituteId,
       onOpenSubstitute: onOpenSubstitute,
       onSubstitute: onSubstitute,
+      dayRequestEntry: dayRequestEntry,
     ),
   );
 }

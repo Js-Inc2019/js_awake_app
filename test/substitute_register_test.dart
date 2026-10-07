@@ -265,7 +265,11 @@ void main() {
       expect(find.text(kWorkHead), findsOneWidget);
     });
 
-    testWidgets('★※2行がそのまま出る（週の両端は days[] の最初と最後から）',
+    // （元）名前「★※2行がそのまま出る（週の両端は days[] の最初と最後から）」。
+    // →再（2026-10-07・便F8）: ※は3行になった（見本 v5 の A3 の1行「※過去の日を選べるのは、…」を週の※の
+    //   すぐ下に足した）ので、「※2行」の名前が事実でなくなった。期待（下の2つの文）は1つも変えていない。
+    //   足した1行と並びは test/f8_day_request_test.dart の (ii-4) が見る。
+    testWidgets('★週の※と登録の※がそのまま出る（週の両端は days[] の最初と最後から）',
         (tester) async {
       await _pump(
           tester,
