@@ -301,53 +301,9 @@ class ReportStore {
     final failed = <WorkerReportItem>[];
     for (final item in items) {
       try {
-        final body = <String, dynamic>{
-          'worker_name':   item.name,
-          'worker_company': '',
-          // 業務日：端末TZ非依存のJST固定。夜勤かつJST 0:00-11:59は始業日=前日
-          //（BE js-office-api/utils/businessDate.js の businessDateForShift と同一ルール）
-          'report_date':   businessDateForShift(item.shiftType, item.timestamp),
-          'shift_type':    item.shiftType,
-          'clock_in_time': '${item.timeLabel}:00',
-          'transport_type':      item.transport.name,
-          'transport_types_json': item.transportTypes,
-          'parking_fee':         item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
-          'gps_address':         item.gpsAddress,
-          'origin_type':         item.originType,
-          'work_content':        item.workContent,
-          // v57(FIELD): 経費スナップショット（提出時点の合計）。null は 0 で埋めず null のまま送る。
-          'transport_distance_km': item.transportDistanceKm,
-          'transport_fuel_cost':   item.transportFuelCost,
-          'transport_fare':        item.transportFare,
-          'transport_toll':        item.transportToll,
-          'transport_breakdown':   item.transportBreakdown,
-          // v57(FIELD): 相乗り相手（構造化・空欄は null）。BE:reports.carpool_company/carpool_name
-          'carpool_company':       item.carpoolCompany,
-          'carpool_name':          item.carpoolName,
-        };
-        // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
-        if (item.siteId != null) body['site_id'] = item.siteId;
-        // 提出座標：測位できているときだけ送る（site_id と同じ流儀）。
-        // BE 受け口は routes/reports.js の appendEvent（gps_lat / gps_lon）。
-        // ★reports 表の列でも content_hash の対象でもない＝既存ハッシュに影響しない。
-        if (item.gpsLat != null) body['gps_lat'] = item.gpsLat;
-        if (item.gpsLon != null) body['gps_lon'] = item.gpsLon;
-        // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
-        final photos = <Map<String, dynamic>>[];
-        for (final p in item.workPhotoPaths) {
-          try {
-            photos.add({'photo_type': 'site', 'base64': base64Encode(await File(p).readAsBytes())});
-          } catch (e) {
-            debugPrint('作業写真エンコード失敗: $e');
-          }
-        }
-        for (final p in item.parkingPhotoPaths) {
-          try {
-            photos.add({'photo_type': 'parking', 'base64': base64Encode(await File(p).readAsBytes())});
-          } catch (e) {
-            debugPrint('駐車写真エンコード失敗: $e');
-          }
-        }
+        // 本文と写真の組み方は、下の reportBodyFor・reportPhotosFor（このファイル）に在る。
+        final body = reportBodyFor(item);
+        final photos = await reportPhotosFor(item);
         if (photos.isNotEmpty) body['photos'] = photos;
         final response = await ReportsService().createReport(body);
         final resBody = response.data;
@@ -411,6 +367,70 @@ class ReportStore {
       r.timestamp.day   == today.day,
     ).toList();
   }
+}
+
+// ============================================================
+// 日報の本文と写真（ReportStore._sendToAPI が使う）
+//   便F8b-1（2026-10-08）で、_sendToAPI の中に直に書いてあった組み方を、字のまま関数へ出した。
+//   鍵の並び・値の形・条件は1つも変えていない（送る字は1バイトも同じ）。
+//   ★なぜ出したか：事務の許可が出た過去の日の日報を出す画面（次の便）が、同じ組み方を使うため。
+// ============================================================
+
+/// 日報の本文（写真は入れない）。通信しない・端末の保存を読まない・今の時刻を読まない（item が持つ時刻だけを使う）。
+Map<String, dynamic> reportBodyFor(WorkerReportItem item) {
+  final body = <String, dynamic>{
+    'worker_name':   item.name,
+    'worker_company': '',
+    // 業務日：端末TZ非依存のJST固定。夜勤かつJST 0:00-11:59は始業日=前日
+    //（BE js-office-api/utils/businessDate.js の businessDateForShift と同一ルール）
+    'report_date':   businessDateForShift(item.shiftType, item.timestamp),
+    'shift_type':    item.shiftType,
+    'clock_in_time': '${item.timeLabel}:00',
+    'transport_type':      item.transport.name,
+    'transport_types_json': item.transportTypes,
+    'parking_fee':         item.parkingFee != null ? double.tryParse(item.parkingFee!) : null,
+    'gps_address':         item.gpsAddress,
+    'origin_type':         item.originType,
+    'work_content':        item.workContent,
+    // v57(FIELD): 経費スナップショット（提出時点の合計）。null は 0 で埋めず null のまま送る。
+    'transport_distance_km': item.transportDistanceKm,
+    'transport_fuel_cost':   item.transportFuelCost,
+    'transport_fare':        item.transportFare,
+    'transport_toll':        item.transportToll,
+    'transport_breakdown':   item.transportBreakdown,
+    // v57(FIELD): 相乗り相手（構造化・空欄は null）。BE:reports.carpool_company/carpool_name
+    'carpool_company':       item.carpoolCompany,
+    'carpool_name':          item.carpoolName,
+  };
+  // 作業現場：選択時のみ site_id を送る（「対象なし」=null は送信しない＝BE側 NULL）
+  if (item.siteId != null) body['site_id'] = item.siteId;
+  // 提出座標：測位できているときだけ送る（site_id と同じ流儀）。
+  // BE 受け口は routes/reports.js の appendEvent（gps_lat / gps_lon）。
+  // ★reports 表の列でも content_hash の対象でもない＝既存ハッシュに影響しない。
+  if (item.gpsLat != null) body['gps_lat'] = item.gpsLat;
+  if (item.gpsLon != null) body['gps_lon'] = item.gpsLon;
+  return body;
+}
+
+/// 日報に付ける写真の並び（作業が先・駐車場が後）。読めなかった写真は飛ばす（今の動きのまま）。
+Future<List<Map<String, dynamic>>> reportPhotosFor(WorkerReportItem item) async {
+  // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
+  final photos = <Map<String, dynamic>>[];
+  for (final p in item.workPhotoPaths) {
+    try {
+      photos.add({'photo_type': 'site', 'base64': base64Encode(await File(p).readAsBytes())});
+    } catch (e) {
+      debugPrint('作業写真エンコード失敗: $e');
+    }
+  }
+  for (final p in item.parkingPhotoPaths) {
+    try {
+      photos.add({'photo_type': 'parking', 'base64': base64Encode(await File(p).readAsBytes())});
+    } catch (e) {
+      debugPrint('駐車写真エンコード失敗: $e');
+    }
+  }
+  return photos;
 }
 
 // ============================================================

@@ -10,9 +10,7 @@ import 'package:geolocator/geolocator.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../widgets/photo_strip_field.dart';
 import '../widgets/punch_remind_dialog.dart';
-import '../widgets/search_suggest_field.dart';
 import '../widgets/closing_period_dialog.dart';
 // 代休を取る受け皿。★「本日休み」の画面（rest_day_screen.dart）と同じ1本を使う
 //   ＝入口は2つでも、選ばせる部品と書く口は1つ（同じ操作を2通りに書かない）。
@@ -20,6 +18,9 @@ import '../widgets/closing_period_dialog.dart';
 //   （名簿は lib/widgets/comp_off_dialog.dart の冒頭）。部品と書く口が1つなのは同じ。
 import '../widgets/comp_off_dialog.dart';
 import '../widgets/day_request_entry.dart';
+// 日報のフォームの部品（動かした先）と、段の部品・値の関数（便F8b-1）。
+import '../widgets/report_form_parts.dart';
+import '../widgets/report_form_steps.dart';
 import '../utils/business_date.dart';
 
 import '../main.dart'
@@ -31,7 +32,6 @@ import '../main.dart'
         WorkerNameStore,
         fetchGpsAddress,
         showJsSnackbar,
-        showConfirmDialog,
         NotificationManager,
         OvertimeDialog;
 import '../core/theme/field_tokens.dart';
@@ -526,7 +526,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _lastSentOk = true;
 
   // ─── 日報フォームのステップ（現場→移動→作業→確認）───
-  // 1=現場 / 2=移動 / 3=作業。確認(=4)は既存の別画面 _ConfirmSendScreen が担うため
+  // 1=現場 / 2=移動 / 3=作業。確認(=4)は既存の別画面 ReportConfirmScreen が担うため
   // このフィールドは 1〜3 しか取らない（_onCheckContent → Navigator.push の経路は不変）。
   int _reportStep = 1;
   // ステップ切替時にスクロールを先頭へ戻すためのコントローラ。
@@ -544,11 +544,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _scrollReportTop();
   }
 
-  /// エラー時の自動ジャンプ。確認画面(_ConfirmSendScreen)を1枚 pop してフォームへ戻り、
+  /// エラー時の自動ジャンプ。確認画面(ReportConfirmScreen)を1枚 pop してフォームへ戻り、
   /// 指定ステップを開いてスクロールを先頭へ戻す。
   ///   ・_submit の呼び手は確認画面の onSend のみ（実測・1箇所のみ）。
   ///     よって pop 対象は常に確認画面1枚。
-  ///   ・pop 後も _ConfirmSendScreenState は退場アニメ中 mounted のままだが、
+  ///   ・pop 後も _ReportConfirmScreenState は退場アニメ中 mounted のままだが、
   ///     ②③の中断経路は _todayReportDone が false のため
   ///     `if (widget.isDone()) Navigator.pop(context);` は発火せず二重popしない。
   void _jumpToStep(int s) {
@@ -1441,7 +1441,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // 目的地キー: 現場を選んでいればその site_id、未選択なら GPS 座標（無ければ住所）。
-  // ルート計算の destination と鍵付きキャッシュのキーで同じ値を使う。
+  //   元: ルート計算の destination と鍵付きキャッシュのキーで同じ値を使う。
+  //   →再（2026-10-08・便F8b-1）: この値を使うのは、鍵付きキャッシュのキーだけ。ルート計算の destination は
+  //   _calculateRoutes が GPS 座標（無ければ現在地の住所）で作る＝選んだ現場は、行き先には使っていない。
   String get _routeDestKey {
     if (_selectedSiteId != null) return 'site:${_selectedSiteId!}';
     if (_lat != null && _lon != null) {
@@ -1462,7 +1464,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (_gpsAddress.isEmpty) return;
 
     // ★世代トークン: 開始時に採番し、setState 直前に自分が最新かを検査する。
-    //   GPS再取得(_fetchGps) と 起点変更(_OriginSelector) が同時に走ったとき、
+    //   GPS再取得(_fetchGps) と 起点変更(ReportOriginSelector) が同時に走ったとき、
     //   後から返った古い結果が新しい結果を上書きする事故を根治する。
     final myGen = ++_routeGen;
 
@@ -1590,7 +1592,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => _VoiceInputDialog(
+      builder: (ctx) => ReportVoiceInputDialog(
         manager: _speechMgr,
         onConfirm: (text) {
           Navigator.pop(ctx);
@@ -1648,34 +1650,32 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       //   列を真実源にする（二重真実の禁止）。
       // D-2: 駐車料金の parkingPrefix（work_content への文字列埋め込み）は撤去済。
       //      金額の真実源を parking_fee 列ひとつに寄せる。
-      final otherPrefix = (_transports.contains(TransportType.other) && _otherCtrl.text.trim().isNotEmpty)
-          ? '[その他:${_otherCtrl.text.trim()}] '
-          : '';
-      // D-1: 移動手段の補足テキスト。従来 UI にはあるが payload に載らず消えていた。
-      //      other prefix と同じ流儀で work_content へ連結する。空なら付けない。
-      final memoPrefix = _transportMemoCtrl.text.trim().isEmpty
-          ? ''
-          : '【移動】${_transportMemoCtrl.text.trim()} ';
-      // D-2: 駐車料金を実値で送る。未入力/パース不能/負数は null、0以上はその値をそのまま渡す
-      //      （0を空に丸めない＝BE側 POST /reports の `parking_fee || null` は別途BEで是正予定）。
-      final parkingRaw    = _parkingCtrl.text.trim();
-      final parkingParsed = parkingRaw.isEmpty ? null : double.tryParse(parkingRaw);
-      final parkingFeeValue =
-          (parkingParsed != null && parkingParsed >= 0) ? parkingRaw : null;
+      // 作業内容の頭の字（[その他:…]・【移動】…）・駐車料金・相乗りの2つの組み方は、
+      //   lib/widgets/report_form_steps.dart の関数に在る（式は同じ・欄の名前を引数の名前に替えただけ）。読む順と場所は今までどおり。
+      final contentPrefix = reportWorkContentPrefix(
+        transports: _transports,
+        otherText: _otherCtrl.text,
+        memoText: _transportMemoCtrl.text,
+      );
+      final parkingFeeValue = reportParkingFeeValue(_parkingCtrl.text);
       // 作業1: 提出時点の経費スナップショット（合計＋内訳）。ルート検索結果由来。
-      final exp = _expenseSnapshot(_transports, _routeComparisons);
-      // 作業2: 相乗り2欄（相乗り時のみ・空欄は null）。
-      final isCarpool = _transports.contains(TransportType.car) && _carType == 'carpool';
-      final carpoolCompany = isCarpool && _carpoolCompanyCtrl.text.trim().isNotEmpty
-          ? _carpoolCompanyCtrl.text.trim() : null;
-      final carpoolName = isCarpool && _carpoolNameCtrl.text.trim().isNotEmpty
-          ? _carpoolNameCtrl.text.trim() : null;
+      final exp = reportExpenseSnapshot(_transports, _routeComparisons);
+      final carpoolCompany = reportCarpoolValue(
+        transports: _transports,
+        carType: _carType,
+        text: _carpoolCompanyCtrl.text,
+      );
+      final carpoolName = reportCarpoolValue(
+        transports: _transports,
+        carType: _carType,
+        text: _carpoolNameCtrl.text,
+      );
       await WorkerNameStore.instance.add(name);
       final sent = await ReportStore.instance.addReport(WorkerReportItem(
         name: name,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
-        workContent: otherPrefix + memoPrefix + _workCtrl.text.trim(),
+        workContent: contentPrefix + _workCtrl.text.trim(),
         parkingFee: parkingFeeValue,   // D-2: 実値送出（未入力/不正はnull）
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
@@ -1743,7 +1743,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _SitePickerSheet(
+      builder: (_) => ReportSitePickerSheet(
         selectedSiteId: _selectedSiteId,
         onSelected: (id, name) {
           setState(() {
@@ -1813,8 +1813,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   String get _shiftLabel => _shiftType == 'night' ? '🌙夜勤' : '☀日勤';
 
-  // ─── 「内容を確かめる」→ 確認画面へ ───
-  // ここでは送信しない。_submit は確認画面の「送る」からのみ呼ぶ。
+  // ─── 「内容を確認する」→ 確認画面へ ───
+  // ここでは送信しない。_submit は確認画面の「報告を送信」からのみ呼ぶ。
+  //   （元の説明は、前のボタンの字「内容を確かめる」「送る」＝2026-10-08・便F8b-1 で今の字に直した）
   //
   // ★必須判定は無い。
   //   ・作業内容(_workCtrl) … 任意入力（必須化は撤回済み）
@@ -1857,7 +1858,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => _ConfirmSendScreen(
+        builder: (_) => ReportConfirmScreen(
           initial:   _buildSnapshot(),
           currentOf: _buildSnapshot,
           onSend:    _submit,
@@ -1868,32 +1869,24 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // 確認画面の表示材料と差異検知キーを一度に作る。読むだけ・stateは変えない。
-  _ReportSnapshot _buildSnapshot() {
-    // 作業2: 先頭1件(_transport)ではなく選択中の全手段から内訳を作る。
-    final routeRows  = _routeBreakdown(_transports, _routeComparisons);
-    final parkingRaw = _parkingCtrl.text.trim();
-    return _ReportSnapshot(
-      dateLabel:         _formDateLabel,
-      shiftLabel:        _shiftLabel,
-      siteId:            _selectedSiteId,
-      siteName:          _selectedSiteName ?? '該当現場なし',
-      originLabel:       _originType == 'office' ? '会社' : '自宅',
-      transportKey:      (_transports.map((t) => t.name).toList()..sort()).join(','),
-      transportLabel:    _transports.isEmpty
-          ? '未選択'
-          : _transports.map((t) => t.label).join('・'),
-      routeRows:         routeRows,
-      parkingFeeRaw:     parkingRaw,
-      // 作業4: 相乗り2項目（相乗り時のみ・空欄は空文字）。表示・差異検知に使う。
-      carpoolCompany:    (_transports.contains(TransportType.car) && _carType == 'carpool')
-          ? _carpoolCompanyCtrl.text.trim() : '',
-      carpoolName:       (_transports.contains(TransportType.car) && _carType == 'carpool')
-          ? _carpoolNameCtrl.text.trim() : '',
-      workContent:       _workCtrl.text.trim(),
-      workPhotoCount:    _workPhotoPaths.length,
-      parkingPhotoCount: _parkingPhotoPaths.length,
-    );
-  }
+  //   組み方（出発地の字・移動手段の鍵と字・相乗りの2つ・空白の扱い）は reportSnapshotFrom
+  //   （lib/widgets/report_form_steps.dart）に在る。ここは、今の欄の値を渡すだけ。
+  ReportSnapshot _buildSnapshot() => reportSnapshotFrom(
+        dateLabel: _formDateLabel,
+        shiftLabel: _shiftLabel,
+        siteId: _selectedSiteId,
+        siteName: _selectedSiteName,
+        originType: _originType,
+        transports: _transports,
+        carType: _carType,
+        routeComparisons: _routeComparisons,
+        parkingText: _parkingCtrl.text,
+        carpoolCompanyText: _carpoolCompanyCtrl.text,
+        carpoolNameText: _carpoolNameCtrl.text,
+        workText: _workCtrl.text,
+        workPhotoCount: _workPhotoPaths.length,
+        parkingPhotoCount: _parkingPhotoPaths.length,
+      );
 
   // ─── ページタイトル（ボトム4タブと1:1・役割で変えない）───
   String get _pageTitle {
@@ -2045,7 +2038,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ─── 日報フォームを全画面で開く（旧: index1 のタブ） ───────────────
-  // ★フォーム本体 _buildHomeTabContent() は1行も変更していない。描画位置だけを移した。
+  // ★元: フォーム本体 _buildHomeTabContent() は1行も変更していない。描画位置だけを移した。
+  //   →再（2026-10-08・便F8b-1）: 上は、全画面へ移した時の話。この便で、段の並びと下のボタンは、段の部品
+  //   （lib/widgets/report_form_steps.dart）へ出した。押した時の中身（状態を変える・端末へ保存する・目安を取り直す・同僚を読む）は、今までどおりこの画面の側に在る。
   //   ・_ReportFormPage は _buildHomeTabContent を呼ぶだけの器。
   //   ・当 State の setState をオーバーライド（下記）して push 先も再描画するため、
   //     フォーム内の全ての setState 駆動UI（チップ選択・写真帯・GPS・ルート計算結果・
@@ -2343,7 +2338,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // ── ステップインジケータ（全ステップ共通・切替の外）──
-                _StepIndicator(current: _reportStep),
+                ReportStepIndicator(current: _reportStep),
                 const SizedBox(height: 18),
 
                 // 健康診断警告（表示条件は不変: _buildHealthBannerMsg() != null）
@@ -2371,8 +2366,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _SectionHeader('現場'),
-                    _SiteSelectField(
+                    ReportStepSite(
                       siteName: _selectedSiteName,
                       onTap: _showSitePicker,
                     ),
@@ -2390,42 +2384,25 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 ],
 
                 // ═══════ ステップ2 =「移動」セクション全部 ═══════
-                //   条件表示4件（補足テキスト／車種2択／相乗り2欄／駐車料金+写真）は
-                //   条件式を1文字も変えずこの中に入っている。
+                //   条件表示4件（補足テキスト／車種2択／相乗り2欄／駐車料金+写真）の条件式は、
+                //   欄の名前を引数の名前に替えただけで、ReportStepMove（lib/widgets/report_form_steps.dart）の中に在る。
                 if (_reportStep == 2) ...[
                 // ═══ ② 現場までの移動 ═══
-                const _SectionHeader('移動'),
-                _FormCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const _FieldLabel('出発地'),
-                      const SizedBox(height: 8),
-                      // 起点選択（自宅/会社）— onChanged は現行のまま（await _calculateRoutes() 維持）
-                      _OriginSelector(
-                        selected: _originType,
-                        onChanged: (type) async {
-                          setState(() => _originType = type);
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setString('default_origin', type);
-                          await _calculateRoutes();
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const _FieldLabel('移動手段'),
-                      const SizedBox(height: 8),
-
-                // ④ 移動手段 4択（1タップ排他・ダブルタップで複数追加）→ 車種別/相乗り → ルート情報
-                _TransportRow(
-                  selectedSet: _transports,
-                  onTap: (t) {
-                    final newSet = Set<TransportType>.from(_transports);
-                    if (!newSet.contains(t)) {
-                      newSet.clear();
-                      newSet.add(t);
-                    } else if (newSet.length > 1) {
-                      newSet.remove(t);
-                    }
+                //   段の並び（見出し・カード・条件つきの4つ）は ReportStepMove（lib/widgets/report_form_steps.dart）。
+                //   押した時の中身（状態を変える・端末へ保存する・目安を取り直す・同僚を読む）は、今までどおりここに書いて渡す。
+                ReportStepMove(
+                  originType: _originType,
+                  // 起点選択（自宅/会社）— onChanged は現行のまま（await _calculateRoutes() 維持）
+                  onOriginChanged: (type) async {
+                    setState(() => _originType = type);
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('default_origin', type);
+                    await _calculateRoutes();
+                  },
+                  transports: _transports,
+                  // ④ 移動手段 4択（1タップ排他・ダブルタップで複数追加）。選びの式は transportsAfterTap。
+                  onTransportTap: (t) {
+                    final newSet = transportsAfterTap(_transports, t);
                     if (!newSet.contains(TransportType.car)) {
                       _parkingCtrl.clear();
                       _parkingPhotoPaths = [];
@@ -2435,17 +2412,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     _saveDraft();
                     _saveLastTransport();   // 次回のデフォルト（既存の副作用群は不変・追加のみ）
                   },
-                  onDoubleTap: (t) async {
+                  onTransportDoubleTap: (t) async {
                     final newSet = Set<TransportType>.from(_transports);
                     if (!newSet.contains(t)) {
                       newSet.add(t);
                       if (newSet.length >= 2) {
                         if (!context.mounted) return;
-                        final ok = await showConfirmDialog(context,
-                          title: '移動手段を追加',
-                          message: '2つ以上の移動手段を記録します。よろしいですか？',
-                          confirmText: 'OK', cancelText: 'キャンセル',
-                        );
+                        final ok = await confirmAddTransport(context);
                         if (!ok) return;
                       }
                       if (!newSet.contains(TransportType.car)) {
@@ -2458,190 +2431,45 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                       _saveLastTransport();   // 次回のデフォルト（既存の副作用群は不変・追加のみ）
                     }
                   },
-                ),
-                // 作業5: 複数選択の操作方法を明示（ダブルタップは発見されにくいため）
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text('※タップで選択　／　2つ以上使うときはダブルタップで追加',
-                      style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
-                ),
-                // 補足テキスト（その他 or 複数選択時）— 注意書き直下・トグルより前へ移設
-                if (_transports.contains(TransportType.other) || _transports.length >= 2) ...[
-                  const SizedBox(height: 10),
-                  _FormInputShell(
-                    icon: Icons.edit_note,
-                    child: TextField(
-                      controller: _transportMemoCtrl,
-                      decoration: const InputDecoration(
-                        hintText: '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(
-                            color: FieldTokens.textFaint, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(
-                          color: FieldTokens.textBody, fontSize: 13),
-                    ),
-                  ),
-                ],
-                // 車選択時: 社用車/相乗り 2択 → 各入力欄
-                if (_transports.contains(TransportType.car)) ...[
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() => _carType = 'own');
-                          _saveLastTransport();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color: _carType == 'own'
-                                ? FieldTokens.outlineStrong
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: _carType == 'own'
-                                    ? FieldTokens.textSupport
-                                    : FieldTokens.outline),
-                          ),
-                          child: Center(child: Text('社用車・自家用車',
-                            style: TextStyle(
-                              color: _carType == 'own'
-                                  ? FieldTokens.textBody
-                                  : FieldTokens.textSupport,
-                              fontSize: 12,
-                              fontWeight: _carType == 'own' ? FontWeight.bold : FontWeight.normal,
-                            ))),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _carType = 'carpool';
-                            _parkingCtrl.clear();
-                            _parkingPhotoPaths = [];
-                          });
-                          _saveLastTransport();
-                          // E-3: 相乗り選択時に自社同僚を取得（氏名サジェスト用）。
-                          _ensureColleaguesLoaded();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color: _carType == 'carpool'
-                                ? FieldTokens.outlineStrong
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: _carType == 'carpool'
-                                    ? FieldTokens.textSupport
-                                    : FieldTokens.outline),
-                          ),
-                          child: Center(child: Text('相乗り',
-                            style: TextStyle(
-                              color: _carType == 'carpool'
-                                  ? FieldTokens.textBody
-                                  : FieldTokens.textSupport,
-                              fontSize: 12,
-                              fontWeight: _carType == 'carpool' ? FontWeight.bold : FontWeight.normal,
-                            ))),
-                        ),
-                      ),
-                    ),
-                  ]),
-                ],
-                // ルート情報バー（距離・時間・金額）。
-                // 位置: 車のときは「社用車・自家用車/相乗り」2択の直下＝駐車料金入力の上。
-                //       他の手段のときは手段チップの直下（上の car ブロックが出ないため自然にそうなる）。
-                // 表示条件は従来どおり無条件（_transports に依存しない）。
-                const SizedBox(height: 12),
-                _RouteInfoBar(
-                  transport: _transport,
-                  comparisons: _routeComparisons,
-                  loading: _loadingRoutes,
-                  failed: _routeFailed,
-                  fromCache: _routeFromCache,
-                  onRetry: _calculateRoutes,
-                ),
-                // 車選択かつ相乗り時: 相乗り相手（会社名サジェスト＋氏名の2欄）。
-                //   駐車料金は出さない＝現行仕様のまま。work_content には連結しない（二重真実の禁止）。
-                if (_transports.contains(TransportType.car) &&
-                    _carType == 'carpool') ...[
-                  const SizedBox(height: 10),
-                  // 作業3: 会社名はサジェスト付き（searchCompanies・300msデバウンス・共通部品）
-                  SearchSuggestField(
-                    controller: _carpoolCompanyCtrl,
-                    candidates: _carpoolCompanyResults
-                        .map((c) => (c['company_name'] as String? ?? '').trim())
-                        .where((s) => s.isNotEmpty)
-                        .toList(),
-                    hintText: '相乗り相手の会社名（任意）',
-                    onChanged: _onCarpoolCompanyChanged,
-                    onSelected: _onCarpoolCompanyChanged,
-                    // 候補はサーバ(/companies/search)が正規化検索で絞り済み。
-                    // 生テキスト部分一致の再フィルタでサーバ候補を捨てない。
-                    serverFiltered: true,
-                  ),
-                  // 作業2: 会社名欄の下に補足（既存の ※ 補足と同じ textFaint / fontSize 11）
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text('※自社なら空欄のままでOK',
-                        style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
-                  ),
-                  const SizedBox(height: 10),
-                  // E-3: 氏名欄はサジェスト付き（自社同僚を候補に）。会社名欄(:上)と同じく
-                  //   素の SearchSuggestField。候補は _carpoolNameCandidates() が
-                  //   E-3発動条件（会社名が空 or 自社名一致）で出し分ける。
-                  //   serverFiltered:false＝同僚は全件返るのでローカルで部分一致絞り込み。
-                  SearchSuggestField(
-                    controller: _carpoolNameCtrl,
-                    candidates: _carpoolNameCandidates(),
-                    hintText: '相乗り相手の氏名（任意）',
-                    onChanged: (_) => _saveDraft(),
-                    serverFiltered: false,
-                  ),
-                ],
-                // 駐車料金 + 駐車場写真（1組だけ描画する）
-                // ★根治: 旧実装は「車(own)の分岐」と「その他の分岐」が独立していたため、
-                //   car と other を同時選択すると同じ _parkingCtrl / _parkingPhotoPaths を
-                //   共有する入力欄と写真帯が2組並んでいた。条件を OR で1本化して解消する。
-                //   controller・paths は従来と同一のため、下書き保存(_saveDraft)・復元(_restoreDraft)・
-                //   送信の経路は一切変わらない。
-                if ((_transports.contains(TransportType.car) && _carType == 'own') ||
-                    _transports.contains(TransportType.other)) ...[
-                  const SizedBox(height: 10),
-                  _FormInputShell(
-                    icon: Icons.local_parking,
-                    child: TextField(
-                      controller: _parkingCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: '駐車料金（円）',
-                        border: InputBorder.none,
-                        hintStyle: TextStyle(
-                            color: FieldTokens.textFaint, fontSize: 12),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      style: const TextStyle(
-                          color: FieldTokens.textBody, fontSize: 13),
-                      onChanged: (_) => _saveDraft(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // 駐車場写真（複数・横スクロール帯）
-                  PhotoStripField(
-                    label: '駐車場写真（看板・領収書）',
-                    paths: _parkingPhotoPaths,
-                    onChanged: (v) => setState(() => _parkingPhotoPaths = v),
-                  ),
-                ],
-                    ],
-                  ),
+                  transportMemoController: _transportMemoCtrl,
+                  carType: _carType,
+                  onCarTypeOwn: () {
+                    setState(() => _carType = 'own');
+                    _saveLastTransport();
+                  },
+                  onCarTypeCarpool: () {
+                    setState(() {
+                      _carType = 'carpool';
+                      _parkingCtrl.clear();
+                      _parkingPhotoPaths = [];
+                    });
+                    _saveLastTransport();
+                    // E-3: 相乗り選択時に自社同僚を取得（氏名サジェスト用）。
+                    _ensureColleaguesLoaded();
+                  },
+                  routeTransport: _transport,
+                  routeComparisons: _routeComparisons,
+                  loadingRoutes: _loadingRoutes,
+                  routeFailed: _routeFailed,
+                  routeFromCache: _routeFromCache,
+                  onRouteRetry: _calculateRoutes,
+                  carpoolCompanyController: _carpoolCompanyCtrl,
+                  // 会社名の候補は、相乗りの欄が出る時にだけ計算する（今までと同じ）。
+                  carpoolCompanyCandidatesOf: () => _carpoolCompanyResults
+                      .map((c) => (c['company_name'] as String? ?? '').trim())
+                      .where((s) => s.isNotEmpty)
+                      .toList(),
+                  onCarpoolCompanyChanged: _onCarpoolCompanyChanged,
+                  carpoolNameController: _carpoolNameCtrl,
+                  // E-3: 氏名の候補は _carpoolNameCandidates() が、会社名が空 or 自社名一致の時だけ自社の同僚を返す。
+                  carpoolNameCandidatesOf: _carpoolNameCandidates,
+                  onCarpoolNameChanged: (_) => _saveDraft(),
+                  parkingFeeController: _parkingCtrl,
+                  // ★駐車料金の欄と写真は、車(社用車・自家用車)と「その他」で同じ持ち物を使う。
+                  //   下書き保存(_saveDraft)・復元(_restoreDraft)・送信の経路は今までどおり。
+                  onParkingFeeChanged: (_) => _saveDraft(),
+                  parkingPhotoPaths: _parkingPhotoPaths,
+                  onParkingPhotosChanged: (v) => setState(() => _parkingPhotoPaths = v),
                 ),
                 const SizedBox(height: 18),
                 ],
@@ -2649,33 +2477,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 // ═══════ ステップ3 =「作業」セクション ═══════
                 if (_reportStep == 3) ...[
                 // ═══ ③ 今日の作業 ═══（任意入力＝必須バッジなし）
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const _SectionHeader('作業'),
-                    _FormCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // ⑤ 作業内容テキスト（音声入力）
-                          _WorkContentSection(
-                            controller: _workCtrl,
-                            showMediaButtons: true,
-                            isListening: _isListening,
-                            onMicTap: _startVoice,
-                          ),
-                          const SizedBox(height: 14),
-                          // 作業写真（複数・横スクロール帯）
-                          PhotoStripField(
-                            label: '写真',
-                            note: '※なくても報告できます',
-                            paths: _workPhotoPaths,
-                            onChanged: (v) => setState(() => _workPhotoPaths = v),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                ReportStepWork(
+                  workController: _workCtrl,
+                  isListening: _isListening,
+                  onMicTap: _startVoice,
+                  workPhotoPaths: _workPhotoPaths,
+                  onWorkPhotosChanged: (v) => setState(() => _workPhotoPaths = v),
                 ),
                 ],
                 // ⑥ 残業入力は撤去（提出後の残業報告導線=OvertimeDialogに一本化）
@@ -2685,56 +2492,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         ),
 
         // 送信導線（画面最下部に固定・スクロール外）。
-        // スライド送信は廃止し「内容を確かめる」→確認画面→「送る」の2段タップへ。
+        // スライド送信は廃止し「内容を確認する」→確認画面→「報告を送信」の2段タップへ
+        //   （ボタンの字は今の字＝2026-10-08・便F8b-1 で直した。元は「内容を確かめる」「送る」）。
         Container(
           color: FieldTokens.bgBase,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ステップ1: 「次へ」だけ（ブロックなし＝バリデーションは足さない）
-              if (_reportStep == 1)
-                _OutlineActionButton(
-                  label: '次へ',
-                  onTap: () async => _goStep(2),
-                ),
-              // ステップ2: 「戻る」＋「次へ」
-              if (_reportStep == 2)
-                Row(
-                  children: [
-                    Expanded(child: _StepBackButton(onTap: () => _goStep(1))),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: _OutlineActionButton(
-                        label: '次へ',
-                        onTap: () async => _goStep(3),
-                      ),
-                    ),
-                  ],
-                ),
-              // ステップ3: 「戻る」＋既存の「内容を確認する」（_onCheckContent 呼出は不変）
-              if (_reportStep == 3) ...[
-                Row(
-                  children: [
-                    Expanded(child: _StepBackButton(onTap: () => _goStep(2))),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: _OutlineActionButton(
-                        label: '内容を確認する',
-                        busy:  _submitting,
-                        onTap: _onCheckContent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 7),
-                const Text('※次の画面で見直してから送信します',
-                    style: TextStyle(
-                        color: FieldTokens.textFaint, fontSize: 11)),
-              ],
-            ],
+          // 段ごとのボタンの並びは ReportStepButtons（lib/widgets/report_form_steps.dart）。
+          //   段を移る・確認の画面へ進む中身は、今までどおりこの画面の _goStep と _onCheckContent。
+          child: ReportStepButtons(
+            step: _reportStep,
+            onGoStep: _goStep,
+            checkBusy: _submitting,
+            onCheck: _onCheckContent,
           ),
         ),
       ],
@@ -2980,7 +2749,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
                   fontSize: 17,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
-          const _FieldLabel('実休憩'),
+          const ReportFieldLabel('実休憩'),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -3022,12 +2791,12 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
                     TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
           ),
           const SizedBox(height: 16),
-          const _FieldLabel('理由（必須）'),
+          const ReportFieldLabel('理由（必須）'),
           const SizedBox(height: 8),
-          _FormInputShell(
+          ReportFormInputShell(
             icon: Icons.edit_note,
             child: TextField(
-              // _FormInputShell は height:46 固定なので1行のまま使う
+              // ReportFormInputShell は height:46 固定なので1行のまま使う
               controller: _reasonCtrl,
               onChanged: (_) {
                 if (_error != null) setState(() => _error = null);
@@ -3057,7 +2826,7 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
             ]),
           ],
           const SizedBox(height: 20),
-          _OutlineActionButton(
+          ReportOutlineActionButton(
             label: '申告する',
             busy:  _submitting,
             onTap: _submit,
@@ -3079,433 +2848,12 @@ class HomeScreen extends StatelessWidget {
       JsMainShell(isForeman: false, restoreWorkStatus: restoreWorkStatus);
 }
 
-// ─────────────────────────────────────────────
-// 日報フォームv2 の共通部品（このフォーム専用・他画面は不触）
-// ─────────────────────────────────────────────
-
-/// セクション見出し。
-/// ※ 旧 alert 引数（琥珀の「必須」バッジ）は作業内容の必須化撤回に伴い削除した。
-///   現場カード側の「必須」バッジは _SiteSelectField が自前で持っている。
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title);
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 8, left: 2),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(title,
-              style: const TextStyle(
-                  color: FieldTokens.textSupport,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold)),
-        ),
-      );
-}
-
-/// カード内の小ラベル（「どこから」「なにで」）
-class _FieldLabel extends StatelessWidget {
-  const _FieldLabel(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Align(
-        alignment: Alignment.centerLeft,
-        child: Text(text,
-            style:
-                const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
-      );
-}
-
-/// 枠線なし・背景の明度差だけで立てるカード
-class _FormCard extends StatelessWidget {
-  const _FormCard({required this.child});
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: FieldTokens.surfaceCard,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: child,
-      );
-}
-
-/// カード内の入力欄の外装（アイコン+高さ44の帯）
-class _FormInputShell extends StatelessWidget {
-  const _FormInputShell({required this.icon, required this.child});
-  final IconData icon;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => Container(
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: FieldTokens.bgBase,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: FieldTokens.outline),
-        ),
-        child: Row(children: [
-          Icon(icon, color: FieldTokens.textSupport, size: 16),
-          const SizedBox(width: 10),
-          Expanded(child: child),
-        ]),
-      );
-}
-
-/// 主要アクション。塗りつぶさない＝暗い面 + オフホワイト文字 + シルバー1px枠。
-class _OutlineActionButton extends StatelessWidget {
-  const _OutlineActionButton({
-    required this.label,
-    required this.onTap,
-    this.busy = false,
-  });
-  final String label;
-  final Future<void> Function() onTap;
-  final bool busy;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: busy ? null : () => onTap(),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: FieldTokens.surfaceCard,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: FieldTokens.textSupport),
-            ),
-            child: Center(
-              child: busy
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: FieldTokens.textSupport))
-                  : Text(label,
-                      style: const TextStyle(
-                          color: FieldTokens.textBody,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ),
-      );
-}
-
-// ─────────────────────────────────────────────
-// ステップインジケータ（現場 → 移動 → 作業 → 確認）
-//   ・数字が主役: 1〜4 の番号を大きく置き、ラベルはその下の小さい文字にする
-//   ・色は意味だけ: 現在ステップ = FieldTokens.brand(#D9C08A) /
-//     それ以外 = FieldTokens.textSupport(= FieldTokens.textSupport #7B7567・補助色)
-//   ・カード・枠・塗り・線は一切持たない。区切りは Expanded による余白のみ
-//   ・「確認」(4) は別画面 _ConfirmSendScreen。フォーム内で current=4 にはならない。
-// ─────────────────────────────────────────────
-class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({required this.current});
-
-  /// 1=現場 / 2=移動 / 3=作業 / 4=確認
-  final int current;
-
-  static const List<String> _labels = ['現場', '移動', '作業', '確認'];
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: List.generate(_labels.length, (i) {
-          final n = i + 1;
-          final isCurrent = n == current;
-          final c = isCurrent ? FieldTokens.brand : FieldTokens.textSupport;
-          return Expanded(
-            child: Column(
-              children: [
-                Text('$n',
-                    style: TextStyle(
-                        color: c,
-                        fontSize: 20,
-                        fontWeight:
-                            isCurrent ? FontWeight.bold : FontWeight.normal)),
-                const SizedBox(height: 2),
-                Text(_labels[i],
-                    style: TextStyle(
-                        color: c,
-                        fontSize: 12,
-                        fontWeight:
-                            isCurrent ? FontWeight.bold : FontWeight.normal)),
-              ],
-            ),
-          );
-        }),
-      );
-}
-
-/// ステップの「戻る」＝二次ボタン。暗枠1px（outline=#2E333A）＋補助色の文字。
-/// 主ボタン(_OutlineActionButton)と高さ56を揃え、面は塗らない＝序列を枠と色だけで示す。
-class _StepBackButton extends StatelessWidget {
-  const _StepBackButton({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: FieldTokens.outline),
-            ),
-            child: const Center(
-              child: Text('戻る',
-                  style: TextStyle(
-                      color: FieldTokens.textSupport,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ),
-      );
-}
-
-// ─────────────────────────────────────────────
-// 送信前スナップショット（確認画面の表示材料と差異検知キー）
-// ─────────────────────────────────────────────
-class _ReportSnapshot {
-  const _ReportSnapshot({
-    required this.dateLabel,
-    required this.shiftLabel,
-    required this.siteId,
-    required this.siteName,
-    required this.originLabel,
-    required this.transportKey,
-    required this.transportLabel,
-    required this.routeRows,
-    required this.parkingFeeRaw,
-    required this.carpoolCompany,
-    required this.carpoolName,
-    required this.workContent,
-    required this.workPhotoCount,
-    required this.parkingPhotoCount,
-  });
-
-  final String  dateLabel;
-  final String  shiftLabel;
-  final String? siteId;
-  final String  siteName;
-  final String  originLabel;
-  final String  transportKey;    // 差異検知用（順序非依存に正規化済み）
-  final String  transportLabel;
-  /// 作業2: 手段ごとの内訳。旧 distanceLabel / routeCostLabel（各1個のString）は
-  /// 先頭1件しか持てず、複数選択時に2件目以降が消えていたため置き換えた。
-  final List<({String label, String? dist, String? cost})> routeRows;
-  final String  parkingFeeRaw;   // 入力そのまま（空文字=未入力）
-  final String  carpoolCompany;  // 作業4: 相乗り会社名（空文字=相乗りでない/未入力）
-  final String  carpoolName;     // 作業4: 相乗り氏名（空文字=相乗りでない/未入力）
-  final String  workContent;
-  final int     workPhotoCount;
-  final int     parkingPhotoCount;
-
-  String get parkingFeeLabel =>
-      parkingFeeRaw.isEmpty ? '—' : '¥$parkingFeeRaw';
-
-  /// ルート金額の差異検知キー。旧 routeCostLabel（単一文字列）の代替。
-  /// 手段名で昇順ソートしてから畳むため、選択順が違っても同じ値になる
-  /// （transportKey と同じ「順序非依存」の性質を保つ）。
-  String get routeCostKey =>
-      (routeRows.map((r) => '${r.label}:${r.cost ?? ''}').toList()..sort())
-          .join(',');
-
-  /// 差異検知は4項目に限定: 現場ID・移動手段・作業内容・金額（ルート金額+駐車料金）。
-  /// 相乗り相手のラベル。会社名・氏名のどちらか一方でもあれば「会社名　氏名」。
-  /// 両方空なら空文字（＝相乗りを選んでいない or 未入力）。
-  String get carpoolLabel =>
-      [carpoolCompany, carpoolName].where((s) => s.isNotEmpty).join('　');
-
-  // 作業4: 差異検知に相乗り2項目を追加（金額・移動に加えて相乗りの変更も検知する）。
-  String get diffKey => [
-        siteId ?? '',
-        transportKey,
-        workContent,
-        routeCostKey,
-        parkingFeeRaw,
-        carpoolCompany,
-        carpoolName,
-      ].join('');
-}
-
-// ─────────────────────────────────────────────
-// 確認画面（2段タップの2段目）
-// ─────────────────────────────────────────────
-class _ConfirmSendScreen extends StatefulWidget {
-  const _ConfirmSendScreen({
-    required this.initial,
-    required this.currentOf,
-    required this.onSend,
-    required this.isDone,
-  });
-
-  /// 「内容を確かめる」を押した時点の静止画
-  final _ReportSnapshot initial;
-  /// 現在stateから作り直すための取得口（送信直前の差異検知に使う）
-  final _ReportSnapshot Function() currentOf;
-  /// 実送信。従来どおり現在stateを読む _submit をそのまま呼ぶ
-  final Future<void> Function() onSend;
-  /// 送信が成立したか（_todayReportDone）。成立時のみ画面を閉じる
-  final bool Function() isDone;
-
-  @override
-  State<_ConfirmSendScreen> createState() => _ConfirmSendScreenState();
-}
-
-class _ConfirmSendScreenState extends State<_ConfirmSendScreen> {
-  late _ReportSnapshot _snap = widget.initial;
-  bool _sending = false;
-
-  Future<void> _handleSend() async {
-    if (_sending) return;
-    // 値ズレ対策: 表示中の静止画と現在stateがズレていたら送らず、静止画を更新して見せ直す。
-    final now = widget.currentOf();
-    if (now.diffKey != _snap.diffKey) {
-      setState(() => _snap = now);
-      showJsSnackbar(context, '内容が変わりました。もう一度ご確認ください',
-          isWarning: true);
-      return;
-    }
-    setState(() => _sending = true);
-    try {
-      await widget.onSend();
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-    if (!mounted) return;
-    // _submit が途中で中断した場合（移動手段未選択・駐車写真ダイアログで戻る等）は
-    // _todayReportDone が立たない＝閉じずにこの画面へ留まる。
-    if (widget.isDone()) Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FieldTokens.bgBase,
-      appBar: AppBar(
-        backgroundColor: FieldTokens.bgBase,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: FieldTokens.textSupport),
-        title: const Text('確認',
-            style: TextStyle(
-                color: FieldTokens.textBody, fontSize: 16)),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text('この内容で送ります',
-                        style: TextStyle(
-                            color: FieldTokens.textBody,
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 18),
-                    _FormCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _row('日付', '${_snap.dateLabel}・${_snap.shiftLabel}'),
-                          _row('現場', _snap.siteName),
-                          _row('移動',
-                              '${_snap.originLabel}から ${_snap.transportLabel}'),
-                          _row('距離・時間',
-                              _snap.routeRows.isEmpty
-                                  ? '—'
-                                  : _snap.routeRows
-                                      .map((r) =>
-                                          '${r.label}　${r.dist ?? '—'}　${r.cost ?? '—'}')
-                                      .join('\n'),
-                              multiline: true),
-                          _row('交通費（駐車料金）', _snap.parkingFeeLabel),
-                          // 作業4: 相乗りを選んでいる時だけ行を出す（未選択・未入力なら行ごと省く）
-                          if (_snap.carpoolLabel.isNotEmpty)
-                            _row('相乗り', _snap.carpoolLabel),
-                          _row('作業内容', _snap.workContent, multiline: true),
-                          _row('写真',
-                              '作業 ${_snap.workPhotoCount}枚 / 駐車 ${_snap.parkingPhotoCount}枚',
-                              last: true),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _OutlineActionButton(
-                      label: '報告を送信', busy: _sending, onTap: _handleSend),
-                  const SizedBox(height: 10),
-                  GestureDetector(
-                    onTap: _sending ? null : () => Navigator.pop(context),
-                    behavior: HitTestBehavior.opaque,
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 10),
-                      child: Text('戻って直す',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: FieldTokens.textSupport, fontSize: 14)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _row(String label, String value,
-      {bool multiline = false, bool last = false}) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                  color: FieldTokens.textSupport, fontSize: 11)),
-          const SizedBox(height: 3),
-          Text(value.isEmpty ? '—' : value,
-              maxLines: multiline ? null : 2,
-              overflow: multiline ? null : TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: FieldTokens.textBody,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-}
-
 class ForemanHomeScreen extends StatelessWidget {
   const ForemanHomeScreen({super.key});
   @override
   Widget build(BuildContext context) => const JsMainShell(isForeman: true);
 }
 
-// ─────────────────────────────────────────────
-// BottomTabItem
-// ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
 // 日報フォームの push 先ページ（器のみ）
 //   builder は _JsMainShellState._buildHomeTabContent。フォームの中身は一切持たない。
@@ -3527,6 +2875,10 @@ class _ReportFormPageState extends State<_ReportFormPage> {
   Widget build(BuildContext context) => widget.builder();
 }
 
+// ─────────────────────────────────────────────
+// BottomTabItem
+//   （この見出しは、日報フォームの器の説明の上に離れて置かれていた＝2026-10-08・便F8b-1 で、指す部品の上へ動かした）
+// ─────────────────────────────────────────────
 class _BottomTabItem extends StatelessWidget {
   const _BottomTabItem({
     required this.icon,
@@ -3600,278 +2952,6 @@ class _BottomTabItem extends StatelessWidget {
       ),
     ),
   );
-}
-
-// ─────────────────────────────────────────────
-// ①' 作業現場 選択欄（GPS住所の直下・金枠強調・選択必須バッジ）
-// ─────────────────────────────────────────────
-class _SiteSelectField extends StatelessWidget {
-  const _SiteSelectField({
-    required this.siteName,
-    required this.onTap,
-  });
-  /// null = 「対象なし」。裁定A+引き継ぎにより常にデフォルトが入っている状態なので、
-  /// これは「未選択」ではなく「対象なしという選択」を意味する。
-  /// ★琥珀の「必須」バッジは撤去した（止める場面が無いのに必須と書くのは嘘の記号）。
-  final String? siteName;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isNone = siteName == null;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: FieldTokens.surfaceCard,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.place,
-                color: isNone ? FieldTokens.textSupport : FieldTokens.textBody,
-                size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                isNone ? '該当現場なし' : siteName!,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isNone
-                      ? FieldTokens.textSupport
-                      : FieldTokens.textBody,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text('変更',
-                style: TextStyle(
-                    color: FieldTokens.textSupport,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// 作業現場 選択ボトムシート（getSites サルベージ・「対象なし」最上段固定）
-class _SitePickerSheet extends StatefulWidget {
-  const _SitePickerSheet(
-      {required this.selectedSiteId, required this.onSelected});
-  final String? selectedSiteId;
-  final void Function(String? id, String? name) onSelected;
-  @override
-  State<_SitePickerSheet> createState() => _SitePickerSheetState();
-}
-
-class _SitePickerSheetState extends State<_SitePickerSheet> {
-  final SiteService _siteService = SiteService();
-  List<dynamic> _sites = [];
-  bool _loading = true;
-  String? _error;
-
-  // 現場名の部分一致フィルタ（ローカルのみ・APIは叩かない）。「対象なし」は常に先頭固定＝未選択の道を塞がない。
-  final TextEditingController _searchCtrl = TextEditingController();
-  String _query = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  // 検索候補（登録現場名・重複除去・非空）。取得済み _sites から生成（新規API無し）。
-  List<String> get _candidates {
-    final seen = <String>{};
-    final out = <String>[];
-    for (final s in _sites) {
-      final n = ((s as Map)['site_name'] as String? ?? '').trim();
-      if (n.isNotEmpty && seen.add(n)) out.add(n);
-    }
-    return out;
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    final result = await _siteService.getSites();
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      if (result.ok) {
-        _sites = result.data ?? const [];
-      } else {
-        _error = result.errorMessage ?? '現場一覧を取得できませんでした';
-      }
-    });
-  }
-
-  void _choose(String? id, String? name) {
-    widget.onSelected(id, name);
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.7,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            const Text('作業現場を選択',
-                style: TextStyle(
-                    color: FieldTokens.accent,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Divider(color: FieldTokens.outline, height: 1),
-            // 上段=スクロール（「対象なし」＋現場リスト）。高さ不足時はここが逃げる。
-            Flexible(child: _buildBody()),
-            // 下段=固定: 検索欄（最下段）＋候補チップ（直上）。キーボード追従（viewInsets）。
-            // 既存の絞り込みは _buildBody の .where が担当（onChanged で _query 更新）。
-            Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: SearchSuggestField(
-                  controller: _searchCtrl,
-                  candidates: _candidates,
-                  hintText: '現場名で検索',
-                  onChanged: (v) => setState(() => _query = v),
-                  onSelected: (v) => setState(() => _query = v),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
-        child: Center(child: CircularProgressIndicator(color: FieldTokens.accent)),
-      );
-    }
-    // 「対象なし」は最上段固定（エラー時でも必ず選べる）
-    final noneTile = _tile(
-      id: null,
-      title: '該当現場なし',
-      subtitle: '該当現場がない・現場未登録',
-      selected: widget.selectedSiteId == null,
-    );
-    if (_error != null) {
-      return ListView(
-        shrinkWrap: true,
-        children: [
-          noneTile,
-          const Divider(color: FieldTokens.outline, height: 1),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Text(_error!,
-                    textAlign: TextAlign.center,
-                    style:
-                        const TextStyle(color: FieldTokens.statusError, fontSize: 13)),
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  onPressed: _load,
-                  icon: const Icon(Icons.refresh, color: FieldTokens.accent),
-                  label: const Text('再試行',
-                      style: TextStyle(color: FieldTokens.accent)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-    }
-    // 現場名の部分一致でローカルフィルタ（登録現場の並びは getSites の順を維持）。
-    final q = _query.trim().toLowerCase();
-    final shown = q.isEmpty
-        ? _sites
-        : _sites.where((s) =>
-            ((s as Map)['site_name'] as String? ?? '').toLowerCase().contains(q)).toList();
-    // 検索0件でも「対象なし」は必ず残す（未選択の道を塞がない＝袋小路禁止）。
-    if (shown.isEmpty && q.isNotEmpty) {
-      return ListView(
-        shrinkWrap: true,
-        children: [
-          noneTile,
-          const Divider(color: FieldTokens.outline, height: 1),
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text('該当する現場がありません',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
-          ),
-        ],
-      );
-    }
-    return ListView.separated(
-      shrinkWrap: true,
-      itemCount: shown.length + 1,
-      separatorBuilder: (_, __) =>
-          const Divider(color: FieldTokens.outline, height: 1),
-      itemBuilder: (context, i) {
-        if (i == 0) return noneTile;
-        final site = shown[i - 1] as Map<String, dynamic>;
-        final id = site['site_id'] as String?;
-        final name = site['site_name'] as String? ?? '(名称未設定)';
-        final addr = site['address'] as String?;
-        return _tile(
-          id: id,
-          title: name,
-          subtitle: (addr != null && addr.isNotEmpty) ? addr : null,
-          selected: widget.selectedSiteId == id,
-        );
-      },
-    );
-  }
-
-  Widget _tile({
-    required String? id,
-    required String title,
-    String? subtitle,
-    required bool selected,
-  }) {
-    return ListTile(
-      title: Text(title,
-          style: TextStyle(
-            color: id == null ? FieldTokens.textFaint : FieldTokens.textBody,
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-          )),
-      subtitle: subtitle != null
-          ? Text(subtitle,
-              style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12))
-          : null,
-      trailing:
-          selected ? const Icon(Icons.check, color: FieldTokens.accent) : null,
-      onTap: () => _choose(id, id == null ? null : title),
-    );
-  }
 }
 
 // 提出時刻を JST「MM/DD HH:mm」へ整形（端末TZ=Asia/Tokyo前提・punch_screen.dart と同型の手動整形）
@@ -4641,649 +3721,6 @@ class _HealthCheckBanner extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─────────────────────────────────────────────
-// ③.5 起点選択（自宅 / 会社）
-// ─────────────────────────────────────────────
-class _OriginSelector extends StatelessWidget {
-  const _OriginSelector({required this.selected, required this.onChanged});
-  final String selected;
-  final ValueChanged<String> onChanged;
-
-  // v2: 「どこから」チップ。onChanged の中身は呼び出し側のまま（await _calculateRoutes() 維持）。
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: ['home', 'office'].map((type) {
-        final label = type == 'home' ? '自宅' : '会社';
-        final sel = selected == type;
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: GestureDetector(
-            onTap: () => onChanged(type),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
-              decoration: BoxDecoration(
-                color: sel ? FieldTokens.outlineStrong : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                    color: sel
-                        ? FieldTokens.textSupport
-                        : FieldTokens.outline),
-              ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: sel
-                      ? FieldTokens.textBody
-                      : FieldTokens.textSupport,
-                  fontSize: 13,
-                  fontWeight: sel ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// ④ 移動手段 4択横並び
-// ─────────────────────────────────────────────
-class _TransportRow extends StatelessWidget {
-  const _TransportRow({
-    required this.selectedSet,
-    required this.onTap,
-    required this.onDoubleTap,
-  });
-  final Set<TransportType> selectedSet;
-  final Function(TransportType) onTap;
-  final Function(TransportType) onDoubleTap;
-
-  static const _options = [
-    TransportType.car,
-    TransportType.train,
-    TransportType.bus,
-    TransportType.other,
-  ];
-
-  // v2: 「なにで」チップ。onTap/onDoubleTap の中身（排他判定・駐車情報リセット・
-  // _saveWorkStatus('moving')・_saveDraft）は呼び出し側にそのまま残してある。
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 58,
-      child: Row(
-        children: _options.map((t) {
-          final sel = selectedSet.contains(t);
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => onTap(t),
-              onDoubleTap: () => onDoubleTap(t),
-              child: Container(
-                margin: EdgeInsets.only(right: t != _options.last ? 8 : 0),
-                decoration: BoxDecoration(
-                  color: sel ? FieldTokens.outlineStrong : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                      color: sel
-                          ? FieldTokens.textSupport
-                          : FieldTokens.outline),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(t.icon,
-                        size: 18,
-                        color: sel
-                            ? FieldTokens.textBody
-                            : FieldTokens.textSupport),
-                    const SizedBox(height: 3),
-                    Text(t.label,
-                        style: TextStyle(
-                            color: sel
-                                ? FieldTokens.textBody
-                                : FieldTokens.textSupport,
-                            fontSize: 11,
-                            fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// ⑤ 作業内容セクション（マイク / カメラ / テキスト）
-// ─────────────────────────────────────────────
-class _WorkContentSection extends StatelessWidget {
-  const _WorkContentSection({
-    required this.controller,
-    this.showMediaButtons = false,
-    this.isListening = false,
-    this.onMicTap,
-  });
-  final TextEditingController controller;
-  final bool showMediaButtons;
-  final bool isListening;
-  final VoidCallback? onMicTap;
-
-  // v2: カード内に置かれる前提。外枠は _FormCard 側が持つので自前の枠は張らない。
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text('作業内容',
-                  style: TextStyle(
-                      color: FieldTokens.textSupport, fontSize: 12)),
-            ),
-            if (showMediaButtons)
-              _SmallMediaButton(
-                icon: isListening ? Icons.mic : Icons.mic_none,
-                active: isListening,
-                onTap: onMicTap,
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: FieldTokens.bgBase,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: FieldTokens.outline),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 64),
-            child: TextField(
-              controller: controller,
-              maxLines: null,
-              textAlignVertical: TextAlignVertical.top,
-              decoration: const InputDecoration(
-                hintText: '1階の配線、コンセント10箇所　など',
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
-                hintStyle:
-                    TextStyle(color: FieldTokens.textFaint, fontSize: 13),
-              ),
-              style: const TextStyle(
-                  color: FieldTokens.textBody, fontSize: 14),
-            ),
-          ),
-        ),
-        // 作業5: 未記入でも報告できることを明示（必須と誤解させない）
-        const Padding(
-          padding: EdgeInsets.only(top: 6),
-          child: Text('※未記入のままでも報告できます',
-              style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// メディアボタン（マイク / カメラ）
-// ─────────────────────────────────────────────
-class _SmallMediaButton extends StatelessWidget {
-  const _SmallMediaButton({
-    required this.icon,
-    required this.active,
-    this.onTap,
-  });
-  final IconData icon;
-  final bool active;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 40,
-      height: 32,
-      decoration: BoxDecoration(
-        color: active ? FieldTokens.outlineStrong : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: active ? FieldTokens.textSupport : FieldTokens.outline),
-      ),
-      child: Icon(icon,
-          size: 16,
-          color: active ? FieldTokens.textBody : FieldTokens.textSupport),
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────
-// 音声入力ダイアログ
-// ─────────────────────────────────────────────
-class _VoiceInputDialog extends StatefulWidget {
-  const _VoiceInputDialog(
-      {required this.manager,
-      required this.onConfirm,
-      required this.onCancel});
-  final SpeechManager manager;
-  final void Function(String) onConfirm;
-  final VoidCallback onCancel;
-
-  @override
-  State<_VoiceInputDialog> createState() => _VoiceInputDialogState();
-}
-
-class _VoiceInputDialogState extends State<_VoiceInputDialog>
-    with SingleTickerProviderStateMixin {
-  String _text          = '';
-  bool   _listening     = false;
-  bool   _manualStop    = false;
-  String _committed     = '';
-  int    _emptyRestarts = 0;
-  late AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-    _start();
-  }
-
-  @override
-  void dispose() { _pulse.dispose(); super.dispose(); }
-
-  void _onResult(String text, bool isFinal) {
-    if (!mounted) return;
-    if (text.trim().isNotEmpty) _emptyRestarts = 0;
-    setState(() => _text = '$_committed$text'.trim());
-    if (isFinal && text.trim().isNotEmpty) _committed = '$_committed$text ';
-  }
-
-  void _onSessionDone() {
-    if (!mounted || !_listening || _manualStop) return;
-    if (++_emptyRestarts > 6) { setState(() => _listening = false); return; }
-    Future.delayed(const Duration(milliseconds: 150), () {
-      if (mounted && _listening && !_manualStop) {
-        widget.manager.startListening(
-          onResult: _onResult,
-          onSessionDone: _onSessionDone,
-          onPermanentError: _onPermanentError,
-        );
-      }
-    });
-  }
-
-  void _onPermanentError(String errorMsg) async {
-    if (!mounted) return;
-    setState(() => _listening = false);
-    final ok = await widget.manager.hasPermission;
-    if (!ok && mounted) {
-      showJsSnackbar(context, 'マイクの権限がありません。設定から許可してください', isError: true);
-    }
-  }
-
-  void _start() {
-    _listening     = true;
-    _manualStop    = false;
-    _emptyRestarts = 0;
-    _committed     = _text.isEmpty ? '' : '${_text.trim()} ';
-    setState(() {});
-    widget.manager.startListening(
-      onResult: _onResult,
-      onSessionDone: _onSessionDone,
-      onPermanentError: _onPermanentError,
-    );
-  }
-
-  void _stop() {
-    _manualStop = true;
-    _listening  = false;
-    widget.manager.stop();
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    backgroundColor: FieldTokens.surfaceCard,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    title: const Text('🎤 作業内容 音声入力',
-        style: TextStyle(color: FieldTokens.accent)),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedBuilder(
-          animation: _pulse,
-          builder: (_, __) => Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _listening
-                  ? FieldTokens.accent.withValues(
-                      alpha: 0.15 + _pulse.value * 0.15)
-                  : FieldTokens.surfaceCard,
-            ),
-            child: Icon(
-                _listening ? Icons.mic : Icons.mic_off,
-                color:
-                    _listening ? FieldTokens.accent : FieldTokens.textSupport,
-                size: 32),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(_listening ? '聞いています...' : '認識完了',
-            style: TextStyle(
-                color: _listening ? FieldTokens.accent : FieldTokens.textSupport,
-                fontSize: 12)),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-              color: FieldTokens.surfaceCard,
-              borderRadius: BorderRadius.circular(8)),
-          constraints: const BoxConstraints(minHeight: 56),
-          child: Text(
-            _text.isEmpty
-                ? '例：1階電気配線工事 コンセント10箇所設置'
-                : _text,
-            style: TextStyle(
-                color: _text.isEmpty
-                    ? FieldTokens.textSupport
-                    : FieldTokens.textBody,
-                fontSize: _text.isEmpty ? 12 : 14,
-                height: 1.5),
-          ),
-        ),
-      ],
-    ),
-    actions: [
-      TextButton(
-          onPressed: widget.onCancel,
-          child: const Text('キャンセル',
-              style: TextStyle(color: FieldTokens.textSupport))),
-      if (_listening)
-        TextButton(
-            onPressed: _stop,
-            child: const Text('停止',
-                style: TextStyle(color: FieldTokens.accent))),
-      if (!_listening && _text.isNotEmpty)
-        ElevatedButton(
-            onPressed: () => widget.onConfirm(_text),
-            child: const Text('確定')),
-    ],
-  );
-}
-
-// ─────────────────────────────────────────────
-// ルート情報バー
-// ─────────────────────────────────────────────
-class _RouteInfoBar extends StatelessWidget {
-  const _RouteInfoBar({
-    required this.transport,
-    required this.comparisons,
-    required this.loading,
-    this.failed = false,
-    this.fromCache = false,
-    this.onRetry,
-  });
-  final TransportType transport;
-  final Map<String, dynamic> comparisons;
-  final bool loading;
-  /// 取得に失敗した（timeout/network/http/空）。タップで再取得できる状態。
-  final bool failed;
-  /// いま出している値が鍵付きキャッシュ由来。「前回の目安」と明示する。
-  final bool fromCache;
-  final Future<void> Function()? onRetry;
-
-  // 枠だけの共通シェル
-  Widget _shell({required Widget child, Color? borderColor}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: FieldTokens.bgBase,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor ?? FieldTokens.outline),
-        ),
-        child: child,
-      );
-
-  // 取得できなかった（タップで再取得）
-  Widget _failedBar() => Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onRetry == null ? null : () => onRetry!(),
-          borderRadius: BorderRadius.circular(10),
-          child: _shell(
-            borderColor: FieldTokens.statusWarning,
-            child: const Row(children: [
-              Icon(Icons.refresh, color: FieldTokens.statusWarning, size: 14),
-              SizedBox(width: 6),
-              Expanded(
-                child: Text('移動情報を取得できません（タップで再取得）',
-                    style: TextStyle(
-                        color: FieldTokens.statusWarning, fontSize: 12)),
-              ),
-            ]),
-          ),
-        ),
-      );
-
-  // 取得はできたが、いま選んでいる手段のキーが無い
-  Widget _noDataForMode() => _shell(
-        child: const Row(children: [
-          Icon(Icons.route, color: FieldTokens.textFaint, size: 14),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text('この手段の目安は取得できません',
-                style: TextStyle(color: FieldTokens.textFaint, fontSize: 12)),
-          ),
-        ]),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: FieldTokens.bgBase,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: FieldTokens.outline),
-        ),
-        child: const Row(children: [
-          SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: FieldTokens.textSupport)),
-          SizedBox(width: 8),
-          Text('ルート計算中...',
-              style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
-        ]),
-      );
-    }
-
-    // 取得そのものが失敗している（＝再取得すれば直る可能性がある）
-    if (failed) return _failedBar();
-
-    // 表示文言の組み立ては _routeParts に一本化（確認画面のスナップショットと同じ値になる）
-    final parts = _routeParts(transport, comparisons);
-    final timeStr = parts.time;
-    final costStr = parts.cost;
-    final distStr = parts.dist;
-
-    // 取得は成功したが、いま選んでいる手段のキーがレスポンスに無い
-    // （BE は walking/bicycling を返さない＝徒歩・自転車は構造的にここへ来る）
-    if (timeStr == null) return _noDataForMode();
-
-    return _shell(
-      borderColor: fromCache ? FieldTokens.textFaint : null,
-      child: Row(children: [
-        const Icon(Icons.route, color: FieldTokens.textSupport, size: 14),
-        const SizedBox(width: 6),
-        if (distStr != null) ...[
-          Flexible(
-            child: Text(distStr,
-                style: const TextStyle(
-                    color: FieldTokens.textBody, fontSize: 12),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1),
-          ),
-          const SizedBox(width: 8),
-        ],
-        const Icon(Icons.access_time, color: FieldTokens.textSupport, size: 13),
-        const SizedBox(width: 3),
-        Text(timeStr,
-            style: const TextStyle(
-                color: FieldTokens.textBody,
-                fontSize: 12,
-                fontWeight: FontWeight.bold)),
-        if (costStr != null) ...[
-          const SizedBox(width: 10),
-          Text(costStr,
-              style: const TextStyle(
-                  color: FieldTokens.textBody,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold)),
-        ],
-        // キャッシュ由来なら小さく明示する（再計算が終われば消える＝嘘をつかない）
-        if (fromCache) ...[
-          const SizedBox(width: 8),
-          const Text('前回の目安',
-              style: TextStyle(color: FieldTokens.textFaint, fontSize: 10)),
-        ],
-      ]),
-    );
-  }
-}
-
-// ルート表示文言の組み立て。元 _RouteInfoBar.build 内の分岐をそのまま関数へ出したもの。
-// 判定順・条件・書式は1文字も変えていない（確認画面と表示バーで同じ値を使うため共有化）。
-({String? time, String? cost, String? dist}) _routeParts(
-    TransportType transport, Map<String, dynamic> comparisons) {
-  String? timeStr, costStr, distStr;
-
-  if (comparisons.isNotEmpty) {
-    if (transport == TransportType.car || transport == TransportType.other) {
-      final c = comparisons['car'] as CarRoute?;
-      if (c != null) {
-        timeStr = '${c.time}分';
-        distStr = c.distanceText;
-        if (c.gasCost > 0) costStr = '⛽¥${c.gasCost}';
-      }
-    } else if (transport == TransportType.train ||
-        transport == TransportType.bus) {
-      final t = comparisons['transit'] as TransitRoute?;
-      if (t != null) {
-        timeStr = '${t.time}分';
-        costStr = '💴¥${t.fareIc}';
-        if (t.depStation.isNotEmpty && t.arrStation.isNotEmpty) {
-          distStr = '${t.depStation}→${t.arrStation}';
-        }
-      }
-    } else if (transport == TransportType.bike) {
-      final b = comparisons['bicycling'] as SimpleRoute?;
-      if (b != null) { timeStr = b.duration; distStr = b.distance; }
-    } else {
-      final w = comparisons['walking'] as SimpleRoute?;
-      if (w != null) { timeStr = w.duration; distStr = w.distance; }
-    }
-  }
-
-  return (time: timeStr, cost: costStr, dist: distStr);
-}
-
-// 作業2: 選択中の【全手段】の内訳を作る。
-// 判定順・条件・書式を二重に書かないため、要素ごとに上の _routeParts をそのまま呼ぶ。
-//
-// ★train と bus の重複回避（理由）:
-//   _routeParts は train も bus も同じ comparisons['transit'] を参照する。
-//   BE の POST /routes/compare が返すのは route_transit 1本だけで、バス単独の経路検索は
-//   存在しない（js-office-api/routes/routes-calc.js は transit と car の2種のみ算出）。
-//   したがって train と bus を同時に選ぶと「同一ルートの運賃・所要時間」が2行に
-//   重複計上されてしまう。transit を参照する手段は最初の1件だけを残す。
-//
-// 値が取れない手段も行は残す（dist/cost が null＝表示側で '—'）。
-// 「選んだのに行が消える」ほうが利用者には不可解なため。
-List<({String label, String? dist, String? cost})> _routeBreakdown(
-    Set<TransportType> transports, Map<String, dynamic> comparisons) {
-  final rows = <({String label, String? dist, String? cost})>[];
-  var transitUsed = false;
-  for (final t in transports) {
-    final usesTransit = t == TransportType.train || t == TransportType.bus;
-    if (usesTransit) {
-      if (transitUsed) continue;   // 同一 transit ルートの二重計上を防ぐ
-      transitUsed = true;
-    }
-    final p = _routeParts(t, comparisons);
-    rows.add((label: t.label, dist: p.dist, cost: p.cost));
-  }
-  return rows;
-}
-
-// 作業1: ルート検索結果(_routeComparisons)から【提出時点の経費スナップショット】を作る。
-//   ★これは提出した瞬間の値の写し。後から燃費単価や運賃が変わっても、この報告の
-//     過去の値は書き換わらない（BE側で reports 列に保存＝不変のスナップショット）。
-//   ・4列（distance_km / fuel_cost / fare / toll）は選択中の全手段の【合計】。
-//   ・breakdown は手段ごとの【内訳】配列（例: [{mode:'car',distance_km:12.3,...},{mode:'train',fare:620}]）。
-//   ・train と bus は同一 transit ルートのため 1件だけ計上（_routeBreakdown の transitUsed と同判定）。
-//     car と other も同一 comparisons['car'] を指すため 1件だけ計上する
-//     （同一ルートの toll/fuel を二重計上しない＝例の内訳が car 1件なのと整合）。
-//   ・値が取れない場合は null（0 で埋めない）。合計はどの手段も寄与しなければ null のまま。
-({double? distanceKm, int? fuelCost, int? fare, int? toll,
-  List<Map<String, dynamic>> breakdown}) _expenseSnapshot(
-    Set<TransportType> transports, Map<String, dynamic> comparisons) {
-  final breakdown = <Map<String, dynamic>>[];
-  double? distanceKm;
-  int? fuelCost, fare, toll;
-  var transitUsed = false, carUsed = false;
-
-  for (final t in transports) {
-    final usesTransit = t == TransportType.train || t == TransportType.bus;
-    final usesCar     = t == TransportType.car   || t == TransportType.other;
-    if (usesTransit) {
-      if (transitUsed) continue;   // 同一 transit ルートの二重計上を防ぐ
-      transitUsed = true;
-      final tr = comparisons['transit'] as TransitRoute?;
-      final f = tr?.fareIc;
-      breakdown.add({'mode': t.name, if (f != null) 'fare': f});
-      if (f != null) fare = (fare ?? 0) + f;
-    } else if (usesCar) {
-      if (carUsed) continue;       // car と other は同一 comparisons['car']＝1件のみ
-      carUsed = true;
-      final c = comparisons['car'] as CarRoute?;
-      final km   = c != null ? c.distanceM / 1000.0 : null;
-      final fuel = c?.gasCost;
-      final tl   = c?.tollNormal;
-      breakdown.add({
-        'mode': t.name,
-        if (km != null)   'distance_km': km,
-        if (fuel != null) 'fuel_cost': fuel,
-        if (tl != null)   'toll': tl,
-      });
-      if (km != null)   distanceKm = (distanceKm ?? 0) + km;
-      if (fuel != null) fuelCost   = (fuelCost ?? 0) + fuel;
-      if (tl != null)   toll       = (toll ?? 0) + tl;
-    }
-    // bike/walk は経費列を持たないため内訳・合計とも計上しない
-  }
-  return (distanceKm: distanceKm, fuelCost: fuelCost, fare: fare,
-          toll: toll, breakdown: breakdown);
 }
 
 // ─────────────────────────────────────────────
@@ -7008,7 +5445,7 @@ double _calendarSheetRoom({
 /// ★minKeepRows(1) より下には減らさない。1週を残してもなお中身が入りきらない
 ///   場合は、箱の中をスクロールさせて対応する。
 ///   CalendarDaySheet は Flexible の中が SingleChildScrollView で、写し元の
-///   _SitePickerSheet も Flexible の中が ListView（_buildBody の戻り値）＝
+///   ReportSitePickerSheet も Flexible の中が ListView（_buildBody の戻り値）＝
 ///   同じ形であることを実物で確かめてある。
 /// ★readableHeight は「これ未満だと開いても読めない」と見なす高さ。
 ///   返す値の下限ではなく、残す週を1つ減らすかどうかの引き金にだけ使う。
@@ -8188,12 +6625,12 @@ class CalendarDayPanel extends StatelessWidget {
 
 /// 日付を押したときに下からせり上がる箱の中身。
 ///
-/// ★器は showModalBottomSheet（ボス裁定 Q17=2）。写し元はこのファイルの
-///   _showSitePicker / _SitePickerSheet。
+/// ★器は showModalBottomSheet（ボス裁定 Q17=2）。写し元は、このファイルの _showSitePicker と、
+///   ReportSitePickerSheet（2026-10-08・便F8b-1 で lib/widgets/report_form_parts.dart へ動かした）。
 ///   ・showModalBottomSheet の引数の並び（backgroundColor / isScrollControlled /
 ///     角丸16 の shape）は _showSitePicker をそのまま写した。
 ///   ・中身の骨（SafeArea → ConstrainedBox(maxHeight) → Column(mainAxisSize.min)
-///     → Flexible(スクロール)）は _SitePickerSheet の build をそのまま写した。
+///     → Flexible(スクロール)）は ReportSitePickerSheet の build をそのまま写した。
 ///     この骨は (e)「中身の量ぶんだけ伸ばす」を素で満たす。
 ///     このリポにもう一つある DraggableScrollableSheet（JsReportDetailSheet /
 ///     revision_inbox_screen / share_send_screen）は initialChildSize で
