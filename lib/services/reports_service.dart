@@ -465,6 +465,32 @@ class ReportsService {
   }
 
   // ============================================================
+  // 事務の許可が出た過去の1日ぶんの日報の提出（POST /reports/permitted・便F8b-2）
+  //   ★サーバの口は js-office-api の routes/reports.js の router.post('/permitted')。
+  //     必須は worker_name だけ。許可の id は confirmation_id（字）。通れば 201。
+  //     断りは本文の error に文・code に符号（409 PERMIT_NOT_FOUND・ALREADY_SUBMITTED・
+  //     PERMIT_DEADLINE_PASSED ほか）。符号の意味で分けるのは呼び手（規約6）。
+  //   ★body は呼び手が組んだ物をそのまま送る（ここでは組み替えない）。
+  //     口が断る鍵（report_date・clock_in_time・clock_out_time・gps_address・gps_lat・gps_lon）を
+  //     除くのも呼び手（lib/main.dart の permittedReportBodyFor）。
+  //   ★30秒＝写真の base64 を載せるため（updateReport と同じ。createReport の10秒にしない）。
+  // ============================================================
+
+  Future<ApiResult<Map<String, dynamic>>> submitPermittedReport(
+      Map<String, dynamic> body) async {
+    final headers = await _auth.getAuthHeaders();
+    return runApiCall<Map<String, dynamic>>(
+      'ReportsService.submitPermittedReport',
+      () => http.post(
+        Uri.parse('$kApiBaseUrl/reports/permitted'),
+        headers: headers,
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30)),
+      apiJsonMap,
+    );
+  }
+
+  // ============================================================
   // 差戻し対応の保存・再提出（PUT /reports/:id → POST /reports/:id/resubmit）
   //   移設元: revision_edit_screen.dart の _submit（updateReport → resubmitReport・どちらも30秒）
   //   ★30秒は移設元のまま。写真の base64 を載せるため他より長い（丸めない）。

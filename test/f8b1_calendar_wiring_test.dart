@@ -16,6 +16,8 @@
 //   走らせる日に寄る検査になる）。説明文だけの行（空白の後が // で始まる行）は除いて見る。
 //   期待の字はこの本の中に直に書く。改行と字下げの違いでは落ちない（空白を1つに畳んで比べる）。
 // ★検査の名前の頭の番号（(g-1)）は、ログの赤い行からどの検査かを機械で読むための物。
+// →再（2026-10-11・便F8b-2）: 入口へ渡す物に8つ目 onReportsChanged: _loadReports（許可の日報を出せたか閉じて戻った後の
+//   日報の読み直し）が加わった。(g-1) の期待の字の最後を、その形に替えた（検査の数は同じ）。
 // ============================================================
 
 import 'dart:io';
@@ -49,7 +51,7 @@ String _flat(String s) => s.replaceAll(RegExp(r'\s+'), ' ');
 
 void main() {
   group('(g) カレンダーの箱を開く所の繋ぎ', () {
-    test('(g-1) 入口を組む関数へ、その日・今日（日本の今日）・自分の日報の数・自分の休み・同意待ち・日付の字・口を渡している',
+    test('(g-1) 入口を組む関数へ、その日・今日（日本の今日）・自分の日報の数・自分の休み・同意待ち・日付の字・口・許可の日報の後の読み直しを渡している',
         () {
       final src = _codeOnly('lib/screens/home_screen.dart');
       // 入口を組む関数を呼ぶ所は1つだけ（二者比較：0 でも 2 でもない）。
@@ -66,8 +68,9 @@ void main() {
           'hasOwnRest: info.restPortion != null, '
           'substitutePendingRest: info.substitutePendingRest, '
           'dateText: info.dateText, '
-          'service: ReportsService(), )',
-          reason: '入口を組む関数へ渡す物（7つ）が違う');
+          'service: ReportsService(), '
+          'onReportsChanged: _loadReports, )',
+          reason: '入口を組む関数へ渡す物（7つと、許可の日報の後の読み直し）が違う');
       // 箱へ渡す日の中身（info）と、入口へ渡す値の元（info）は、押した日（ds）の同じ物。
       expect(
           _flat(src).contains('Future<void> _openDaySheet(String ds) async { '

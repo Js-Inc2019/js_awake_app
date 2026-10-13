@@ -40,6 +40,7 @@ import '../widgets/day_request_entry.dart'
         DayRequestTrouble,
         readDayRequestEligibility;
 import 'day_request_screen.dart' show DayRequestKind, DayRequestScreen;
+import 'late_report_screen.dart' show LateReportResult, LateReportScreen;
 import 'substitute_list_screen.dart' show jpMonthDay;
 
 /// 曜日の文字の並び（0=日..6=土）。★このファイルが唯一の持ち主。
@@ -391,6 +392,10 @@ Widget pastDayTextButton(String label, {required VoidCallback? onPressed}) =>
 //   ・出せない日 … 見出しの無い枠に BE の文だけ＋「代休で取る」「日を選び直す」
 //     （押せるのに断られるボタン「出勤の修正を依頼する」は置かない）
 //   ・聞けなかった時 … 理由＋「もう一度」（3つのボタンは出さない＝戻る矢印で登録の画面へ戻れる）
+//   ・許可が出ている日（→再（2026-10-11・便F8b-2）で足した4つ目・見本 G2）… 見出しの無い accent の線の枠に
+//     BE の文＋「この日の日報を出す」「代休で取る」「日を選び直す」＋※。「この日の日報を出す」は
+//     後から出す日報の画面（lib/screens/late_report_screen.dart）を開き、出せたら reported を返して閉じる
+//     （呼び手は候補を引き直す）。直しても通らない理由で閉じて戻ったら、尋ねる口に聞き直す。
 // ★答えを返すだけ。代休の受け皿（showCompOffFlow）を呼ぶのは登録の画面の1か所のまま
 //   （事前の取り決めの画面の「代休で取る」と同じ1つの道へ寄せる）。
 // ════════════════════════════════════════════════════════════
@@ -399,6 +404,8 @@ Widget pastDayTextButton(String label, {required VoidCallback? onPressed}) =>
 enum WorkDateNoReportChoice {
   /// 出勤の修正依頼を送れた … 呼び手は候補を引き直す。
   requested,
+  /// 許可の日報を出せた（便F8b-2）… 呼び手は候補を引き直す。
+  reported,
   /// 「代休で取る」… 呼び手が代休の流れを開く。
   compOff,
   /// 「日を選び直す」… 呼び手が選んだ日を消して登録の画面に残る。
@@ -485,6 +492,32 @@ class _WorkDateNoReportScreenState extends State<WorkDateNoReportScreen> {
     }
   }
 
+  // 「この日の日報を出す」（便F8b-2）→ 後から出す日報の画面。
+  //   出せた（submitted）… この画面も閉じて reported を返す（登録の画面が候補を引き直す）。
+  //   直しても通らない理由で閉じた（closed）… 尋ねる口に聞き直す（その日の答えが変わっている）。
+  //   出さずに戻った（null）… 何もしない。
+  Future<void> _openLateReport() async {
+    final answer = _answer?.answer;
+    final confirmType = answer?['confirm_type'];
+    final result = await Navigator.of(context).push<LateReportResult>(
+        MaterialPageRoute(
+      builder: (_) => LateReportScreen(
+        workDate: widget.workDate,
+        dateText: widget.dateText,
+        confirmationId: '${answer?['request_id']}',
+        confirmType: confirmType is String ? confirmType : null,
+        permitUntil: '${answer?['permit_until']}',
+        reportsService: widget.service,
+      ),
+    ));
+    if (!mounted) return;
+    if (result == LateReportResult.submitted) {
+      Navigator.of(context).pop(WorkDateNoReportChoice.reported);
+    } else if (result == LateReportResult.closed) {
+      await _ask();
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: FieldTokens.bgBase,
@@ -513,6 +546,28 @@ class _WorkDateNoReportScreenState extends State<WorkDateNoReportScreen> {
           text: a?.text ?? '依頼できるかを確かめられませんでした',
           onRetry: _ask,
         ),
+      ];
+    }
+    if (a.kind == DayRequestEligibilityKind.permitted) {
+      // ★見本 G2: 見出しの無い accent の線の枠に BE の文 → 「この日の日報を出す」→ 今の2つ → ※。
+      return [
+        PastDayFrame(
+          lineColor: FieldTokens.accent,
+          body: Text(a.text ?? '', style: kPastDayFrameBody),
+        ),
+        const SizedBox(height: 16),
+        pastDayOutlinedButton('この日の日報を出す', onPressed: _openLateReport),
+        const SizedBox(height: 8),
+        pastDayOutlinedButton('代休で取る',
+            onPressed: () =>
+                Navigator.of(context).pop(WorkDateNoReportChoice.compOff)),
+        const SizedBox(height: 8),
+        pastDayTextButton('日を選び直す',
+            onPressed: () =>
+                Navigator.of(context).pop(WorkDateNoReportChoice.pickAnother)),
+        const SizedBox(height: 8),
+        const Text('※日報を出して、事務が承認すると、この日を出勤する日に選べるようになります。',
+            style: kPastDayNote),
       ];
     }
     final allowed = a.kind == DayRequestEligibilityKind.allowed;

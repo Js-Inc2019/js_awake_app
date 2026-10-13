@@ -7,7 +7,9 @@
 //   確認の画面の差の見張りの区切りの1字を目に見える書き方にした）。説明文は、事実と違った所を直した（直した所に、日付と便の名を書いてある）。
 // ★誰が使うか：lib/screens/home_screen.dart（今日の日報のフォーム・確認の画面・休憩の短縮のシート）と、
 //   lib/widgets/report_form_steps.dart（段の部品）。次の便で、過去の日の日報を出す画面も使う。
-// ★この本には、動かした物のほかにコードを足さない（新しく書く物は lib/widgets/report_form_steps.dart へ）。
+// ★元: この本には、動かした物のほかにコードを足さない（新しく書く物は lib/widgets/report_form_steps.dart へ）。
+//   →再（2026-10-11・便F8b-2）＝確認の画面だけ、後から出す日報のための任意の引数を足した（既定は今のまま）。
+//   ほかの部品は動かした時のまま。新しく書く物は、今も lib/widgets/report_form_steps.dart へ。
 
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
@@ -284,6 +286,13 @@ class ReportConfirmScreen extends StatefulWidget {
     required this.currentOf,
     required this.onSend,
     required this.isDone,
+    this.heading = 'この内容で送ります',
+    this.sendLabel = '報告を送信',
+    this.band,
+    this.noticeOf,
+    this.notes = const <String>[],
+    this.closeOnlyOf,
+    this.onClose,
   });
 
   /// 「内容を確認する」を押した時点の静止画（元の説明は前の字「内容を確かめる」＝2026-10-08・便F8b-1 で直した）
@@ -294,6 +303,29 @@ class ReportConfirmScreen extends StatefulWidget {
   final Future<void> Function() onSend;
   /// 送信が成立したか（_todayReportDone）。成立時のみ画面を閉じる
   final bool Function() isDone;
+
+  // ── 便F8b-2 で足した任意の引数（後から出す日報だけが渡す・既定は今の字と今の姿）──────
+  //   既定の時（帯・知らせ・※が無い時）は、その物も空きも置かない＝今日の日報の確認の画面は1ピクセルも変わらない。
+
+  /// 見出しの字。
+  final String heading;
+
+  /// 送るボタンの字。
+  final String sendLabel;
+
+  /// スクロールの列の一番上に置く物（下に 12 の空き）。null なら置かない。
+  final Widget? band;
+
+  /// 送った後の知らせ。作り直すたびに読む（送った後に画面を作り直すので、その時の答えが出る）。
+  ///   null でない物が返れば、帯の下（帯が無ければ一番上）に置く（下に 12 の空き）。
+  final Widget? Function()? noticeOf;
+
+  /// カードの下に1つ1行で並べる※（空なら置かない）。
+  final List<String> notes;
+
+  /// true を返す間、下のボタンは「閉じる」の1つだけ（押すと onClose）。作り直すたびに読む。
+  final bool Function()? closeOnlyOf;
+  final VoidCallback? onClose;
 
   @override
   State<ReportConfirmScreen> createState() => _ReportConfirmScreenState();
@@ -329,6 +361,10 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ★知らせと「閉じる」だけの形は、作り直すたびに読む（送った後の答えで変わる）。
+    final band = widget.band;
+    final notice = widget.noticeOf?.call();
+    final closeOnly = widget.closeOnlyOf?.call() ?? false;
     return Scaffold(
       backgroundColor: FieldTokens.bgBase,
       appBar: AppBar(
@@ -348,8 +384,16 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('この内容で送ります',
-                        style: TextStyle(
+                    if (band != null) ...[
+                      band,
+                      const SizedBox(height: 12),
+                    ],
+                    if (notice != null) ...[
+                      notice,
+                      const SizedBox(height: 12),
+                    ],
+                    Text(widget.heading,
+                        style: const TextStyle(
                             color: FieldTokens.textBody,
                             fontSize: 19,
                             fontWeight: FontWeight.bold)),
@@ -381,17 +425,35 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
                         ],
                       ),
                     ),
+                    if (widget.notes.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      for (var i = 0; i < widget.notes.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 4),
+                        Text(widget.notes[i],
+                            textAlign: TextAlign.left,
+                            style: const TextStyle(
+                                color: FieldTokens.textSupport,
+                                fontSize: 12,
+                                height: 1.6)),
+                      ],
+                    ],
                   ],
                 ),
               ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Column(
+              child: closeOnly
+                  // ★直しても通らない時は「閉じる」の1つだけ（押した後は呼び手が決める）。
+                  ? ReportOutlineActionButton(
+                      label: '閉じる',
+                      onTap: () async => widget.onClose?.call(),
+                    )
+                  : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   ReportOutlineActionButton(
-                      label: '報告を送信', busy: _sending, onTap: _handleSend),
+                      label: widget.sendLabel, busy: _sending, onTap: _handleSend),
                   const SizedBox(height: 10),
                   GestureDetector(
                     onTap: _sending ? null : () => Navigator.pop(context),

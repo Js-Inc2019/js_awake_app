@@ -203,17 +203,36 @@ class RoutesService {
   /// ★段4: authToken 引数を撤去した。呼び手が prefs から取り出して渡していたが、
   ///   トークンの出所は AuthService 一本にする（画面がトークンを持ち回らない）。
   ///   送るヘッダの中身は統一前と同一（Content-Type + Bearer <auth_token>）。
+  ///
+  /// ★便F8b-2（2026-10-11）: destination を任意にし、siteId（任意）を足した。
+  ///   送る本文は origin と、null でない時だけ destination と site_id（この順）。
+  ///   今の呼び手（home_screen.dart の _calculateRoutes）は destination だけを渡すので、本文は今と1バイトも同じ。
+  ///   ・site_id を渡すと、サーバは現場の座標で計算する。座標の無い現場は destination の住所へ戻る。
+  ///     destination を送らない時は、サーバの geocodeRaw が 'not_found' を返して 200 の routes:{}
+  ///     ＝ここでは RouteFailure.empty（例外にならない）。
+  ///     （Claude が 2026-10-11 に Mac の js-office-api の services/geocode.js で確かめた）
+  ///   ・destination も siteId も null なら、行き先が無い＝通信せずに RouteFailure.empty を返す。
+  ///   ★http.post の呼び出しは1本のまま（本文の Map だけを組み替える＝
+  ///     test/session_lockout_wiring_test.dart が素の http の呼び出しの数を見ている）。
   Future<RouteCompareResult> compareRoutesV2({
     required String origin,
-    required String destination,
+    String? destination,
+    String? siteId,
   }) async {
+    if (destination == null && siteId == null) {
+      return const RouteCompareResult.failed(RouteFailure.empty);
+    }
     final headers = await _auth.getAuthHeaders();
     http.Response response;
     try {
       response = await http.post(
         Uri.parse('$_kApiUrl/routes/compare'),
         headers: headers,
-        body: jsonEncode({'origin': origin, 'destination': destination}),
+        body: jsonEncode({
+          'origin': origin,
+          if (destination != null) 'destination': destination,
+          if (siteId != null) 'site_id': siteId,
+        }),
       ).timeout(kTimeout);
     } on TimeoutException {
       debugPrint('compareRoutesV2: timeout');

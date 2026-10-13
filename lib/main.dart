@@ -412,6 +412,33 @@ Map<String, dynamic> reportBodyFor(WorkerReportItem item) {
   return body;
 }
 
+/// 後から出す日報の口（POST /reports/permitted）が「送らないで」と断る鍵（便F8b-2）。
+///   サーバの名簿は js-office-api の routes/reports.js の report_date の断りと PERMITTED_TIME_PLACE_KEYS
+///   （日付はサーバが許可から決める・時刻と場所はその日に居なかったので送らない）。
+///   ★値が null でも断られる（サーバは鍵が在るかで見る）ので、値を空にせず鍵ごと除く。
+const List<String> kPermittedReportRefusedKeys = [
+  'report_date',
+  'clock_in_time',
+  'clock_out_time',
+  'gps_address',
+  'gps_lat',
+  'gps_lon',
+];
+
+/// 後から出す日報の本文（写真は入れない・便F8b-2）。
+///   reportBodyFor(item) の答えから kPermittedReportRefusedKeys の鍵を除き、confirmation_id を足す。
+///   ほかの鍵と値は reportBodyFor のまま（同じ組み方を2通りに書かない）。
+///   通信しない・端末の保存を読まない。
+Map<String, dynamic> permittedReportBodyFor(WorkerReportItem item,
+    {required String confirmationId}) {
+  final body = reportBodyFor(item);
+  for (final k in kPermittedReportRefusedKeys) {
+    body.remove(k);
+  }
+  body['confirmation_id'] = confirmationId;
+  return body;
+}
+
 /// 日報に付ける写真の並び（作業が先・駐車場が後）。読めなかった写真は飛ばす（今の動きのまま）。
 Future<List<Map<String, dynamic>>> reportPhotosFor(WorkerReportItem item) async {
   // photos:[{photo_type,base64}] 配列で送信（site→作業 / parking→駐車・生base64＝BE互換）
@@ -832,9 +859,11 @@ void showJsSnackbar(BuildContext context, String msg,
     ));
 }
 
+// ★title が null の時は題を置かない（便F8b-2・後から出す日報の途中で戻る時の窓＝見本 H1 の※が本文だけを書いている）。
+//   null でない時の姿は今のまま（今の呼び手は全部字を渡している）。
 Future<bool> showConfirmDialog(
   BuildContext context, {
-  required String title,
+  required String? title,
   required String message,
   String confirmText = '確認',
   String cancelText  = 'キャンセル',
@@ -845,8 +874,10 @@ Future<bool> showConfirmDialog(
     builder: (ctx) => AlertDialog(
       backgroundColor: FieldTokens.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(title,
-          style: TextStyle(color: isDanger ? FieldTokens.statusError : FieldTokens.accent)),
+      title: title == null
+          ? null
+          : Text(title,
+              style: TextStyle(color: isDanger ? FieldTokens.statusError : FieldTokens.accent)),
       content: Text(message,
           style: const TextStyle(color: FieldTokens.textBody, height: 1.6)),
       actions: [

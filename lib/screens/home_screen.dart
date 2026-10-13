@@ -940,15 +940,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   Future<void> _restoreLastTransport() async {
     final prefs = await SharedPreferences.getInstance();
+    // 読み方（空の字・知らない名前・none の扱い）は reportTransportsFromSaved（lib/widgets/report_form_steps.dart）
+    //   ＝後から出す日報の画面も同じ1本を呼ぶ（便F8b-2 で字のまま出した）。
     final raw = prefs.getString(_kLastTransports);
-    if (raw == null) return;                             // 初回＝未選択のまま
-    final restored = raw.isEmpty
-        ? <TransportType>{}
-        : raw.split(',')
-            .map((n) => TransportType.values
-                .firstWhere((t) => t.name == n, orElse: () => TransportType.none))
-            .where((t) => t != TransportType.none)
-            .toSet();
+    final restored = reportTransportsFromSaved(raw);
+    if (restored == null) return;                        // 初回＝未選択のまま
     final car = prefs.getString(_kLastCarType);
     if (!mounted) return;
     setState(() {
@@ -1032,48 +1028,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     setState(() => _carpoolColleagues = names.data ?? const []);
   }
 
-  // BE utils/normalize_company.js の normalizeCompanyName と同等を目指した簡易正規化。
-  //   ★NFKC は省略: dart:core に Unicode 正規化が無く、pubspec にも正規化パッケージが
-  //     無いため。実装は「小文字化＋半角/全角スペース除去＋法人格の前後除去」。
-  //     （NFKC 省略により全角括弧の法人格『（株）』等は除去しきれない場合がある）。
-  static const List<String> _kLegalForms = [
-    '株式会社', '有限会社', '合同会社', '合資会社', '合名会社',
-    '(株)', '(有)', '(同)', '(資)', '(名)',
-    '一般社団法人', '一般財団法人',
-    '公益社団法人', '公益財団法人',
-    '特定非営利活動法人', 'npo法人',
-  ];
-
-  String _normalizeCompanyLocal(String name) {
-    if (name.isEmpty) return '';
-    var s = name.toLowerCase().replaceAll(RegExp(r'[\s　]+'), '');
-    var changed = true;
-    while (changed) {
-      changed = false;
-      for (final form in _kLegalForms) {
-        if (s.startsWith(form)) {
-          s = s.substring(form.length);
-          changed = true;
-        }
-        if (s.endsWith(form)) {
-          s = s.substring(0, s.length - form.length);
-          changed = true;
-        }
-      }
-    }
-    return s.replaceAll(RegExp(r'[\s　]+'), '');
-  }
-
   // E-3 発動条件: 相乗り氏名サジェストの候補を返す。
   //   (a) 相乗り会社名欄が空（＝自社の相乗りと解釈）、または
   //   (b) 相乗り会社名欄が自社名と正規化一致 → 自社の同僚氏名を候補に出す。
   //   それ以外（他社名が入っている）→ 候補は空（他社の同僚は出さない＝掟）。
-  List<String> _carpoolNameCandidates() {
-    final company = _carpoolCompanyCtrl.text.trim();
-    final isOwn = company.isEmpty ||
-        _normalizeCompanyLocal(company) == _normalizeCompanyLocal(_companyName);
-    return isOwn ? _carpoolColleagues : const <String>[];
-  }
+  //   ★式と会社名の簡易正規化（法人格の表）は carpoolNameCandidatesFor・normalizeCompanyNameLocal
+  //     （lib/widgets/report_form_steps.dart）へ字のまま出した（便F8b-2・後から出す日報の画面も同じ1本を呼ぶ）。
+  List<String> _carpoolNameCandidates() => carpoolNameCandidatesFor(
+        companyText: _carpoolCompanyCtrl.text,
+        ownCompanyName: _companyName,
+        colleagues: _carpoolColleagues,
+      );
 
   // 最後のタブを復元（モード別キー）
   Future<void> _restoreTabIndex() async {
@@ -1566,46 +1531,16 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     await _calculateRoutes();
   }
 
-  Future<void> _startVoice() async {
-    final ready = await _speechMgr.ensureReady();
-    if (!ready) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
-              style: TextStyle(color: FieldTokens.textBody, fontSize: 18, fontWeight: FontWeight.bold)),
-          backgroundColor: FieldTokens.statusError,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '設定を開く',
-            textColor: FieldTokens.textBody,
-            onPressed: () => launchUrl(Uri.parse('app-settings:')),
-          ),
-        ));
-      return;
-    }
-    setState(() => _isListening = true);
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => ReportVoiceInputDialog(
+  // 音声入力の中身（権限の知らせ・音声の窓・字のつなぎ方）は runReportVoiceInput（lib/widgets/report_form_steps.dart）
+  //   へ字のまま出した（便F8b-2・後から出す日報の画面も同じ1本を呼ぶ）。聞いている間の印だけをこの画面が持つ。
+  Future<void> _startVoice() => runReportVoiceInput(
+        context,
         manager: _speechMgr,
-        onConfirm: (text) {
-          Navigator.pop(ctx);
-          setState(() {
-            _workCtrl.text =
-                _workCtrl.text.isEmpty ? text : '${_workCtrl.text}。$text';
-          });
+        controller: _workCtrl,
+        onListening: (v) {
+          if (mounted) setState(() => _isListening = v);
         },
-        onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); },
-      ),
-    );
-    setState(() => _isListening = false);
-  }
+      );
 
   Future<void> _submit() async {
     if (_submitting) return;
@@ -1620,24 +1555,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
     setState(() => _submitting = true);
     if ((_transports.contains(TransportType.car) || _transports.contains(TransportType.other)) && _parkingPhotoPaths.isEmpty) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('写真が添付されていません'),
-          content: const Text('駐車場の看板または領収書の写真が添付されていません。このまま送信しますか？\n\n※戻ると、駐車場写真の帯にある「＋撮影」から撮影できます。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('戻って撮影する'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('このまま送信'),
-            ),
-          ],
-        ),
-      );
-      if (proceed != true) {
+      // 窓（題・本文・2つのボタン）は confirmNoParkingPhoto（lib/widgets/report_form_steps.dart）へ字のまま出した（便F8b-2）。
+      final proceed = await confirmNoParkingPhoto(context);
+      if (!proceed) {
         if (mounted) setState(() => _submitting = false);
         _jumpToStep(2);   // 駐車場写真の帯は移動ステップにある。条件式・ダイアログ本文は不変
         return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
@@ -1826,30 +1746,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
     // ルート計算の途中なら、金額が入らないことを伝えて選ばせる（ブロックはしない＝袋小路禁止）
     if (_loadingRoutes) {
-      final goAnyway = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: FieldTokens.surfaceCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          title: const Text('移動の目安を計算中です',
-              style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-          content: const Text('このまま送ると金額が入りません。',
-              style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('待つ',
-                  style: TextStyle(color: FieldTokens.textBody)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('このまま送る',
-                  style: TextStyle(color: FieldTokens.statusWarning)),
-            ),
-          ],
-        ),
-      );
-      if (goAnyway != true) return;   // 「待つ」＝フォームに留まる（計算は継続中）
+      // 窓（題・本文・「待つ」「このまま送る」）は confirmProceedWhileRouting（lib/widgets/report_form_steps.dart）へ字のまま出した（便F8b-2）。
+      final goAnyway = await confirmProceedWhileRouting(context);
+      if (!goAnyway) return;   // 「待つ」＝フォームに留まる（計算は継続中）
       if (!mounted) return;
     }
 
@@ -2455,10 +2354,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   onRouteRetry: _calculateRoutes,
                   carpoolCompanyController: _carpoolCompanyCtrl,
                   // 会社名の候補は、相乗りの欄が出る時にだけ計算する（今までと同じ）。
-                  carpoolCompanyCandidatesOf: () => _carpoolCompanyResults
-                      .map((c) => (c['company_name'] as String? ?? '').trim())
-                      .where((s) => s.isNotEmpty)
-                      .toList(),
+                  //   組み方は carpoolCompanyNamesOf（lib/widgets/report_form_steps.dart・便F8b-2 で字のまま出した）。
+                  carpoolCompanyCandidatesOf: () => carpoolCompanyNamesOf(_carpoolCompanyResults),
                   onCarpoolCompanyChanged: _onCarpoolCompanyChanged,
                   carpoolNameController: _carpoolNameCtrl,
                   // E-3: 氏名の候補は _carpoolNameCandidates() が、会社名が空 or 自社名一致の時だけ自社の同僚を返す。
@@ -6196,6 +6093,7 @@ class _CalendarTabState extends State<CalendarTab> {
       //   ★出す日かは dayRequestEntryOrNull の中の決まり1本。今日はここで1回だけ読む（JST）。
       //   ★自分の日報の数は、その日の生きている日報のうち、行の user_id が自分の id と同じ物
       //     （ownLiveReportCount）。info.liveCount は職長などの役では会社ぶんの数なので渡さない。
+      //   ★許可の日報（便F8b-2）を出せたか閉じて戻ったら _loadReports（変わるのは日報だけ＝日報を確認から戻った時と同じ）。
       dayRequestEntry: dayRequestEntryOrNull(
         workDate: ds,
         today: jstDateString(DateTime.now()),
@@ -6204,6 +6102,7 @@ class _CalendarTabState extends State<CalendarTab> {
         substitutePendingRest: info.substitutePendingRest,
         dateText: info.dateText,
         service: ReportsService(),
+        onReportsChanged: _loadReports,
       ),
       // 振替の日（休む日 または 対の出勤日）の箱にだけ出す入口。null=出さない。
       substituteId: _substituteByDate[ds],

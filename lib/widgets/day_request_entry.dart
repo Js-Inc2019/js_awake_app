@@ -10,6 +10,9 @@
 //   ・ownLiveReportCount … その日の生きている日報のうち、自分の物の数。
 //   ・dayRequestEntryOrNull … 上の条件が真なら入口の部品を、偽なら null を返す（箱を開く所はこれを1回呼ぶだけ）。
 //   ・DayRequestEntry … 箱の中の入口（開いたら1回だけ聞き、答えで出し方を変える）。
+//   →再（2026-10-11・便F8b-2）: 答えの分かれに4つ目「許可が出ている日」（permitted）を足した。
+//     その日は、箱の入口と3択の画面に「この日の日報を出す」を出し、後から出す日報の画面
+//     （lib/screens/late_report_screen.dart の LateReportScreen）を開く。出せるかはサーバに聞いて決める（端末で数えない）。
 //
 // ★端末は「聞くかどうか」だけを決め、出せるかどうかはサーバが決める。
 //   週・締め期間・曜日を端末で数えない（今日より前かだけは、呼び手が渡す今日の字と比べる）。
@@ -23,8 +26,9 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/field_tokens.dart';
 import '../screens/day_request_screen.dart' show DayRequestKind, DayRequestScreen;
+import '../screens/late_report_screen.dart' show LateReportResult, LateReportScreen;
 import '../screens/substitute_past_day_screen.dart'
-    show PastDayFrame, kPastDayFrameBody, kPastDayNote;
+    show PastDayFrame, kPastDayFrameBody, kPastDayNote, pastDayOutlinedButton;
 import '../services/api_result.dart';
 import '../services/reports_service.dart';
 
@@ -38,6 +42,12 @@ enum DayRequestEligibilityKind {
   /// 出せない日（答えが届いて can_declare が false で reason が空でない／
   ///   サーバが符号つきで断った＝400〜499 で errorCode も errorMessage も空でない）。
   denied,
+
+  /// 許可が出ている日（便F8b-2）＝答えが届いて can_declare が false・code が 'ALREADY_PERMITTED'・
+  ///   reason と request_id と permit_until がそろっている。まだ日報を出していない（出した後は REPORT_EXISTS）。
+  ///   text は BE の reason、answer の request_id・confirm_type・permit_until を後から出す日報の画面へ渡す。
+  ///   ★そろっていない時は「聞けなかった時」（unknown）にする（足りない値で画面を開かない）。
+  permitted,
 
   /// 聞けなかった時（それ以外の全部）。★黙って「出せる日」にしない・黙って消さない。
   unknown,
@@ -58,7 +68,9 @@ class DayRequestEligibility {
   final String? text;
 
   /// 尋ねる口の答え（8つのキー）を Map のまま。答えが届かなかった時は null。
-  ///   ★次の便 F8b が request_id・confirm_type・permit_until を読む（この便の画面は読まない）。
+  ///   元: ★次の便 F8b が request_id・confirm_type・permit_until を読む（この便の画面は読まない）。
+  ///   →再（2026-10-11・便F8b-2）: 許可が出ている日に、箱の入口と3択の画面がこの3つを読み、
+  ///   後から出す日報の画面へ渡す。
   final Map<String, dynamic>? answer;
 }
 
@@ -71,6 +83,24 @@ DayRequestEligibility readDayRequestEligibility(
     // ★== true / == false で見る。字や null（答えの形が読めない）を真偽へ丸めない。
     if (canDeclare == true) {
       return DayRequestEligibility(DayRequestEligibilityKind.allowed,
+          answer: data);
+    }
+    // ★許可が出ている日（便F8b-2）。出せない日の判定より先に見る（code が ALREADY_PERMITTED でも
+    //   reason は在る＝先に見ないと出せない日になる）。値がそろわなければ聞けなかった時。
+    if (canDeclare == false && data?['code'] == 'ALREADY_PERMITTED') {
+      final reason = data?['reason'];
+      final requestId = data?['request_id'];
+      final permitUntil = data?['permit_until'];
+      if (reason is String &&
+          reason.isNotEmpty &&
+          requestId != null &&
+          '$requestId'.isNotEmpty &&
+          permitUntil is String &&
+          permitUntil.isNotEmpty) {
+        return DayRequestEligibility(DayRequestEligibilityKind.permitted,
+            text: reason, answer: data);
+      }
+      return DayRequestEligibility(DayRequestEligibilityKind.unknown,
           answer: data);
     }
     if (canDeclare == false) {
@@ -161,6 +191,7 @@ int ownLiveReportCount(
 ///
 /// [dateText] 対象の日の「M月D日（曜）」（祝日の名前は付けない・CalendarDayInfo の日付だけの字）。
 /// [service] 口（検査は差し替えを渡す）。
+/// [onReportsChanged] 後から出す日報の画面から出せた（submitted）か閉じた（closed）時に呼ぶ（便F8b-2）。
 Widget? dayRequestEntryOrNull({
   required String workDate,
   required String today,
@@ -169,6 +200,7 @@ Widget? dayRequestEntryOrNull({
   required bool substitutePendingRest,
   required String dateText,
   required ReportsService service,
+  VoidCallback? onReportsChanged,
 }) {
   final offer = shouldOfferDayRequestEntry(
     workDate: workDate,
@@ -179,7 +211,10 @@ Widget? dayRequestEntryOrNull({
   );
   if (!offer) return null;
   return DayRequestEntry(
-      workDate: workDate, dateText: dateText, service: service);
+      workDate: workDate,
+      dateText: dateText,
+      service: service,
+      onReportsChanged: onReportsChanged);
 }
 
 // ── 箱の中の入口（D1・D3）────────────────────────────────────────
@@ -189,6 +224,8 @@ Widget? dayRequestEntryOrNull({
 ///   ・出せる日 … 「日報漏れを申告する」＋※（押すと先に箱を閉じてから申告の画面へ）
 ///   ・出せない日 … 枠「申告できません」に BE の文（ボタンは出さない）
 ///   ・聞けなかった時 … 理由＋「もう一度」（DayRequestTrouble）
+///   ・許可が出ている日（便F8b-2・見本 G1） … 見出しの無い accent の線の枠に BE の文＋「この日の日報を出す」
+///     （押すと先に箱を閉じてから後から出す日報の画面へ）
 ///   ★どの姿も上に 8 の間（今の箱のボタンと同じ間）。
 class DayRequestEntry extends StatefulWidget {
   const DayRequestEntry({
@@ -196,11 +233,16 @@ class DayRequestEntry extends StatefulWidget {
     required this.workDate,
     required this.dateText,
     required this.service,
+    this.onReportsChanged,
   });
 
   final String workDate;
   final String dateText;
   final ReportsService service;
+
+  /// 後から出す日報の画面から submitted か closed で戻った時に呼ぶ（便F8b-2）。
+  ///   ★どちらも、その日の日報が増えている事がある（closed は、ほかの端末で出していた時も）。
+  final VoidCallback? onReportsChanged;
 
   @override
   State<DayRequestEntry> createState() => _DayRequestEntryState();
@@ -244,6 +286,31 @@ class _DayRequestEntryState extends State<DayRequestEntry> {
     ));
   }
 
+  // 「この日の日報を出す」（便F8b-2）。今の _openDeclare と同じく、先に箱を閉じてから次の画面へ進む。
+  //   ★箱を閉じるとこの部品は消える（widget も読めなくなる）ので、Navigator と知らせの関数と
+  //     画面へ渡す値を、箱を閉じる前に手元へ写しておく。
+  Future<void> _openLateReport() async {
+    final nav = Navigator.of(context);
+    final onReportsChanged = widget.onReportsChanged;
+    final answer = _answer?.answer;
+    final confirmType = answer?['confirm_type'];
+    final screen = LateReportScreen(
+      workDate: widget.workDate,
+      dateText: widget.dateText,
+      confirmationId: '${answer?['request_id']}',
+      confirmType: confirmType is String ? confirmType : null,
+      permitUntil: '${answer?['permit_until']}',
+      reportsService: widget.service,
+    );
+    nav.pop();
+    final result = await nav.push<LateReportResult>(
+        MaterialPageRoute(builder: (_) => screen));
+    if (result == LateReportResult.submitted ||
+        result == LateReportResult.closed) {
+      onReportsChanged?.call();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final a = _answer;
@@ -260,6 +327,20 @@ class _DayRequestEntryState extends State<DayRequestEntry> {
       body = DayRequestTrouble(
         text: a?.text ?? '申告できるかを確かめられませんでした',
         onRetry: _ask,
+      );
+    } else if (a.kind == DayRequestEligibilityKind.permitted) {
+      // ★見本 G1: 見出しの無い accent の線の枠に BE の文 → 8 → 「この日の日報を出す」（幅いっぱい）。※は置かない。
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PastDayFrame(
+            lineColor: FieldTokens.accent,
+            body: Text(a.text ?? '', style: kPastDayFrameBody),
+          ),
+          const SizedBox(height: 8),
+          pastDayOutlinedButton('この日の日報を出す', onPressed: _openLateReport),
+        ],
       );
     } else if (a.kind == DayRequestEligibilityKind.denied) {
       // ★枠は3択の画面と同じ部品・同じ線の色。

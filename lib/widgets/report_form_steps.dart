@@ -6,15 +6,23 @@
 //   便F8b-1（2026-10-08）で、シェルの中に直に書いてあった並びと式を、字のまま（シェルの欄の名前を引数の名前に
 //   替えるだけで）ここへ出した。本の頭の読み込みのほかに足したのは、段をまとめる外の器・押した時の中身と候補を受ける引数・確かめの窓を
 //   包む関数・値の関数の入口と return の行だけ（相乗りの会社名と氏名の、同じ形の2つの式は、1つの関数にした）。字・色・大きさ・空き・出る条件は、1つも変えていない。
-// ★決まり：ここの物は、状態を持たない。時計も、端末の保存も、通信も読まない（渡された値だけで決まる。
+// ★決まり：
+//   元: ここの物は、状態を持たない。時計も、端末の保存も、通信も読まない（渡された値だけで決まる。
 //   confirmAddTransport だけは、確かめの窓を出して、利用者の答えを返す）。
+//   →再（2026-10-11・便F8b-2）: 状態を持たない・時計も端末の保存も通信も読まない、は今もそのまま。
+//   窓を出して利用者の答えを返す関数は3つになった（confirmAddTransport・confirmProceedWhileRouting・
+//   confirmNoParkingPhoto）。音声入力の関数 runReportVoiceInput は、端末のマイクと音声認識の権限を確かめ、
+//   無ければ知らせ（設定を開く）を出し、在れば音声の窓を出して、決めた字を渡された欄へつなぐ。
+//   相乗りの候補の関数3つ（normalizeCompanyNameLocal ほか）と、前回の移動手段の読み方（reportTransportsFromSaved）は、
+//   シェルの式を字のまま出した物（読むのは渡された字だけ）。
 //   押した時の中身（状態を変える・端末へ保存する・目安を取り直す・同僚を読む）は、呼び手の側に書いて渡す。
-// ★なぜ出したか：事務の許可が出た過去の日の日報を出す画面（次の便）が、同じ並びと同じ式を使うため
+// ★なぜ出したか：事務の許可が出た過去の日の日報を出す画面（lib/screens/late_report_screen.dart）が、同じ並びと同じ式を使うため
 //   （同じ決まりを2通りに書かない）。動かした部品は lib/widgets/report_form_parts.dart。
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/theme/field_tokens.dart';
-import '../main.dart' show TransportType, showConfirmDialog;
+import '../main.dart' show TransportType, SpeechManager, showConfirmDialog;
 import 'photo_strip_field.dart';
 import 'report_form_parts.dart';
 import 'search_suggest_field.dart';
@@ -372,6 +380,7 @@ class ReportStepButtons extends StatelessWidget {
     required this.onGoStep,
     required this.checkBusy,
     required this.onCheck,
+    this.checkNote = '※次の画面で見直してから送信します',
   });
 
   /// 今の段（1＝現場／2＝移動／3＝作業）。
@@ -381,6 +390,10 @@ class ReportStepButtons extends StatelessWidget {
   final void Function(int step) onGoStep;
   final bool checkBusy;
   final Future<void> Function() onCheck;
+
+  /// 段3の※の字（便F8b-2 で引数にした・既定は今の字＝今日の日報は変わらない。
+  ///   後から出す日報は「※次の画面で見直してから提出します」）。
+  final String checkNote;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -424,12 +437,82 @@ class ReportStepButtons extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 7),
-            const Text('※次の画面で見直してから送信します',
-                style: TextStyle(
+            Text(checkNote,
+                style: const TextStyle(
                     color: FieldTokens.textFaint, fontSize: 11)),
           ],
         ],
       );
+}
+
+// ─────────────────────────────────────────────
+// 勤務の2択（便F8b-2・後から出す日報の段1＝見本 H2）
+//   今日の日報は勤務を選ばない（今の時刻と打刻で決まる）。後から出す日報だけが使う。
+//   札の形は、移動の段の車の種類の札（社用車・自家用車／相乗り）と同じ色の使い方（選んでいない札は地なし）。
+// ─────────────────────────────────────────────
+class ReportShiftChoice extends StatelessWidget {
+  const ReportShiftChoice({
+    super.key,
+    required this.shiftType,
+    required this.onChanged,
+    this.nightNote,
+  });
+
+  /// 選んでいる勤務（'day'＝日勤／'night'＝夜勤）。
+  final String shiftType;
+  final ValueChanged<String> onChanged;
+
+  /// 夜勤を選んでいる時だけ、札の下に出す※（null なら出さない）。
+  final String? nightNote;
+
+  Widget _chip(String label, String value) {
+    final on = shiftType == value;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onChanged(value),
+      child: Container(
+        height: 46,
+        decoration: BoxDecoration(
+          color: on ? FieldTokens.outlineStrong : null,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: on ? FieldTokens.textSupport : FieldTokens.outline),
+        ),
+        child: Center(
+          child: Text(label,
+              style: TextStyle(
+                color: on ? FieldTokens.textBody : FieldTokens.textSupport,
+                fontSize: 13,
+                fontWeight: on ? FontWeight.bold : FontWeight.normal,
+              )),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = nightNote;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const ReportSectionHeader('勤務'),
+        Row(
+          children: [
+            Expanded(child: _chip('☀ 日勤', 'day')),
+            const SizedBox(width: 8),
+            Expanded(child: _chip('🌙 夜勤', 'night')),
+          ],
+        ),
+        if (shiftType == 'night' && note != null) ...[
+          const SizedBox(height: 6),
+          Text(note,
+              style: const TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
+        ],
+      ],
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -540,3 +623,188 @@ ReportSnapshot reportSnapshotFrom({
     parkingPhotoCount: parkingPhotoCount,
   );
 }
+
+// ─────────────────────────────────────────────
+// 窓を出す関数（便F8b-2・シェルの窓を、字のほかは1つも変えずに出した）
+//   既定の字はシェルの今の字＝今日の日報の窓は変わらない。後から出す日報は「提出」の字を渡す。
+// ─────────────────────────────────────────────
+
+/// 目安の計算中に「内容を確認する」を押した時の窓（元はシェルの _onCheckContent の中の窓）。
+///   返り＝proceedLabel を押した時だけ true（「待つ」・外を押して閉じた時は false）。
+Future<bool> confirmProceedWhileRouting(
+  BuildContext context, {
+  String message = 'このまま送ると金額が入りません。',
+  String proceedLabel = 'このまま送る',
+}) async {
+  final goAnyway = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: FieldTokens.surfaceCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      title: const Text('移動の目安を計算中です',
+          style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
+      content: Text(message,
+          style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('待つ',
+              style: TextStyle(color: FieldTokens.textBody)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(proceedLabel,
+              style: const TextStyle(color: FieldTokens.statusWarning)),
+        ),
+      ],
+    ),
+  );
+  return goAnyway == true;
+}
+
+/// 車かその他を選んでいて駐車場の写真が無い時の窓（元はシェルの _submit の中の窓）。
+///   返り＝proceedLabel を押した時だけ true（「戻って撮影する」・外を押して閉じた時は false）。
+Future<bool> confirmNoParkingPhoto(
+  BuildContext context, {
+  String question = 'このまま送信しますか？',
+  String proceedLabel = 'このまま送信',
+}) async {
+  final proceed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('写真が添付されていません'),
+      content: Text('駐車場の看板または領収書の写真が添付されていません。$question\n\n※戻ると、駐車場写真の帯にある「＋撮影」から撮影できます。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('戻って撮影する'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(proceedLabel),
+        ),
+      ],
+    ),
+  );
+  return proceed == true;
+}
+
+/// 音声入力（元はシェルの _startVoice の中身・字・色・大きさ・秒・道は今のまま）。
+///   端末のマイクと音声認識の権限が無ければ知らせ（設定を開く）を出して終わる。
+///   在れば音声の窓を出し、決めた字を controller の後ろへ「。」でつなぐ（空なら、その字だけ）。
+///   onListening は聞いている間か（窓を出す前に true・閉じた後に false）を受ける。
+///   ★await の後は context.mounted を見る（この関数は State を持たない）。
+Future<void> runReportVoiceInput(
+  BuildContext context, {
+  required SpeechManager manager,
+  required TextEditingController controller,
+  required void Function(bool listening) onListening,
+}) async {
+  final ready = await manager.ensureReady();
+  if (!context.mounted) return;
+  if (!ready) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('マイク/音声認識の権限がありません。設定から許可してください',
+            style: TextStyle(color: FieldTokens.textBody, fontSize: 18, fontWeight: FontWeight.bold)),
+        backgroundColor: FieldTokens.statusError,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '設定を開く',
+          textColor: FieldTokens.textBody,
+          onPressed: () => launchUrl(Uri.parse('app-settings:')),
+        ),
+      ));
+    return;
+  }
+  onListening(true);
+  await showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => ReportVoiceInputDialog(
+      manager: manager,
+      onConfirm: (text) {
+        Navigator.pop(ctx);
+        controller.text =
+            controller.text.isEmpty ? text : '${controller.text}。$text';
+      },
+      onCancel: () { manager.cancel(); Navigator.pop(ctx); },
+    ),
+  );
+  onListening(false);
+}
+
+/// 前回の移動手段（端末に覚えた last_transports の字）を、移動手段の集まりへ戻す（元はシェルの _restoreLastTransport の読み方）。
+///   null（覚えていない）→ null／空の字 → 空の集まり／名前で戻し、知らない名前と none は捨てる。
+///   ★端末の保存は読まない（読んだ字を呼び手が渡す）。
+Set<TransportType>? reportTransportsFromSaved(String? raw) {
+  if (raw == null) return null;
+  return raw.isEmpty
+      ? <TransportType>{}
+      : raw.split(',')
+          .map((n) => TransportType.values
+              .firstWhere((t) => t.name == n, orElse: () => TransportType.none))
+          .where((t) => t != TransportType.none)
+          .toSet();
+}
+
+// ─────────────────────────────────────────────
+// 相乗りの候補（便F8b-2・シェルの式をそのまま出した）
+// ─────────────────────────────────────────────
+
+// BE utils/normalize_company.js の normalizeCompanyName と同等を目指した簡易正規化。
+//   ★NFKC は省略: dart:core に Unicode 正規化が無く、pubspec にも正規化パッケージが
+//     無いため。実装は「小文字化＋半角/全角スペース除去＋法人格の前後除去」。
+//     （NFKC 省略により全角括弧の法人格『（株）』等は除去しきれない場合がある）。
+const List<String> _kLegalForms = [
+  '株式会社', '有限会社', '合同会社', '合資会社', '合名会社',
+  '(株)', '(有)', '(同)', '(資)', '(名)',
+  '一般社団法人', '一般財団法人',
+  '公益社団法人', '公益財団法人',
+  '特定非営利活動法人', 'npo法人',
+];
+
+String normalizeCompanyNameLocal(String name) {
+  if (name.isEmpty) return '';
+  var s = name.toLowerCase().replaceAll(RegExp(r'[\s　]+'), '');
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (final form in _kLegalForms) {
+      if (s.startsWith(form)) {
+        s = s.substring(form.length);
+        changed = true;
+      }
+      if (s.endsWith(form)) {
+        s = s.substring(0, s.length - form.length);
+        changed = true;
+      }
+    }
+  }
+  return s.replaceAll(RegExp(r'[\s　]+'), '');
+}
+
+// E-3 発動条件: 相乗り氏名サジェストの候補を返す。
+//   (a) 相乗り会社名欄が空（＝自社の相乗りと解釈）、または
+//   (b) 相乗り会社名欄が自社名と正規化一致 → 自社の同僚氏名を候補に出す。
+//   それ以外（他社名が入っている）→ 候補は空（他社の同僚は出さない＝掟）。
+List<String> carpoolNameCandidatesFor({
+  required String companyText,
+  required String ownCompanyName,
+  required List<String> colleagues,
+}) {
+  final company = companyText.trim();
+  final isOwn = company.isEmpty ||
+      normalizeCompanyNameLocal(company) == normalizeCompanyNameLocal(ownCompanyName);
+  return isOwn ? colleagues : const <String>[];
+}
+
+/// 会社名の候補：検索の答え（/companies/search）の company_name を、前後の空白を除いて、空でない物だけ。
+List<String> carpoolCompanyNamesOf(List<Map<String, dynamic>> results) => results
+    .map((c) => (c['company_name'] as String? ?? '').trim())
+    .where((s) => s.isNotEmpty)
+    .toList();

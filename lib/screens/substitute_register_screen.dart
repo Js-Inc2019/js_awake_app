@@ -430,6 +430,7 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
 
   /// 候補で no_report の行（「この日の日報がありません」）を押した時（便F8・見本 v5 の A3 → B1）。
   ///   ・出勤の修正依頼を送れた … 候補を引き直す（引き直すと選んでいた日は消える＝_load の動き）
+  ///   ・許可の日報を出せた（便F8b-2）… 同じく候補を引き直す
   ///   ・代休で取る … 事前の取り決めの「代休で取る」と同じ道（_goCompOff）
   ///   ・日を選び直す … 選んだ日を消してこの画面に残る
   ///   ・戻る（null） … 何もせずこの画面に残る（選んだ日は残る）
@@ -446,6 +447,9 @@ class _SubstituteRegisterScreenState extends State<SubstituteRegisterScreen> {
     if (!mounted || choice == null) return;
     switch (choice) {
       case WorkDateNoReportChoice.requested:
+        await _load();
+      // 許可の日報を出せた（便F8b-2）… 出勤の修正依頼と同じく候補を引き直す。
+      case WorkDateNoReportChoice.reported:
         await _load();
       case WorkDateNoReportChoice.compOff:
         await _goCompOff();

@@ -11,6 +11,9 @@
 //   (e) 送る本文と写真の関数（lib/main.dart）
 //   (f) ソースの字（シェルが、今の欄と今の関数を、部品と関数へ正しく繋いでいる・押した時の中身・段の出し分け・
 //       名前だけ替えた呼び出しの中身＝現場のシート・音声の窓・休憩の短縮のシート）
+//       →再（2026-10-11・便F8b-2）: 音声の窓は、シェルが部品の本（lib/widgets/report_form_steps.dart）の
+//       runReportVoiceInput を呼ぶ形になった（窓を呼ぶ所は部品の本の1か所）。会社名の候補の組み方も、
+//       部品の本の carpoolCompanyNamesOf へ出した。(f-4)(f-6)(f-7) の期待を、その形に替えた（検査の数は同じ）。
 //
 // ★掟: 期待値（語・色・数）はこのファイル内で組み立てる。実装の定数は import しない。
 //   字は一字一句・色は16進の生の値。時計を読まない（日付の字は検査が渡す）。
@@ -18,7 +21,8 @@
 //   シェルの繋ぎは (f) のソースの字で見る（説明文だけの行を除いた字で数える）。
 // ★音声の窓（ReportVoiceInputDialog）は、端末の音声の機能が要るので立てない
 //   （名前を替えた事と、作り口に任意の key を足した事のほかに違いが無い事は、便F8b-1 の道具が、HEAD の字と機械で比べて確かめた。
-//   シェルが窓を呼ぶ所の中身は、(f-7) がソースの字で見る）。
+//   窓を呼ぶ所の中身は、(f-7) がソースの字で見る＝→再（2026-10-11・便F8b-2）: 呼ぶ所はシェルから部品の本の
+//   runReportVoiceInput へ動いた。(f-7) は、シェルがそれを呼ぶ字と、部品の本の中の窓の呼び出しの字を見る）。
 // ★検査の名前の頭の番号（(a-1) ほか）は、ログの赤い行からどの検査かを機械で読むための物。
 // ============================================================
 
@@ -1988,7 +1992,7 @@ void main() {
         'routeFromCache: _routeFromCache,',
         'onRouteRetry: _calculateRoutes,',
         'carpoolCompanyController: _carpoolCompanyCtrl,',
-        'carpoolCompanyCandidatesOf: () => _carpoolCompanyResults',
+        'carpoolCompanyCandidatesOf: () => carpoolCompanyNamesOf(_carpoolCompanyResults),',
         'onCarpoolCompanyChanged: _onCarpoolCompanyChanged,',
         'carpoolNameController: _carpoolNameCtrl,',
         'carpoolNameCandidatesOf: _carpoolNameCandidates,',
@@ -2079,10 +2083,17 @@ void main() {
           isTrue,
           reason: '2度押した時の中身（確かめの窓を出す条件・片付けの条件・保存の並び）');
       // 会社名の候補：検索の答えの company_name を、前後の空白を除いて、空でない物だけ。
+      //   →再（2026-10-11・便F8b-2）: 組み方は部品の本の carpoolCompanyNamesOf へ出した。
+      //   (i) シェルがそれへ今の答えを渡している (ii) 部品の本の式が今までの式と同じ。
       expect(
-          move.contains('carpoolCompanyCandidatesOf: () => _carpoolCompanyResults '
+          move.contains(
+              'carpoolCompanyCandidatesOf: () => carpoolCompanyNamesOf(_carpoolCompanyResults),'),
+          isTrue,
+          reason: '会社名の候補へ今の答えを渡していない');
+      expect(
+          _flat(_codeOnly(steps)).contains(
               ".map((c) => (c['company_name'] as String? ?? '').trim()) "
-              '.where((s) => s.isNotEmpty) .toList(),'),
+              '.where((s) => s.isNotEmpty) .toList()'),
           isTrue,
           reason: '会社名の候補の組み方');
       // 段の出し分け：段1＝現場・段2＝移動・段3＝作業（どれも1か所ずつ）。上の印へは今の段。
@@ -2100,7 +2111,7 @@ void main() {
           reason: '上の印へ今の段を渡していない');
     });
 
-    test('(f-7) シェル：名前だけ替えた呼び出し（現場のシート・音声の窓）の中身', () {
+    test('(f-7) シェル：名前だけ替えた呼び出し（現場のシート）の中身と、音声の窓（部品の本の runReportVoiceInput）', () {
       final src = _codeOnly(home);
       final flat = _flat(src);
       // 現場のシート：選んだ物を今の欄へ入れて、端末に覚える（送る日報の site_id の元）。
@@ -2113,14 +2124,27 @@ void main() {
           isTrue,
           reason: '現場のシートで選んだ物を、今の欄へ入れて覚えていない');
       // 音声の窓：決めた字を、作業内容の後ろへ「。」でつなぐ（空なら、その字だけ）。窓は立てない（頭の★）ので、字で見る。
-      expect('ReportVoiceInputDialog('.allMatches(src).length, 1,
-          reason: 'ReportVoiceInputDialog を呼ぶ所が1つでない');
+      //   →再（2026-10-11・便F8b-2）: 窓を呼ぶ所は部品の本の runReportVoiceInput の1か所。シェルはそれへ
+      //   今の音声の係・作業内容の欄・聞いている間の印を渡す。
+      expect('ReportVoiceInputDialog('.allMatches(src).length, 0,
+          reason: 'シェルの本に ReportVoiceInputDialog を呼ぶ所が残っている');
       expect(
-          flat.contains('ReportVoiceInputDialog( manager: _speechMgr, onConfirm: (text) { Navigator.pop(ctx); '
-              r"setState(() { _workCtrl.text = _workCtrl.text.isEmpty ? text : '${_workCtrl.text}。$text'; }); }, "
-              'onCancel: () { _speechMgr.cancel(); Navigator.pop(ctx); }, )'),
+          flat.contains('_startVoice() => runReportVoiceInput( context, manager: _speechMgr, '
+              'controller: _workCtrl, onListening: (v) { if (mounted) setState(() => _isListening = v); }, );'),
+          isTrue,
+          reason: 'シェルが音声入力の関数へ、今の音声の係・作業内容の欄・聞いている間の印を渡していない');
+      final stepsCode = _codeOnly(steps);
+      final stepsFlat = _flat(stepsCode);
+      expect('ReportVoiceInputDialog('.allMatches(stepsCode).length, 1,
+          reason: '部品の本の ReportVoiceInputDialog を呼ぶ所が1つでない');
+      expect(
+          stepsFlat.contains(
+              r"controller.text = controller.text.isEmpty ? text : '${controller.text}。$text';"),
           isTrue,
           reason: '音声の窓で決めた字を、作業内容の後ろへつないでいない');
+      expect(stepsFlat.contains('onCancel: () { manager.cancel(); Navigator.pop(ctx); },'),
+          isTrue,
+          reason: '音声の窓をやめた時に、音声の係を止めて窓を閉じていない');
     });
 
     test('(f-8) 休憩の短縮のシート：名前だけ替えた呼び出し4つ（欄の名2つ・入力の枠・申告のボタン）の中身と並び', () {
