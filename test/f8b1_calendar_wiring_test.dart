@@ -51,19 +51,21 @@ String _flat(String s) => s.replaceAll(RegExp(r'\s+'), ' ');
 
 void main() {
   group('(g) カレンダーの箱を開く所の繋ぎ', () {
-    test('(g-1) 入口を組む関数へ、その日・今日（日本の今日）・自分の日報の数・自分の休み・同意待ち・日付の字・口・許可の日報の後の読み直しを渡している',
+    // →再（2026-10-14・便BJ・見本 v1 の B）: 今日は、日本の暦の日（jstDateString）から、今の勤務の種類の業務日に替えた。
+    test('(g-1) 入口を組む関数へ、その日・今日（今の勤務の種類の業務日）・自分の日報の数・自分の休み・同意待ち・日付の字・口・許可の日報の後の読み直しを渡している',
         () {
       final src = _codeOnly('lib/screens/home_screen.dart');
       // 入口を組む関数を呼ぶ所は1つだけ（二者比較：0 でも 2 でもない）。
       expect('dayRequestEntryOrNull('.allMatches(src).length, 1,
           reason: 'dayRequestEntryOrNull を呼ぶ所が1つでない');
       // 渡す7つを、並びごと見る。
-      //   今日＝箱を開く時に、日本の今日（jstDateString(DateTime.now())）を読んで渡す（決まった字にしない）。
+      //   今日＝箱を開く時に、今の勤務の種類の業務日（businessDateForShift(await savedShiftTypeForNow(), DateTime.now())）を
+      //   読んで today に入れて渡す（決まった字にしない）。
       expect(
           _flat(_callOf(src, 'dayRequestEntryOrNull')),
           'dayRequestEntryOrNull( '
           'workDate: ds, '
-          'today: jstDateString(DateTime.now()), '
+          'today: today, '
           'ownReportCount: ownLiveReportCount(info.liveReports, _myUserId), '
           'hasOwnRest: info.restPortion != null, '
           'substitutePendingRest: info.substitutePendingRest, '
@@ -75,6 +77,8 @@ void main() {
       expect(
           _flat(src).contains('Future<void> _openDaySheet(String ds) async { '
               'final info = _dayInfoOf(ds); '
+              'final today = businessDateForShift(await savedShiftTypeForNow(), DateTime.now()); '
+              'if (!mounted) return; '
               'await showCalendarDaySheet( context, info: info, '
               'maxHeight: _sheetMaxHeight(), myCompanyId: _myCompanyId, '
               'dayRequestEntry: dayRequestEntryOrNull( workDate: ds, '),

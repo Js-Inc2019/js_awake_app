@@ -400,7 +400,9 @@ void main() {
       return (seen, res);
     }
 
-    test('(i-1) 尋ねる口: GET・道・引数 type と work_date・8つのキーが BE の値のまま（null も null）',
+    // →再（2026-10-14・便BJ・見本 v1 の B）: 引数に shift_type（今の勤務の種類）を足した。この検査の端末の保存には
+    //   勤務の種類が無い＝'day'（夜勤の時の値は test/bj_field_test.dart の (k) で見る）。
+    test('(i-1) 尋ねる口: GET・道・引数 type と work_date と shift_type・8つのキーが BE の値のまま（null も null）',
         () async {
       final be = <String, dynamic>{
         'type': 'attendance_fix',
@@ -418,7 +420,7 @@ void main() {
       expect(req.url.path.endsWith('/attendance/day-requests/eligibility'), isTrue,
           reason: '道が違う: ${req.url.path}');
       expect(req.url.queryParameters,
-          {'type': 'attendance_fix', 'work_date': '2026-10-06'});
+          {'type': 'attendance_fix', 'work_date': '2026-10-06', 'shift_type': 'day'});
       expect(res.ok, isTrue);
       expect(res.data, be, reason: '8つのキーが BE の値のまま返っていない');
       expect(res.data!.keys.length, 8);
@@ -437,7 +439,7 @@ void main() {
       final (req2, res2) = await call(
           (s) => s.getDayRequestEligibility('report_missing', '2026-10-03'), 200, be2);
       expect(req2.url.queryParameters,
-          {'type': 'report_missing', 'work_date': '2026-10-03'});
+          {'type': 'report_missing', 'work_date': '2026-10-03', 'shift_type': 'day'});
       expect(res2.data, be2);
       expect(res2.data!.containsKey('permit_until'), isTrue);
     });
@@ -449,15 +451,16 @@ void main() {
       ('(i-3)', '日報漏れの申告の口', '/attendance/report-missing-declare',
           (s) => s.declareReportMissing('2026-10-06', '  片付けで出勤  ')),
     ]) {
-      test('$no $name: POST・道・本文のキーは work_date と reason_text の2つだけ（理由は前後の空白を除く）・201 も 200 も通る',
+      // →再（2026-10-14・便BJ・見本 v1 の B）: 本文に shift_type（今の勤務の種類・この検査では 'day'）を足して3つ。
+      test('$no $name: POST・道・本文のキーは work_date と reason_text と shift_type の3つだけ（理由は前後の空白を除く）・201 も 200 も通る',
           () async {
         final (req, res) =
             await call(run, 201, const {'declared': true, 'id': 'cq-9'});
         expect(req.method, 'POST');
         expect(req.url.path.endsWith(path), isTrue, reason: '道が違う: ${req.url.path}');
         final body = jsonDecode(req.body) as Map<String, dynamic>;
-        expect(body, {'work_date': '2026-10-06', 'reason_text': '片付けで出勤'});
-        expect(body.keys.toSet(), {'work_date', 'reason_text'});
+        expect(body, {'work_date': '2026-10-06', 'reason_text': '片付けで出勤', 'shift_type': 'day'});
+        expect(body.keys.toSet(), {'work_date', 'reason_text', 'shift_type'});
         expect(res.ok, isTrue);
         expect(res.statusCode, 201);
 
@@ -862,8 +865,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(api.sendKinds, [w.sendKind]);
         expect(api.sentDates, ['2026-10-06']);
-        expect(ReportsService.dayRequestBody(api.sentDates.single, api.sentReasons.single),
-            {'work_date': '2026-10-06', 'reason_text': '現場の片付け'});
+        // →再（2026-10-14・便BJ）: 本文に shift_type（今の勤務の種類）を足した＝3つ目の引数。
+        expect(ReportsService.dayRequestBody(api.sentDates.single, api.sentReasons.single, 'day'),
+            {'work_date': '2026-10-06', 'reason_text': '現場の片付け', 'shift_type': 'day'});
         expect(find.text(w.done), findsOneWidget);
         expect(find.byType(DayRequestScreen), findsNothing);
         expect(host.closed, isTrue);

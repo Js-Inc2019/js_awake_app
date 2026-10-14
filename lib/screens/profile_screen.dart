@@ -19,6 +19,7 @@ import '../services/auth_service.dart';
 import '../services/profile_service.dart';
 import '../config/constants.dart';
 import '../utils/session_lockout.dart';
+import '../utils/personal_data_cleanup.dart';
 import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'notification_settings_screen.dart';
@@ -374,63 +375,12 @@ class ProfileBodyState extends State<ProfileBody> {
     // 前回の締め出し理由を持ち越さない（自分で降りたのに「退職しました」が出る事故を防ぐ）。
     // 消し方は utils/session_lockout.dart ただ一つ（画面が prefs のキー名を持たない）。
     await clearLockoutReason();
-    await prefs.remove('auth_token');
-    await prefs.remove('user_id');
-    await prefs.remove('user_name');
-    await prefs.remove('user_role');
-    await prefs.remove('role');
-    await prefs.remove('company_id');
-    await prefs.remove('work_mode');
-    // 勤務設定(みなし)・打刻状態：別ユーザーが同一端末でログインした際の残置を防ぐ
-    await prefs.remove('deemed_start');
-    await prefs.remove('deemed_end');
-    await prefs.remove('break_minutes');
-    await prefs.remove('work_checked_in');
-    await prefs.remove('work_check_in_time');
-    // 勤務区分（業務日スコープ）：別ユーザーへの引き継ぎ防止
-    await prefs.remove('shift_type');
-    await prefs.remove('shift_business_date');
-    // 勤務状態（S5b追補: シフト別2キー）。旧3キーも残置端末のために掃除する。
-    await prefs.remove('report_done_day');
-    await prefs.remove('report_done_night');
-    await prefs.remove('today_date');          // 旧キー（読み捨て済み・残骸掃除）
-    await prefs.remove('today_work_status');   // 旧キー（同上）
-    await prefs.remove('report_done_shift');   // 旧キー（同上）
-    await prefs.remove('today_transport');
-    await prefs.remove('today_work_content');
-    await prefs.remove('today_parking_fee');
-    await prefs.remove('today_overtime_hours');
-    await prefs.remove('today_overtime_minutes');
-    // 現場の引き継ぎ（裁定A・home_screen.dart _kLastSiteId/_kLastSiteName）：
-    // 別ユーザーが前任者の現場をデフォルトで背負わないよう掃除する
-    await prefs.remove('last_site_id');
-    await prefs.remove('last_site_name');
-    // 移動手段のデフォルト復元（home_screen.dart _kLastTransports/_kLastCarType）：同上
-    await prefs.remove('last_transports');
-    await prefs.remove('last_car_type');
-    // ルート結果の鍵付きキャッシュ（home_screen.dart _kRouteCacheKey/_kRouteCacheJson）：
-    // 前ユーザーの現場の金額が次ユーザーに見えるのを防ぐ
-    await prefs.remove('route_cache_key');
-    await prefs.remove('route_cache_json');
-    await prefs.remove('last_tab_index_worker');
-    await prefs.remove('last_tab_index_foreman');
-    // 現行タブキー(v2)：旧キー削除だけでは残置するため追加（home_screen.dart が読み書きするキー）
-    await prefs.remove('last_tab_index_v2_worker');
-    await prefs.remove('last_tab_index_v2_foreman');
-    // 日報：未送信キューとキャッシュ履歴（前ユーザーの日報が次ユーザーのトークンで
-    // 送信される事故を防ぐ・main.dart _K.pendingReports/_K.reports）
-    await prefs.remove('pending_reports');
-    await prefs.remove('worker_reports_history');
-    // 個人情報：別ユーザーへの引き継ぎ防止（profile_screen 保存/復元系）
-    await prefs.remove('emergency_contact_name');
-    await prefs.remove('emergency_contact_phone');
-    await prefs.remove('profile_phone');
-    await prefs.remove('profile_blood_type');
-    await prefs.remove('home_address');
-    await prefs.remove('work_address');
-    await prefs.remove('health_check_date_iso');
-    await prefs.remove('experience_years');
-    await prefs.remove('worker_id');
+    // 元: ここに prefs.remove を45本並べていた（未送信の日報の箱 pending_reports も消していた＝
+    //   本人の未送信の日報が黙って消えた）。締め出しと期限切れの3つの道は auth_token だけを消していた。
+    // →再（2026-10-14・便BJ・見本 v1 の ⑧・ボスの裁定【Q140】）: 消す鍵の名簿は utils/personal_data_cleanup.dart の
+    //   1つだけにし、ログアウト・締め出し・期限切れの4つの道が同じ1本を呼ぶ。未送信の日報は持ち主の印つきで残し、
+    //   同じ人がログインし直した時だけ送る（次の人の資格では送らない）。
+    await clearPersonalData();
     // device_id は削除しない → PINログイン画面へ
 
     if (!mounted) return;

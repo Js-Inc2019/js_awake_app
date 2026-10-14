@@ -2,6 +2,7 @@
 // J's FIELD — 複数写真の横スクロール入力帯（制御コンポーネント）。
 //
 // ・状態は親が List<String>（ローカルパス）で保持し、onChanged で受け取る。
+// ・撮った写真は、アプリの置き場へ写してから並びに入れる（便BJ・lib/utils/report_photo_store.dart）。
 // ・撮影は ImageSource.camera 固定（証跡価値維持＝ギャラリー禁止）。
 //   imageQuality:80 + maxWidth:1920 を必ず指定。
 // ・種別ごと maxCount 枚（既定5）。到達で＋タイル非活性＋「上限n枚」表示。
@@ -11,6 +12,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/theme/field_tokens.dart';
+import '../utils/report_photo_store.dart';
 
 class PhotoStripField extends StatelessWidget {
   const PhotoStripField({
@@ -49,7 +51,11 @@ class PhotoStripField extends StatelessWidget {
       maxWidth: 1920,
     );
     if (f == null) return;
-    onChanged(<String>[...paths, f.path]);
+    // 元: カメラが返した一時の置き場の道をそのまま並びに入れていた（送り直しを待つ間に消える事がある）。
+    // →再（2026-10-14・便BJ・見本 v1 の ③）: アプリの置き場へ写した道を入れる（lib/utils/report_photo_store.dart）。
+    //   写せなかった時は元の道のまま（送る前の確かめと、送り直しの知らせで、抜けた事は必ず出る）。
+    final kept = await keepReportPhoto(f.path);
+    onChanged(<String>[...paths, kept]);
   }
 
   void _remove(int index) {

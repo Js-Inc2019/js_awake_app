@@ -7,6 +7,9 @@
 //   「statusCode が無い＝通信失敗」と推測するしかない）作りだった。
 //   ApiResult は常に statusCode を持ち、通信不成立を 0 で表す。
 //   ★BE の error_code（ALREADY_RESTED / NOT_RESTED 等）は errorCode に載る。
+//     →再（2026-10-14・便BJ）: 正しくは BE の答えの code（ALREADY_RESTED / NOT_RESTED 等）が errorCode に載る
+//     （api_result.dart の _decodeError が読むのは error と code の2つ。error_code の鍵で返す口の値は errorCode に
+//     載らない＝その口を読む所は widgets/closing_period_dialog.dart の readClosingIssue が本文から拾う）。
 //     呼び手の分岐（rest_day_screen.dart / punch_remind_dialog.dart）は
 //     res['code'] → r.errorCode へ読み替えるだけで挙動は不変。
 //   URL・body・timeout は1文字も変えていない。
@@ -15,6 +18,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
+import '../utils/saved_shift_type.dart';
 import 'api_result.dart';
 import 'auth_service.dart';
 import '../config/constants.dart';
@@ -28,6 +32,7 @@ class ReportDetail {
 }
 
 /// 期間絞り込みでの日報一覧（GET /reports の拡張経路・BE v542）。
+///   →再（2026-10-14・便BJ）: 月の指定の一覧（getReportsByMonth）も、この形で返す。
 ///
 /// ★[truncated] を一緒に運ぶために型を作った。List だけ返す形にすると
 ///   「上限で切れた」という事実の置き場が無くなり、呼び手が全件だと誤解する。
@@ -40,6 +45,7 @@ class ReportsRange {
 
   /// 上限で切れたか。BE は「上限+1件」取れたかで判定する
   /// （routes/reports.js の GET /reports の limit 決定）。期間指定経路の上限は 1000。
+  ///   →再（2026-10-14・便BJ）: 月の指定の上限も 1000（BE の services/reportListLimit.js・便BI）。
   final bool truncated;
 }
 
@@ -296,23 +302,39 @@ class ReportsService {
   // 日報一覧取得（会社スコープ・BEは {success, reports:[...]} を返す）
   // ============================================================
 
-  // GET /reports?date=YYYY-MM&limit=300 — 月指定で取得する（承認タブの日付一覧用）。
+  // GET /reports?date=YYYY-MM — 月指定で取得する（カレンダー・承認タブ・月の履歴）。
   // 既存 getReports は limit のみで直近50件しか取れず、承認待ちが51件目以降に
   // あると見えなかった。月指定でその構造的な取りこぼしを解消する。
   // ★closingDates: 締め日を変えた月は同名の期間が2つできる。どちらの期間かを
   //   人に選ばせて送り直すのは widgets/closing_period_dialog.dart の受け皿ただ1つ。
   //   ここは受け取った値を載せるだけで、選び方も理由の読み方も持たない。
-  Future<ApiResult<List<dynamic>>> getReportsByMonth(String month,
-      {int limit = 300, List<String> closingDates = const <String>[]}) async {
+  // ★元: limit を付けて頼み（既定 300・月の履歴は 200）、答えの reports だけを返していた（truncated を捨てた＝
+  //   上限を超えた月は古い日の日報が黙って欠けた）。
+  //   →再（2026-10-14・便BJ・見本 v1 の ⑪・ボスの裁定【Q139】の C）: limit を付けない（サーバの月の口の既定＝1000・
+  //   天井 1000＝便BI）。答えは ReportsRange（reports と truncated）で返す＝呼び手が切れた時に帯を出す。
+  //   待ち時間は30秒（getReportsRange と同じ＝1回の答えが最大 1000 件になる口）。
+  Future<ApiResult<ReportsRange>> getReportsByMonth(String month,
+      {List<String> closingDates = const <String>[]}) async {
     final headers = await _auth.getAuthHeaders();
-    return runApiCall<List<dynamic>>(
+    return runApiCall<ReportsRange>(
       'ReportsService.getReportsByMonth',
       () => http.get(
-        Uri.parse('$kApiBaseUrl/reports?date=$month&limit=$limit'
+        Uri.parse('$kApiBaseUrl/reports?date=$month'
             '${closingDatesQuery(closingDates)}'),
         headers: headers,
-      ).timeout(const Duration(seconds: 15)),
-      (body) => (apiJsonMap(body)?['reports'] as List?) ?? const [],
+      ).timeout(const Duration(seconds: 30)),
+      reportsRangeFromBody,
+    );
+  }
+
+  /// 一覧の口の本文 → ReportsRange（getReportsByMonth と getReportsRange の取り込み・便BJ で1本にした）。
+  static ReportsRange reportsRangeFromBody(String body) {
+    final data = apiJsonMap(body);
+    return ReportsRange(
+      reports: ((data?['reports'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+      truncated: data?['truncated'] == true,
     );
   }
 
@@ -330,10 +352,13 @@ class ReportsService {
 
   // ============================================================
   // 期間・現場・職人で絞った日報一覧（GET /reports の拡張経路・BE v542）
-  //   ★既存の getReports / getReportsByMonth / getReportsByCompany は
+  //   ★（元）既存の getReports / getReportsByMonth / getReportsByCompany は
   //     1文字も触っていない。あちらは date / 無指定の経路で上限も別
   //     （BE: date?150:50・上限300／こちらは期間経路で既定1000・上限1000）。
   //     同じ URL でも天井と応答の読み方が違うため、1本に畳まない。
+  //     →再（2026-10-14・便BJ）: getReportsByMonth は月の口（date=YYYY-MM）で、BE の既定と天井は 1000（便BI＝
+  //     js-office-api の services/reportListLimit.js）。答えはこの口と同じ ReportsRange で返す（読み方は
+  //     reportsRangeFromBody の1本）。日の指定（既定150・天井300）と無指定（既定50・天井300）の天井は今のまま。口は別のまま。
   // ============================================================
 
   /// 期間（片側可）＋現場＋職人で日報を引く。共有の送信画面が使う。
@@ -380,15 +405,7 @@ class ReportsService {
       //   1リクエストの実所要が最大になる経路だから（OFFICE 側の同経路も30秒）。
       () => http.get(uri, headers: headers)
           .timeout(const Duration(seconds: 30)),
-      (body) {
-        final data = apiJsonMap(body);
-        return ReportsRange(
-          reports: ((data?['reports'] as List?) ?? const [])
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList(),
-          truncated: data?['truncated'] == true,
-        );
-      },
+      reportsRangeFromBody,
     );
   }
 
@@ -798,14 +815,17 @@ class ReportsService {
   //     この便の画面は読まないが、捨てずに Map のまま渡す。
   //   断り＝403 ATTENDANCE_EMPLOYEE_ONLY（従業員でない人）/ 400 INVALID_TYPE / 400 INVALID_WORK_DATE /
   //         500 SERVER_ERROR（どれも { error, code }）。
+  //   →再（2026-10-14・便BJ・見本 v1 の B）: 今の勤務の種類（utils/saved_shift_type.dart の savedShiftTypeForNow）を
+  //   shift_type で送る（サーバは、夜勤の朝はその業務日を「今日」にする＝便BI）。断りに 400 INVALID_SHIFT_TYPE が増えた。
   Future<ApiResult<Map<String, dynamic>>> getDayRequestEligibility(
       String type, String workDate) async {
     final headers = await _auth.getAuthHeaders();
+    final shiftType = await savedShiftTypeForNow();
     return runApiCall<Map<String, dynamic>>(
       'ReportsService.getDayRequestEligibility',
       () => http.get(
         Uri.parse('$kApiBaseUrl/attendance/day-requests/eligibility'
-            '?type=$type&work_date=$workDate'),
+            '?type=$type&work_date=$workDate&shift_type=$shiftType'),
         headers: headers,
       ).timeout(const Duration(seconds: 15)),
       dayRequestEligibilityFromBody,
@@ -834,6 +854,7 @@ class ReportsService {
 
   // POST /attendance/attendance-fix-request — 出勤の修正依頼（便F8）。
   //   本文＝{ "work_date": "YYYY-MM-DD", "reason_text": "…" }（dayRequestBody）
+  //   →再（2026-10-14・便BJ）: 本文に shift_type（今の勤務の種類）を足した＝{ work_date, reason_text, shift_type }。
   //   201＝{ declared: true, id }（新しく積めた）／200＝{ already_declared: true, id }（同じ種類の未処理が
   //   もう在る）。★どちらも通った答えとして返す（画面が statusCode で分ける＝打刻漏れの申告と同じ）。
   //   断り＝400 REASON_REQUIRED / 400 INVALID_WORK_DATE / 403 ATTENDANCE_EMPLOYEE_ONLY /
@@ -841,12 +862,13 @@ class ReportsService {
   Future<ApiResult<Map<String, dynamic>>> requestAttendanceFix(
       String workDate, String reasonText) async {
     final headers = await _auth.getAuthHeaders();
+    final shiftType = await savedShiftTypeForNow();
     return runApiCall<Map<String, dynamic>>(
       'ReportsService.requestAttendanceFix',
       () => http.post(
         Uri.parse('$kApiBaseUrl/attendance/attendance-fix-request'),
         headers: headers,
-        body: jsonEncode(dayRequestBody(workDate, reasonText)),
+        body: jsonEncode(dayRequestBody(workDate, reasonText, shiftType)),
       ).timeout(const Duration(seconds: 15)),
       (body) => apiJsonMap(body) ?? <String, dynamic>{},
     );
@@ -857,26 +879,30 @@ class ReportsService {
   Future<ApiResult<Map<String, dynamic>>> declareReportMissing(
       String workDate, String reasonText) async {
     final headers = await _auth.getAuthHeaders();
+    final shiftType = await savedShiftTypeForNow();
     return runApiCall<Map<String, dynamic>>(
       'ReportsService.declareReportMissing',
       () => http.post(
         Uri.parse('$kApiBaseUrl/attendance/report-missing-declare'),
         headers: headers,
-        body: jsonEncode(dayRequestBody(workDate, reasonText)),
+        body: jsonEncode(dayRequestBody(workDate, reasonText, shiftType)),
       ).timeout(const Duration(seconds: 15)),
       (body) => apiJsonMap(body) ?? <String, dynamic>{},
     );
   }
 
   /// 依頼・申告の口2本が送る body（便F8）。★キーは work_date と reason_text の2つだけ。
+  ///   →再（2026-10-14・便BJ・見本 v1 の B）: shift_type を足して3つ（今の勤務の種類＝'day'|'night'・
+  ///   サーバは夜勤の朝はその業務日を「今日」にする）。
   ///   ★理由は前後の空白を除いて送る（BE も除いてから空かを見る＝画面が空でないと確かめた字を
   ///     そのままの形で届ける）。組み立てを名前付きにするのは、送る形を検査で固定するため
   ///     （substituteRegisterBody と同じ作法）。
   static Map<String, dynamic> dayRequestBody(
-          String workDate, String reasonText) =>
+          String workDate, String reasonText, String shiftType) =>
       <String, dynamic>{
         'work_date': workDate,
         'reason_text': reasonText.trim(),
+        'shift_type': shiftType,
       };
 
   // ============================================================

@@ -86,6 +86,7 @@ class ReportStepMove extends StatelessWidget {
     required this.onParkingFeeChanged,
     required this.parkingPhotoPaths,
     required this.onParkingPhotosChanged,
+    this.routeNote,
   });
 
   /// 出発地（'home'＝自宅／'office'＝会社）。
@@ -123,6 +124,9 @@ class ReportStepMove extends StatelessWidget {
   final List<String> parkingPhotoPaths;
   final ValueChanged<List<String>> onParkingPhotosChanged;
 
+  /// 目安の帯のすぐ下に出す※（便BJ・自宅の住所が無い時の kHomeAddressMissingNote）。null なら置かない。
+  final String? routeNote;
+
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -156,7 +160,8 @@ class ReportStepMove extends StatelessWidget {
                       style: TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
                 ),
                 // 補足テキスト（その他 or 複数選択時）— 注意書き直下・トグルより前へ移設
-                if (transports.contains(TransportType.other) || transports.length >= 2) ...[
+                //   →再（2026-10-14・便BJ）: 出す式は reportTransportMemoVisible の1本（送る字も同じ1本で見る）。
+                if (reportTransportMemoVisible(transports)) ...[
                   const SizedBox(height: 10),
                   ReportFormInputShell(
                     icon: Icons.edit_note,
@@ -175,14 +180,17 @@ class ReportStepMove extends StatelessWidget {
                   ),
                 ],
                 // 車選択時: 社用車/相乗り 2択 → 各入力欄
+                //   元: 上下の余白 10 と字 12（高さ約 39＝押せる大きさの決まり 44 に足りない）。
+                //   →再（2026-10-14・便BJ・見本 v1 の ⑤案1）: 高さ 44（見た目も押せる所も同じ・字の大きさと色と太さは変えない）。
                 if (transports.contains(TransportType.car)) ...[
                   const SizedBox(height: 10),
                   Row(children: [
                     Expanded(
                       child: GestureDetector(
                         onTap: onCarTypeOwn,
+                        behavior: HitTestBehavior.opaque,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          height: 44,
                           decoration: BoxDecoration(
                             color: carType == 'own'
                                 ? FieldTokens.outlineStrong
@@ -208,8 +216,9 @@ class ReportStepMove extends StatelessWidget {
                     Expanded(
                       child: GestureDetector(
                         onTap: onCarTypeCarpool,
+                        behavior: HitTestBehavior.opaque,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          height: 44,
                           decoration: BoxDecoration(
                             color: carType == 'carpool'
                                 ? FieldTokens.outlineStrong
@@ -246,10 +255,17 @@ class ReportStepMove extends StatelessWidget {
                   fromCache: routeFromCache,
                   onRetry: onRouteRetry,
                 ),
+                // 帯の外の※（便BJ・見本 v1 の ⑥＝自宅の住所が無い時）。null なら置かない（空きも置かない）。
+                if (routeNote != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(routeNote!,
+                        style: const TextStyle(color: FieldTokens.textFaint, fontSize: 11)),
+                  ),
                 // 車選択かつ相乗り時: 相乗り相手（会社名サジェスト＋氏名の2欄）。
                 //   駐車料金は出さない＝現行仕様のまま。work_content には連結しない（二重真実の禁止）。
-                if (transports.contains(TransportType.car) &&
-                    carType == 'carpool') ...[
+                //   →再（2026-10-14・便BJ）: 出す式は reportCarpoolVisible の1本。
+                if (reportCarpoolVisible(transports, carType)) ...[
                   const SizedBox(height: 10),
                   // 作業3: 会社名はサジェスト付き（searchCompanies・300msデバウンス・共通部品）
                   SearchSuggestField(
@@ -282,8 +298,9 @@ class ReportStepMove extends StatelessWidget {
                 // 駐車料金 + 駐車場写真（1組だけ描画する）
                 // ★車(社用車・自家用車)の時と「その他」の時を OR で1本にしてある＝両方を選んでも、
                 //   同じ持ち物を使う入力欄と写真帯が2組並ばない。
-                if ((transports.contains(TransportType.car) && carType == 'own') ||
-                    transports.contains(TransportType.other)) ...[
+                //   →再（2026-10-14・便BJ・見本 v1 の ④）: 出す式は reportParkingVisible の1本（「写真が添付されていません」の
+                //   窓を出す所も同じ1本で見る＝相乗りの時は帯も窓も出さない）。
+                if (reportParkingVisible(transports, carType)) ...[
                   const SizedBox(height: 10),
                   ReportFormInputShell(
                     icon: Icons.local_parking,
@@ -519,6 +536,10 @@ class ReportShiftChoice extends StatelessWidget {
 // 値の関数（状態を持たない・渡された値だけで決まる。confirmAddTransport だけは、窓を出して利用者の答えを返す）
 // ─────────────────────────────────────────────
 
+/// 目安の帯の外に出す※（便BJ・見本 v1 の ⑥）。出発地が自宅で、自宅の住所が登録されていない時。
+///   ★その時は目安を取らない（決め打ちの住所で計算しない）・日報に目安の値を入れない。帯は「この手段の目安は取得できません」。
+const String kHomeAddressMissingNote = '※自宅の住所が未登録のため、自宅からの目安は出せません。';
+
 /// 移動手段を1回押した時の、新しい選び。
 ///   まだ選んでいない手段 → それ1つだけにする。選んである手段 → 2つ以上選んでいる時だけ外す（1つの時はそのまま）。
 ///   渡した集まりは書き換えず、新しい集まりを返す。
@@ -541,23 +562,39 @@ Future<bool> confirmAddTransport(BuildContext context) => showConfirmDialog(
       confirmText: 'OK', cancelText: 'キャンセル',
     );
 
+/// 「移動手段の補足」の欄を出す時か（「その他」を選んでいるか、2つ以上を選んでいる時）。
+///   ★便BJ（見本 v1 の (8)）: 欄を出す所（ReportStepMove）・送る字（reportWorkContentPrefix）・後から出す日報の
+///     「閉じますか？」（late_report_screen.dart の _isPristine）が、この1本で見る。
+bool reportTransportMemoVisible(Set<TransportType> transports) =>
+    transports.contains(TransportType.other) || transports.length >= 2;
+
+/// 駐車料金の欄と駐車場写真の帯を出す時か（車で社用車・自家用車の時か、「その他」の時）。
+///   ★便BJ（見本 v1 の ④）: 帯を出す所（ReportStepMove）・「写真が添付されていません」の窓を出す所（今日の日報と
+///     後から出す日報の _submit）・後から出す日報の「閉じますか？」が、この1本で見る（相乗りの時は帯も窓も出さない）。
+bool reportParkingVisible(Set<TransportType> transports, String carType) =>
+    (transports.contains(TransportType.car) && carType == 'own') ||
+    transports.contains(TransportType.other);
+
+/// 相乗りの2欄を出す時か（車で相乗りの時）。★便BJ: 欄を出す所・送る値・確認の画面の材料・「閉じますか？」が、この1本で見る。
+bool reportCarpoolVisible(Set<TransportType> transports, String carType) =>
+    transports.contains(TransportType.car) && carType == 'carpool';
+
 /// 作業内容の頭に付ける字（送る時に、作業内容の欄の字の前へつなぐ）。
-///   「その他」を選んでいて otherText が空でない時は「[その他:字] 」、
+///   元: 「その他」を選んでいて otherText が空でない時は「[その他:字] 」、
 ///   memoText（移動手段の補足）が空でない時は「【移動】字 」。この順でつなぐ。
+///   →再（2026-10-14・便BJ・見本 v1 の ⑦ と (8)）: otherText を撤去した（今日の日報にも後から出す日報にも、その字の
+///   欄が無く、いつも空だった。「その他」の中身は補足の欄で書く。出し直しの画面の「その他の手段」の欄は、前に出した
+///   日報を直す時のために残す＝revision_edit_screen.dart）。補足は、欄が出ている時（reportTransportMemoVisible）だけ付ける
+///   （隠れた欄の字を送らない）。
 String reportWorkContentPrefix({
   required Set<TransportType> transports,
-  required String otherText,
   required String memoText,
 }) {
-  final otherPrefix = (transports.contains(TransportType.other) && otherText.trim().isNotEmpty)
-      ? '[その他:${otherText.trim()}] '
-      : '';
   // D-1: 移動手段の補足テキスト。従来 UI にはあるが payload に載らず消えていた。
-  //      other prefix と同じ流儀で work_content へ連結する。空なら付けない。
-  final memoPrefix = memoText.trim().isEmpty
-      ? ''
-      : '【移動】${memoText.trim()} ';
-  return otherPrefix + memoPrefix;
+  //      work_content へ連結する。空なら付けない。
+  if (!reportTransportMemoVisible(transports)) return '';
+  final memo = memoText.trim();
+  return memo.isEmpty ? '' : '【移動】$memo ';
 }
 
 /// 駐車料金として送る値（欄の字から）。
@@ -576,8 +613,9 @@ String? reportCarpoolValue({
   required String text,
 }) {
   // 作業2: 相乗り2欄（相乗り時のみ・空欄は null）。
-  final isCarpool = transports.contains(TransportType.car) && carType == 'carpool';
-  return isCarpool && text.trim().isNotEmpty ? text.trim() : null;
+  return reportCarpoolVisible(transports, carType) && text.trim().isNotEmpty
+      ? text.trim()
+      : null;
 }
 
 /// 確認の画面の材料（表示と、差の見張りの鍵）を組む。読むだけ。
@@ -614,9 +652,9 @@ ReportSnapshot reportSnapshotFrom({
     routeRows:         routeRows,
     parkingFeeRaw:     parkingRaw,
     // 作業4: 相乗り2項目（相乗り時のみ・空欄は空文字）。表示・差異検知に使う。
-    carpoolCompany:    (transports.contains(TransportType.car) && carType == 'carpool')
+    carpoolCompany:    reportCarpoolVisible(transports, carType)
         ? carpoolCompanyText.trim() : '',
-    carpoolName:       (transports.contains(TransportType.car) && carType == 'carpool')
+    carpoolName:       reportCarpoolVisible(transports, carType)
         ? carpoolNameText.trim() : '',
     workContent:       workText.trim(),
     workPhotoCount:    workPhotoCount,
@@ -663,6 +701,8 @@ Future<bool> confirmProceedWhileRouting(
 }
 
 /// 車かその他を選んでいて駐車場の写真が無い時の窓（元はシェルの _submit の中の窓）。
+///   →再（2026-10-14・便BJ・見本 v1 の ④）: 出す時は、駐車場の帯が出ていて（reportParkingVisible）写真が0枚の時
+///   （呼び手の _submit が見る）。相乗りの時は帯が無いので出さない（「＋撮影」の※が嘘にならない）。
 ///   返り＝proceedLabel を押した時だけ true（「戻って撮影する」・外を押して閉じた時は false）。
 Future<bool> confirmNoParkingPhoto(
   BuildContext context, {

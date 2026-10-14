@@ -2,8 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import '../services/reports_service.dart';
 import '../widgets/closing_period_dialog.dart';
+import '../widgets/reports_truncated_bar.dart';
+import '../utils/personal_data_cleanup.dart';
 import 'day_reports_screen.dart' show DayReportsScreen;
 import 'revision_inbox_screen.dart';
 // 作業3: 移動手段の複数対応。transport_types_json 優先 → 無ければ transport_type に
@@ -32,6 +35,8 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
   List<Map<String, dynamic>> _reports = [];
   DateTime _selectedMonth = DateTime.now();
   String? _error;
+  // 月の日報がサーバの上限で切れた（便BJ・見本 v1 の ⑪）。true の間は上に ReportsTruncatedBar（件数も一部だけの数）。
+  bool _truncated = false;
 
   // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
   //   ★_error とは別に持つ。_error は人が画面の中では直せない事情、
@@ -49,13 +54,15 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
 
   Future<void> _load() async {
     _closing.beginRound();
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; _error = null; _truncated = false; });
     try {
       final m = '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
       final res = await _closing.send(
         months: [m],
+        // 元: limit 200 で頼み、切れた事を読まなかった。→再（2026-10-14・便BJ・見本 v1 の ⑪）: カレンダーと同じ形
+        //   （limit を付けない＝サーバの月の口の既定 1000・答えの truncated を読む）。
         run: (dates) => ReportsService()
-            .getReportsByMonth(m, limit: 200, closingDates: dates),
+            .getReportsByMonth(m, closingDates: dates),
       );
       if (!mounted) return;
       // 締め日が決まっていない＝「この月の記録はありません」と嘘をつかず、理由と選ぶ道を出す。
@@ -64,7 +71,7 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         return;
       }
       if (res.ok) {
-        final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
+        final raw = List<Map<String, dynamic>>.from(res.data?.reports ?? const []);
         // approved/revision_requested/status → 画面の4状態に変換。
         // ★式は report_cancel_gate.dart の1本だけ。ここに書き戻さない。
         //   旧実装はこの場で approved/revision の2値だけを見て status を作り直しており、
@@ -72,11 +79,14 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
         setState(() {
           _reports = raw.map(withReportStatus).toList();
           _loading = false;
+          _truncated = res.data?.truncated == true;
         });
       } else if (res.statusCode == 401) {
         // トークン切れ・無効 → ログアウトして再ログイン
+        //   元: auth_token だけを消していた。→再（2026-10-14・便BJ・見本 v1 の ⑧）: ログアウトと同じ掃除
+        //   （utils/personal_data_cleanup.dart）。
+        await clearPersonalData();
         final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('auth_token');
         await prefs.setBool('logged_out', true);
         if (mounted) {
           setState(() { _loading = false; _error = '認証の有効期限が切れました。再ログインしてください。'; });
@@ -180,6 +190,8 @@ class _MonthlyHistoryBodyState extends State<MonthlyHistoryBody> {
             ],
           ),
         ),
+        // 月の日報が上限で切れた時だけ（便BJ・見本 v1 の ⑪・下の件数も一部だけの数になる）
+        if (!_loading && _error == null && _truncated) const ReportsTruncatedBar(),
         // 集計バー
         if (!_loading && _error == null)
           Padding(
@@ -386,7 +398,8 @@ class JsReportTile extends StatelessWidget {
     final isCancelled = status == 'cancelled';
     final date       = report['report_date']   as String? ?? '';
     final content    = report['work_content']  as String? ?? '作業内容 未入力';
-    final addr       = report['gps_address']   as String? ?? '';
+    // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+    final addr       = reportPlaceText(report) ?? '';
     // 作業3: 複数選択に対応（'・' 区切り＝確認画面と同じ流儀）
     final trans      = transportNamesOf(report).join('・');
     final workerName = report['worker_name']   as String? ?? '';
@@ -580,7 +593,8 @@ class JsReportDetailSheet extends StatelessWidget {
 
     final date        = report['report_date']    as String? ?? '';
     final content     = report['work_content']   as String? ?? '作業内容 未入力';
-    final addr        = report['gps_address']    as String? ?? '';
+    // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+    final addr        = reportPlaceText(report) ?? '';
     // 作業3: 複数選択に対応（'・' 区切り）
     final trans       = transportNamesOf(report).join('・');
     final distKm      = report['distance_km'];

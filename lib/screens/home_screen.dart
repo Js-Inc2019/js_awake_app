@@ -29,13 +29,23 @@ import '../main.dart'
         ReportStore,
         WorkerReportItem,
         SpeechManager,
-        WorkerNameStore,
         fetchGpsAddress,
+        reportPhotosFor,
         showJsSnackbar,
         NotificationManager,
         OvertimeDialog;
 import '../core/theme/field_tokens.dart';
 import '../core/permitted_report_labels.dart';
+// 便BJ：日報の報告場所の出し方（住所と「測れませんでした（…）」）・送る所の失敗の字。
+import '../core/report_place_labels.dart';
+import '../core/report_send_texts.dart';
+// 便BJ：月の日報が上限で切れた時の帯・電波が戻った時の送り直し・今の勤務の種類（保存した物）。
+import '../widgets/reports_truncated_bar.dart';
+import '../services/pending_report_auto_retry.dart';
+import '../utils/saved_shift_type.dart';
+import '../utils/today_marks.dart';
+// 送れなかった時の枠（後から出す日報の画面と同じ部品・便BJ）。
+import 'substitute_past_day_screen.dart' show PastDayFrame, kPastDayFrameBody;
 // 押せない理由の1行と、その文の組み方（便F14・承認の理由の行と振替の同意の理由の行が同じ1本を使う）。
 import '../widgets/deny_reason_line.dart';
 import 'revision_inbox_screen.dart';
@@ -441,6 +451,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // fetchGpsAddress(main.dart) の status をそのまま保持する。
   // '' = 未取得 / 'ok' / 'address_failed'（座標フォールバック）/ 'gps_failed'
   String _gpsStatus = '';
+  // 'gps_failed' の時の理由の符号（便BJ・fetchGpsAddress の failReason・サーバの reports.gps_fail_reason）。測れた時は null。
+  //   ★今日の日報と残業の日報の入れ物へ渡す（送る時に gps_address を空にして理由を送る＝main.dart の reportBodyFor）。
+  String? _gpsFailReason;
   bool _gpsLoading = false;
   double? _lat;
   double? _lon;
@@ -484,13 +497,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   bool _routeFailed = false;
   // いま出している _routeComparisons が鍵付きキャッシュ由来か（「前回の目安」表示用）。
   bool _routeFromCache = false;
+  // 出発地の住所が無いので目安を取らなかった（便BJ・見本 v1 の ⑥）。true の間は帯の外に kHomeAddressMissingNote の※を出す。
+  bool _homeAddressMissing = false;
   // 世代トークン。_calculateRoutes 開始時に採番し、setState 直前に最新か検査して
   // 古い結果を破棄する（GPS再取得 × 起点変更 の競合根治）。
   int _routeGen = 0;
 
   // ─── 作業内容 ───
   final _workCtrl    = TextEditingController();
-  final _otherCtrl   = TextEditingController();
+  // 「その他」の字の欄 _otherCtrl は便BJ で撤去した（画面に欄が無く、いつも空だった＝見本 v1 の ⑦）。
   final _parkingCtrl = TextEditingController();
   List<String> _workPhotoPaths = [];
   List<String> _parkingPhotoPaths = [];
@@ -521,9 +536,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   「追加の申告」だけに絞るために done と区別して保持する。
   bool _todayClosed = false;
 
-  // 完了ビューに渡す送信成否。送信直後経路は実成否、復元経路は暫定true
-  // （S4-②: 送信成否がtoday_work_statusに永続化されていないため復元時の実態は不明。今回は未修正）
-  bool _lastSentOk = true;
+  // 完了ビューに渡す送信成否（元: _lastSentOk）は便BJ で撤去した。
+  //   元: 送信直後経路は実成否、復元経路は暫定 true（送り直しで送れても「未送信」のまま・開き直すと残っていても「報告完了」）。
+  //   →再（2026-10-14・便BJ・見本 v1 の ①案A）: 頭の字は、端末に残っている今の人の日報の数
+  //   （ReportStore.instance.pendingOwnCount）で決める（_buildHomeTabContent の ValueListenableBuilder）。
+
+  // 確認の画面に出す枠（便BJ・見本 v1 の ② と ③）。送る前に止まった時だけ入る（null＝出さない）。
+  //   ★_submit の頭で null に戻す。確認の画面は bottomNoticeOf（送るボタンの真上）で、作り直すたびに読む。
+  Widget? _sendNotice;
+
+  // 電波が戻った時の送り直し（便BJ・見本 v1 の ①案A）。initState で聞き始め、dispose で止める。
+  final PendingReportAutoRetry _autoRetry =
+      PendingReportAutoRetry(retry: ReportStore.instance.retryPending);
 
   // ─── 日報フォームのステップ（現場→移動→作業→確認）───
   // 1=現場 / 2=移動 / 3=作業。確認(=4)は既存の別画面 ReportConfirmScreen が担うため
@@ -577,11 +601,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _loadUnreadCount();
     _restoreTabIndex();
     _loadOriginPrefs();
-    _initTodayReportDone();
-    _restoreShiftType();
+    // 便BJ（検分 a253 の S2）: 元は _initTodayReportDone() と _restoreShiftType() を待たずに並べて呼び、送った印を
+    //   日勤の鍵で読む事があった（夜勤の人は、送った後でも日報のフォームが開いた）。→ 1本に並べ直した。
+    //   ★下書きを戻す所（_restoreDraft）は、これが終わるのを待つ（検分 a254 の Y2）。
+    _todayStateReady = _restoreTodayState();
     _restoreLastSite();
     _restoreLastTransport();
     _workCtrl.addListener(_onWorkContentChanged);
+    // 便BJ（見本 v1 の ①案A・③）: 残っている日報の数を読む（開き直した時の頭の字）・送り直しで除いた写真を知らせる・
+    //   電波が戻った時に送り直す。
+    ReportStore.instance.refreshPendingCount();
+    ReportStore.instance.droppedPhotoCount.addListener(_onDroppedPhotos);
+    // 開いた時にも1回見る（シェルが無い間に足された数を、次に数が変わるまで待たずに出す・検分 a251 の N8）。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onDroppedPhotos());
+    _autoRetry.start();
     if (widget.restoreWorkStatus != null) {
       WidgetsBinding.instance.addPostFrameCallback(
           (_) => _restoreDraft(widget.restoreWorkStatus!));
@@ -602,6 +635,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     });
   }
 
+  // 送り直しで、読めなかった写真を除いて送った時の知らせ（便BJ・見本 v1 の ③＝黙って落とさない）。
+  //   ★知らせたら 0 に戻す（同じ写真を2回知らせない）。
+  void _onDroppedPhotos() {
+    final n = ReportStore.instance.droppedPhotoCount.value;
+    if (n <= 0 || !mounted) return;
+    ReportStore.instance.droppedPhotoCount.value = 0;
+    showJsSnackbar(context, droppedPhotosText(n), isWarning: true);
+  }
+
   void _onWorkContentChanged() {
     if (_workCtrl.text.isNotEmpty) {
       _saveWorkStatus('working');
@@ -615,13 +657,21 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 業務日は暦日ではなく businessDateForShift(shift) （夜勤の深夜〜午前は始業日=前日）で、
   // 送信される report_date と同じ物差しになる。
   // シフトごとに独立しているため、夜勤done後に日勤へ切り替えても夜勤のdone記録は消えない。
-  static String reportDoneKey(String shiftType) => 'report_done_$shiftType';
+  // →再（2026-10-14・便BJ・見本 v2 の ⑫・ボスの裁定【Q141】）: 印に書いた人を付ける＝'<業務日>|<status>|<user_id>'。
+  //   ログアウト・締め出し・期限切れの掃除は、人の印の付いた印を消さない。読む時は、書いた人が今の人の時だけ使う。
+  //   鍵の名と、字の形と読み方は utils/today_marks.dart の1本（ここに写しを作らない）。
+  static String reportDoneKey(String shiftType) => reportDoneKeyOf(shiftType);
 
   // 現 _shiftType のキーにのみ書く（他シフトのキーには触れない）。
-  Future<void> _saveWorkStatus(String status) async {
+  //   owner＝書いた人（渡さなければ今ログインしている人）。分からない時（ログインしている人が居ない）は書かない。
+  //   ★今日の日報を送った後の印は、日報の持ち主で書く（送る途中に締め出されて今の人が居なくなっても、
+  //     同じ人がログインし直した時に送った後の画面が出る＝検分 a251 の N7）。
+  Future<void> _saveWorkStatus(String status, {String? owner}) async {
     final prefs = await SharedPreferences.getInstance();
+    final who = owner ?? todayMarkOwnerOf(prefs);
+    if (who.isEmpty) return;
     final bizDate = businessDateForShift(_shiftType, DateTime.now());
-    await prefs.setString(reportDoneKey(_shiftType), '$bizDate|$status');
+    await prefs.setString(reportDoneKey(_shiftType), reportDoneValue(bizDate, status, who));
   }
 
   // 現 _shiftType のキーを読み、業務日が一致するときだけ status 文字列を返す。
@@ -629,14 +679,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 旧形式（today_date / today_work_status / report_done_shift の3キー）は読み捨て。
   // 旧キーしか無い端末は新キーが null → 未完了＝フォームに落ちるだけで袋小路なし。
   // 送信済みデータはBEにあるため、ここで無理に移行するより開ける方を選ぶ。
+  // →再（2026-10-14・便BJ・【Q141】）: 読み方（業務日が同じ・書いた人が今の人・前の形は今の人の物・不正値は null）は
+  //   utils/today_marks.dart の reportDoneStatusOf の1本。
   Future<String?> _readWorkStatusToday() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(reportDoneKey(_shiftType));
-    if (raw == null) return null;
-    final parts = raw.split('|');
-    if (parts.length != 2) return null;   // 不正値は記録なし扱い（袋小路禁止）
-    if (parts[0] != businessDateForShift(_shiftType, DateTime.now())) return null;
-    return parts[1];
+    return reportDoneStatusOf(prefs.getString(reportDoneKey(_shiftType)),
+        bizDate: businessDateForShift(_shiftType, DateTime.now()),
+        me: todayMarkOwnerOf(prefs));
   }
 
   // 「報告済み」判定式はこの1本だけ。
@@ -694,7 +743,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   ・完了ビュー解除（_todayReportDone=false）＋ prefs を 'working' へ
   //   ・現場/GPS/移動手段/本文まわりを白紙にし、ステップを「現場」から入り直す
   Future<void> _resetForNextReport() async {
-    _otherCtrl.clear();
     _parkingCtrl.clear();
     _carpoolNameCtrl.clear();
     _transportMemoCtrl.clear();
@@ -703,6 +751,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     setState(() {
       _todayReportDone = false;
       _gpsAddress = '';
+      _gpsFailReason = null;   // 便BJ: 場所の字と理由の符号は一緒に白紙にする
       _transports = {};
       _carType = 'own';
       _routeComparisons = {};
@@ -873,28 +922,61 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 勤務区分の永続化：業務日スコープ。
   // 「同じ業務日のあいだだけ選択を維持する」＝夜勤者の1タップを守りつつ、
   // 別の業務日へ夜勤設定を引きずる誤爆を防ぐ。
+  //   →再（2026-10-14・便BJ・【Q141】）: 業務日に書いた人を付ける（'<業務日>|<user_id>'・utils/today_marks.dart）。
+  //   ログインしている人が居ない時は書かない。
   Future<void> _saveShiftType(String v) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('shift_type', v);
-    await prefs.setString(
-        'shift_business_date', businessDateForShift(v, DateTime.now()));
+    final who = todayMarkOwnerOf(prefs);
+    if (who.isEmpty) return;
+    await prefs.setString(kShiftTypeKey, v);
+    await prefs.setString(kShiftBusinessDateKey,
+        shiftDateValue(businessDateForShift(v, DateTime.now()), who));
   }
+
+  // 開いた時の今日の印（便BJ・見本 v2 の ⑫・ボスの裁定【Q141】・検分 a253 の S2・S3）。この順で、1つずつ待つ：
+  //   (1) 別の人の送った・締めた印を消す（utils/today_marks.dart の clearOtherOwnersTodayMarks）
+  //   (2) 勤務の種類を戻す（_restoreShiftType・別の人の勤務の種類はここで消える）
+  //   (3) 戻した種類の送った印を読む（_initTodayReportDone）
+  //   ★投げない（1つが止まっても次へ進む＝(2) で止まっても (3) は読む・検分 a254 の Y3）。
+  Future<void> _restoreTodayState() async {
+    try {
+      await clearOtherOwnersTodayMarks(await SharedPreferences.getInstance());
+    } catch (e) {
+      debugPrint('別の人の今日の印を消せませんでした（使わないだけで進める）: $e');
+    }
+    try {
+      await _restoreShiftType();
+    } catch (e) {
+      debugPrint('勤務の種類を戻せませんでした（今の種類のまま進める）: $e');
+    }
+    try {
+      await _initTodayReportDone();
+    } catch (e) {
+      debugPrint('送った印を読めませんでした: $e');
+    }
+  }
+
+  // 開いた時の今日の印が戻り終わる時（initState で入れる）。★下書きを戻す所が待つ（検分 a254 の Y2＝下書きを戻すと
+  //   作業内容の欄の聞き手が「作業中」の印を書く。勤務の種類を戻す前に書くと、日勤の鍵に書いて、日勤の送った印を上書きする）。
+  Future<void> _todayStateReady = Future<void>.value();
 
   // 起動時: 保存時の業務日と「いま同じ勤務区分で計算した業務日」が一致する場合のみ復元。
   // 不一致・欠落・不正値は 'day' にリセットし prefs も掃除する（引きずり防止）。
   Future<void> _restoreShiftType() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedType = prefs.getString('shift_type');
-    final savedDate = prefs.getString('shift_business_date');
-    final valid = (savedType == 'day' || savedType == 'night') &&
-        savedDate != null &&
-        savedDate == businessDateForShift(savedType!, DateTime.now());
-    if (valid) {
+    // 決まり（保存した業務日と、今その種類で数えた業務日が同じ時だけ）は utils/saved_shift_type.dart の1本（便BJ・
+    //   日報漏れの申告の口も同じ1本で今の勤務の種類を読む）。
+    //   →再（2026-10-14・便BJ・【Q141】）: 書いた人が今の人でない保存は、無い物として読む（下で消す＝別の人の印を使わない）。
+    final savedType = shiftTypeIfSameBusinessDate(
+        prefs.getString(kShiftTypeKey),
+        shiftDateOf(prefs.getString(kShiftBusinessDateKey), me: todayMarkOwnerOf(prefs)),
+        DateTime.now());
+    if (savedType != null) {
       if (mounted) setState(() => _shiftType = savedType);
       return;
     }
-    await prefs.remove('shift_type');
-    await prefs.remove('shift_business_date');
+    await prefs.remove(kShiftTypeKey);
+    await prefs.remove(kShiftBusinessDateKey);
     if (mounted && _shiftType != 'day') setState(() => _shiftType = 'day');
   }
 
@@ -977,6 +1059,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   Future<void> _restoreDraft(String workStatus) async {
+    // 勤務の種類と今日の印が戻り終わるのを待ってから、欄に字を入れる（検分 a254 の Y2）。
+    await _todayStateReady;
     final prefs = await SharedPreferences.getInstance();
     final transportName = prefs.getString('today_transport') ?? '';
     final workContent   = prefs.getString('today_work_content') ?? '';
@@ -1091,7 +1175,6 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   void dispose() {
     _workCtrl.removeListener(_onWorkContentChanged);
     _workCtrl.dispose();
-    _otherCtrl.dispose();
     _parkingCtrl.dispose();
     _carpoolNameCtrl.dispose();
     _carpoolCompanyCtrl.dispose();
@@ -1101,6 +1184,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     ReportTabNavigator.unregister(_openReportTabCb);
     PunchRemindDialogNavigator.unregister(_punchRemindCb);
     RestDayRefresh.changes.removeListener(_onRestDayChanged);
+    ReportStore.instance.droppedPhotoCount.removeListener(_onDroppedPhotos);
+    _autoRetry.stop();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1119,6 +1204,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _fetchGps();
       _loadUnreadCount();
+      // ★未送信の日報を送り直す（便BJ・見本 v1 の ①案A・同じ日報を2回送らない作りは ReportStore の中）。
+      ReportStore.instance.retryPending();
       // ★要対応の件数も読み直す（便F13）。本日休みの状態は PunchScreen が自分の
       //   didChangeAppLifecycleState で読み直す（番号は進めない＝2回引かない）。
       _loadSubstituteCount();
@@ -1212,14 +1299,19 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('GPS取得エラー: $e');
     }
-    final (:address, lat: _, lon: _, :status) = await fetchGpsAddress();
+    final (:address, lat: _, lon: _, :status, :failReason) = await fetchGpsAddress();
     // キャッシュ焼き付きの停止: 住所の構築に成功した値だけを保存する。
     // 座標フォールバック('address_failed')や '位置情報の権限がありません' 等
     // ('gps_failed')を保存すると、次回起動時に _loadCacheAndStart が
     // それを復元して住所のふりをして表示し続けるため。
     if (status == 'ok') prefs?.setString('gps_address', address);
     if (mounted) {
-      setState(() { _gpsAddress = address; _gpsStatus = status; _gpsLoading = false; });
+      setState(() {
+        _gpsAddress = address;
+        _gpsStatus = status;
+        _gpsFailReason = failReason;
+        _gpsLoading = false;
+      });
       _loadWeather();
       // GPSが揃った時点が「フォームに目的地が確定した時点」。
       // 鍵が完全一致するキャッシュがあれば即表示し、続けて必ず再計算する。
@@ -1433,20 +1525,42 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     //   後から返った古い結果が新しい結果を上書きする事故を根治する。
     final myGen = ++_routeGen;
 
-    final String originAddr;
+    // 元: 自宅の住所が無い時は、決め打ちの住所（兵庫県神戸市長田区）から計算して、その距離・金額を日報に入れた
+    //   （決め打ちを使った事は、どこにも出なかった）。
+    // →再（2026-10-14・便BJ・見本 v1 の ⑥）: 住所が無い時は目安を取らない・値を入れない（後から出す日報と同じ）。
+    //   帯は「この手段の目安は取得できません」・帯の外に kHomeAddressMissingNote の※。
+    final String? originAddr;
     if (_originType == 'office' && _companyAddress.isNotEmpty) {
       originAddr = _companyAddress;
     } else {
-      originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
+      originAddr = await ProfileService().getHomeAddress();
     }
     // ★段4: token の prefs 直読みを撤去。RoutesService が AuthService 経由で載せる
     //   （画面がトークンを持ち回らない）。送るヘッダの中身は不変。
     if (myGen != _routeGen) return;             // 追い越された＝この計算は捨てる
 
+    if (originAddr == null || originAddr.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _routeComparisons   = {};
+          _loadingRoutes      = false;
+          _routeFailed        = false;
+          _routeFromCache     = false;
+          _homeAddressMissing = true;
+        });
+      }
+      return;
+    }
+
+    // 元: 取り直しの頭で前の値を消さなかった（取り直しの間に送ると前の値が入った＝窓の「金額が入りません」と違う）。
+    // →再（2026-10-14・便BJ・見本 v1 の (9)）: 取り直しの頭で前の値を消す（計算中の帯は「ルート計算中...」）。
     if (mounted) {
       setState(() {
         _loadingRoutes = true;
         _routeFailed   = false;
+        _routeComparisons   = {};    // 取り直しの頭で前の値を消す（便BJ）
+        _routeFromCache     = false;
+        _homeAddressMissing = false;
       });
     }
 
@@ -1497,20 +1611,26 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // フォームを開いた時に呼ぶ。キー完全一致なら即表示し、裏で再計算を走らせる。
   // 復元表示中は _routeFromCache=true で「前回の目安」と明示する（嘘をつかない）。
+  //   →再（2026-10-14・便BJ）: 呼ぶのは _fetchGps の終わり（フォームを開いた時・アプリへ戻った時・起動の時・
+  //   2件目の片付けの後・現在地の行の更新）。住所が無い時は、下の _calculateRoutes と同じく決め打ちの住所を使わない。
   Future<void> _restoreRouteCacheThenRefresh() async {
-    if (_gpsAddress.isEmpty) return;   // 目的地キーが定まらない＝復元も再計算もできない
+    // 現在地の住所の字が空＝今の _calculateRoutes が何もしない（下の1行目）ので、復元も再計算もしない。
+    //   （元の説明「目的地キーが定まらない」は事実と違った＝現場を選んでいるか座標が在れば鍵は決まる。）
+    if (_gpsAddress.isEmpty) return;
     try {
-      final String originAddr;
+      final String? originAddr;
       if (_originType == 'office' && _companyAddress.isNotEmpty) {
         originAddr = _companyAddress;
       } else {
-        originAddr = await ProfileService().getHomeAddress() ?? '兵庫県神戸市長田区';
+        originAddr = await ProfileService().getHomeAddress();
       }
       final prefs    = await SharedPreferences.getInstance();
       final savedKey = prefs.getString(_kRouteCacheKey);
       final savedJson = prefs.getString(_kRouteCacheJson);
       // キー欠落・JSON欠落は復元しない（fail-safe＝再計算に落とす）
-      if (savedKey != null && savedJson != null &&
+      // 住所が無い時も復元しない（便BJ・下の _calculateRoutes が※を出して終わる）。
+      if (originAddr != null && originAddr.trim().isNotEmpty &&
+          savedKey != null && savedJson != null &&
           savedKey == _routeCacheKeyFor(originAddr)) {
         final decoded = jsonDecode(savedJson);
         if (decoded is Map) {
@@ -1542,6 +1662,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         },
       );
 
+  // 確認の画面の枠（便BJ・見本 v1 の ② と ③）。形は後から出す日報の枠（late_report_screen.dart の _frame の
+  //   見出しつきの姿）と同じ＝PastDayFrame・線と見出しは statusError・見出しは kSendFailedHeading。
+  Widget _sendFrame(String text) => PastDayFrame(
+        lineColor: FieldTokens.statusError,
+        heading: kSendFailedHeading,
+        headingColor: FieldTokens.statusError,
+        body: Text(text, style: kPastDayFrameBody),
+      );
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (_userName.isEmpty) {
@@ -1553,28 +1682,41 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       _jumpToStep(2);   // 直せる場所（移動ステップ）へ戻す。条件式・文言は不変
       return;
     }
-    setState(() => _submitting = true);
-    if ((_transports.contains(TransportType.car) || _transports.contains(TransportType.other)) && _parkingPhotoPaths.isEmpty) {
-      // 窓（題・本文・2つのボタン）は confirmNoParkingPhoto（lib/widgets/report_form_steps.dart）へ字のまま出した（便F8b-2）。
-      final proceed = await confirmNoParkingPhoto(context);
-      if (!proceed) {
-        if (mounted) setState(() => _submitting = false);
-        _jumpToStep(2);   // 駐車場写真の帯は移動ステップにある。条件式・ダイアログ本文は不変
-        return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
-      }
-    }
-    final name = _userName;
-    final gpsAddr = _gpsAddress;
+    // 便BJ（見本 v1 の ②）: 前の回の枠を消してから始める。
+    setState(() {
+      _submitting = true;
+      _sendNotice = null;
+    });
+    // ★「端末に残った」か（ReportStore.addReport が箱へ入れ終えたか）。
+    //   元: try に catch が無く、端末の保存などが失敗すると、何も出ずに確認の画面に留まった（送れた後の片付けで
+    //   失敗した時も、完了の画面へ進まなかった）。
+    //   →再（2026-10-14・便BJ・見本 v1 の ②）: 残る前に止まった時だけ、確認の画面に枠「送信できません」を出して
+    //   「報告を送信」をまた押せるようにする。残った後は、何で止まっても完了の画面へ進む（2枚目を作らせない）。
+    var stored = false;
     try {
+      // 元: 窓を出す式は「車か その他」かつ写真0枚（相乗りで帯が無くても窓が出た）で、窓は try の外だった。
+      // →再（2026-10-14・便BJ・見本 v1 の ④）: 帯を出す式（reportParkingVisible）と同じ1本＋写真0枚。
+      //   try の中へ入れた（後から出す日報の _submit と同じ）。
+      if (reportParkingVisible(_transports, _carType) && _parkingPhotoPaths.isEmpty) {
+        // 窓（題・本文・2つのボタン）は confirmNoParkingPhoto（lib/widgets/report_form_steps.dart）へ字のまま出した（便F8b-2）。
+        final proceed = await confirmNoParkingPhoto(context);
+        if (!proceed) {
+          if (mounted) setState(() => _submitting = false);
+          _jumpToStep(2);   // 駐車場写真の帯は移動ステップにある。条件式・ダイアログ本文は不変
+          return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
+        }
+      }
+      final name = _userName;
+      final gpsAddr = _gpsAddress;
       // 作業2: [相乗り:〇〇] の work_content 連結は撤去。相乗りは carpool_company/carpool_name
       //   列を真実源にする（二重真実の禁止）。
       // D-2: 駐車料金の parkingPrefix（work_content への文字列埋め込み）は撤去済。
       //      金額の真実源を parking_fee 列ひとつに寄せる。
-      // 作業内容の頭の字（[その他:…]・【移動】…）・駐車料金・相乗りの2つの組み方は、
+      // 作業内容の頭の字（【移動】…）・駐車料金・相乗りの2つの組み方は、
       //   lib/widgets/report_form_steps.dart の関数に在る（式は同じ・欄の名前を引数の名前に替えただけ）。読む順と場所は今までどおり。
+      //   →再（2026-10-14・便BJ）: 「[その他:…]」の字の欄（_otherCtrl）は撤去した（見本 v1 の ⑦）。
       final contentPrefix = reportWorkContentPrefix(
         transports: _transports,
-        otherText: _otherCtrl.text,
         memoText: _transportMemoCtrl.text,
       );
       final parkingFeeValue = reportParkingFeeValue(_parkingCtrl.text);
@@ -1590,8 +1732,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         carType: _carType,
         text: _carpoolNameCtrl.text,
       );
-      await WorkerNameStore.instance.add(name);
-      final sent = await ReportStore.instance.addReport(WorkerReportItem(
+      // 氏名の名簿へ足す行（WorkerNameStore.instance.add）は撤去した（便BJ・見本 v1 の ⑧＝名簿は書き足すだけで、どこにも出なかった）。
+      final item = WorkerReportItem(
         name: name,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
@@ -1600,6 +1742,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         workPhotoPaths: _workPhotoPaths,
         parkingPhotoPaths: _parkingPhotoPaths,
         gpsAddress: gpsAddr,
+        // 場所を測れなかった時の理由の符号（便BJ・見本 v1 の A）。送る時は gps_address を空にする（main.dart の reportBodyFor）。
+        gpsFailReason: _gpsFailReason,
         // 提出座標（_fetchGps が置いた最新値）。null なら main.dart が送らない。
         // ★diffKey（差異検知の7要素）には入れない＝確認画面の判定は1文字も変えていない。
         gpsLat: _lat,
@@ -1616,42 +1760,57 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 作業2: 相乗り相手（構造化）
         carpoolCompany: carpoolCompany,
         carpoolName:    carpoolName,
-      ));
+      );
+      // 便BJ（見本 v1 の ③）: 写真が全部読めるか、送る前に確かめる（元: 読めない写真を黙って外して送った）。
+      //   読めなければ送らずに枠を出す（後から出す日報と同じ字）。
+      final photos = await reportPhotosFor(item);
+      if (!mounted) return;
+      if (photos.length < item.workPhotoPaths.length + item.parkingPhotoPaths.length) {
+        setState(() => _sendNotice = _sendFrame(kPhotoUnreadableText));
+        return;
+      }
+      await ReportStore.instance.addReport(item);
+      stored = true;
+      // ここから先は片付け（便BJ: ここで止まっても、日報は端末に残っている＝下で完了の画面へ進む）。
       await ReportStore.instance.retryPending();
-      _saveWorkStatus('done');
+      // 送った印は日報の持ち主で書く（送る途中に締め出された時も、同じ人の印になる＝【Q141】・検分 a251 の N7）。
+      _saveWorkStatus('done', owner: item.ownerUserId);
       _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
-      if (!mounted) return;
-      // 送信完了の snackbar は撤去。直後に出る完了ビュー(AfterReportBody)が
-      // 「報告完了 / ☀日勤 7/22分を送信しました」または「未送信（再送待ち）」を
-      // バッジ付きで正面に出しており、同じ事実の二重表示だった。
-      // snackbar 側は完了ビューの行動カードに数秒かぶるだけで情報を足していない。
-      // ★成否(sent)は下の _lastSentOk へそのまま渡っており、表示の真実は失われない。
-      _carpoolNameCtrl.clear();
-      _transportMemoCtrl.clear();
-      setState(() {
-        _transports = {};
-        _carType = 'own';
-        _workCtrl.clear();
-        _otherCtrl.clear();
-        _parkingCtrl.clear();
-        _workPhotoPaths = [];
-        _parkingPhotoPaths = [];
-        // ★裁定A+引き継ぎ: 送信後に現場を「対象なし」へ戻す処理は撤去した。
-        //   選んだ現場は次回のデフォルトとして残るのが裁定であり、
-        //   ここで null に戻すと同じ日の2枚目で毎回選び直しになるため。
-        //   payload は上の addReport で送信済み＝この変更の影響を受けない。
-        // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
-        // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
-        _lastSentOk = sent;   // 送信直後経路は実際の送信成否を渡す
-        _todayReportDone = true;
-        // K3: 直前に刻んだ work_status は 'done'＝締め済みではない。
-        //   prefs とミラーがズレないようここでも false に揃える。
-        _todayClosed = false;
-      });
+    } catch (e) {
+      debugPrint('日報の送信に失敗: $e');
+      if (!stored && mounted) setState(() => _sendNotice = _sendFrame(kSendFailedText));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+    if (!stored || !mounted) return;
+    // 送信完了の snackbar は撤去。直後に出る完了ビュー(AfterReportBody)が
+    // 「報告完了 / ☀日勤 7/22分を送信しました」または「未送信（再送待ち）」を
+    // バッジ付きで正面に出しており、同じ事実の二重表示だった。
+    // snackbar 側は完了ビューの行動カードに数秒かぶるだけで情報を足していない。
+    // ★（元）成否(sent)は下の _lastSentOk へそのまま渡っており、表示の真実は失われない。
+    //   →再（2026-10-14・便BJ・見本 v1 の ①案A）: 完了ビューの頭の字は、端末に残っている今の人の日報の数
+    //   （ReportStore.instance.pendingOwnCount）で決める（送り直しで送れたら「報告完了」に替わる）。
+    _carpoolNameCtrl.clear();
+    _transportMemoCtrl.clear();
+    setState(() {
+      _transports = {};
+      _carType = 'own';
+      _workCtrl.clear();
+      _parkingCtrl.clear();
+      _workPhotoPaths = [];
+      _parkingPhotoPaths = [];
+      // ★裁定A+引き継ぎ: 送信後に現場を「対象なし」へ戻す処理は撤去した。
+      //   選んだ現場は次回のデフォルトとして残るのが裁定であり、
+      //   ここで null に戻すと同じ日の2枚目で毎回選び直しになるため。
+      //   payload は上の addReport で送信済み＝この変更の影響を受けない。
+      // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
+      // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
+      _todayReportDone = true;
+      // K3: 直前に刻んだ work_status は 'done'＝締め済みではない。
+      //   prefs とミラーがズレないようここでも false に揃える。
+      _todayClosed = false;
+    });
   }
 
   // 作業現場の選択ボトムシート（getSites をサルベージ・「対象なし」を最上段固定）
@@ -1754,6 +1913,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
     // 押下時点の値をスナップショットして確認画面へ渡す（表示はこの静止画）。
     // 送信は従来どおり現在stateを読む _submit がやる。
+    // 便BJ（見本 v1 の ② と ③）: 前の回の枠を消してから開く。枠は bottomNoticeOf で渡す（_submit が止まった時だけ入る）。
+    //   ★置く所は送るボタンの真上（見本 v1 の ②③・検分 a251 の S2＝内容のカードが長くても押した所のすぐ上に出る）。
+    setState(() => _sendNotice = null);
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
@@ -1762,6 +1924,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           currentOf: _buildSnapshot,
           onSend:    _submit,
           isDone:    () => _todayReportDone,
+          bottomNoticeOf: () => _sendNotice,
         ),
       ),
     );
@@ -2192,9 +2355,17 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Widget _buildHomeTabContent() {
     // 完了ビューが占有中は日報フォームを出さない＝到達不能（二重報告防止の要）
     if (_todayReportDone) {
-      return AfterReportBody(
+      // 便BJ（見本 v1 の ①案A）: 頭の字は、端末に残っている今の人の日報の数で決める（0＝「報告完了」）。
+      //   送り直し（電波が戻った時・アプリへ戻った時・今すぐ再送）で数が変わると、頭の字も替わる。
+      return ValueListenableBuilder<int>(
+        valueListenable: ReportStore.instance.pendingOwnCount,
+        builder: (_, pending, __) => ValueListenableBuilder<String?>(
+        // 便BJ（見本 v2 の ⑬・ボスの裁定【Q142】）: 送り先が受け付けなかった日報が在れば、その答えの字を3行目に出す。
+        valueListenable: ReportStore.instance.pendingRefusedMessage,
+        builder: (_, refused, __) => AfterReportBody(
         workerName: _userName,
-        sent: _lastSentOk,
+        sent: pending == 0,
+        refusedMessage: refused,
         // 主ボタン「今日はここまで」＝日報フォームの全画面route(_pushReportForm)を閉じる。
         // maybePop: 閉じられる route が無い場合は何もしない（袋小路もクラッシュも作らない）。
         // K3(Q8): みなしのときだけ「締めますか？」を挟んで 'closed' を刻む（_onCloseToday）。
@@ -2221,6 +2392,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 「追加の申告」＝種別を選ばせる1段を挟むだけ。残業の実処理は build の下の
         // _openOvertimeDialog() へ丸ごと退避しており、中身は1文字も変えていない。
         onOvertime: _openExtraDeclarationPicker,
+      ),
+      ),
       );
     }
     return Container(
@@ -2352,6 +2525,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   routeFailed: _routeFailed,
                   routeFromCache: _routeFromCache,
                   onRouteRetry: _calculateRoutes,
+                  // 自宅の住所が無いので目安を取らなかった時の※（便BJ・見本 v1 の ⑥）。
+                  routeNote: _homeAddressMissing ? kHomeAddressMissingNote : null,
                   carpoolCompanyController: _carpoolCompanyCtrl,
                   // 会社名の候補は、相乗りの欄が出る時にだけ計算する（今までと同じ）。
                   //   組み方は carpoolCompanyNamesOf（lib/widgets/report_form_steps.dart・便F8b-2 で字のまま出した）。
@@ -2494,6 +2669,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   transport: TransportType.other,
                   workContent: '【残業】$start〜$end $overtime',
                   gpsAddress: _gpsAddress,
+                  // 場所を測れなかった時の理由の符号（便BJ・見本 v1 の A＝今日の日報と同じ）。
+                  gpsFailReason: _gpsFailReason,
                   shiftType: _shiftType,   // 残業報告も同じ勤務区分で業務日を揃える
                 ));
                 if (ctx.mounted) Navigator.pop(ctx);
@@ -2608,14 +2785,27 @@ class _ShortBreakSheetState extends State<_ShortBreakSheet> {
       return;   // 送信しない
     }
     setState(() { _error = null; _submitting = true; });
-    final r = await WorkModeService().breakRequest(
-      breakMinutes: _selectedMin,
-      reason:       reason,
-      workDate:     widget.workDate,
-      // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。
-      //   BE は未指定=day 互換（routes/attendance.js POST /break-request）。
-      shiftType:    widget.shiftType,
-    );
+    // 元: 例外の受けが無く、投げると回る印が戻らないまま止まった。
+    // →再（2026-10-14・便BJ・見本 v1 の ②＝出し直しの画面・残業の窓と同じ形）: 受けて、回るのを止め、シートの中に
+    //   kSendFailedText を出す（もう一度押せる）。
+    final ApiResult<Map<String, dynamic>> r;
+    try {
+      r = await WorkModeService().breakRequest(
+        breakMinutes: _selectedMin,
+        reason:       reason,
+        workDate:     widget.workDate,
+        // N6: 同日に日勤/夜勤の2行が並存しうるため、どちらの行への申告かを明示する。
+        //   BE は未指定=day 互換（routes/attendance.js POST /break-request）。
+        shiftType:    widget.shiftType,
+      );
+    } catch (e) {
+      debugPrint('休憩の申告の送信に失敗: $e');
+      if (mounted) {
+        setState(() { _submitting = false; _error = kSendFailedText; });
+        widget.onNotify(kSendFailedText, true);
+      }
+      return;
+    }
     if (!mounted) return;
     if (r.ok) {
       Navigator.of(context).pop();
@@ -2906,7 +3096,8 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
     final r = widget.report;
     final worker = r['worker_name'] as String? ?? '(氏名不明)';
     final submitted = _fmtSubmittedJst(r['created_at'] as String?);  // 生ISO禁止・JST整形
-    final gps = r['gps_address'] as String?;
+    // 報告場所の字（便BJ・見本 v1 の A）: 住所か「測れませんでした（…）」（lib/core/report_place_labels.dart・事務アプリと同じ字）。
+    final gps = reportPlaceText(r);
     return AlertDialog(
       backgroundColor: FieldTokens.surfaceCard,
       title: const Text('現場の紐づけ',
@@ -2987,7 +3178,9 @@ class _SiteLinkGateDialogState extends State<_SiteLinkGateDialog> {
         builder: (_) => SiteQuickRegisterScreen(
           // a案: 対象日報の gps_address を渡し、画面は即開く（geocode を待たない）。
           // 住所欄の初期値になり、かつ画面側で gps_address→geocode→matchSites の重複チェックに使う。
-          initialAddress: widget.report['gps_address'] as String?,
+          //   →再（2026-10-14・便BJ・見本 v1 の A）: 渡すのは住所だけ（reportPlaceOf の address）。測れなかった日報
+          //   （「位置情報の権限がありません」などの字・理由の符号）は住所として渡さない＝null（住所欄は空・座標にしない）。
+          initialAddress: reportPlaceOf(widget.report).address,
           // reports に lat/lng 列は無い（prod_schema）ため数値座標は渡さない（画面が gps_address を
           // geocode して座標化する）。職長の現在GPSは使わない（誤マッチ回避・確定設計）。
           lat: null,
@@ -3898,6 +4091,8 @@ class _ReviewTabState extends State<ReviewTab> {
   List<Map<String, dynamic>> _targets = []; // 承認待ち＋差し戻し
   bool _loading = false;
   bool _failed  = false;
+  // 月の日報がサーバの上限で切れた（便BJ・見本 v1 の ⑪）。true の間は上に ReportsTruncatedBar。
+  bool _reportsTruncated = false;
 
   // 締め日を変えた月の「どちらの期間か」を人に選ばせる受け皿。
   //   ★日報と休憩の2本で共有する。どちらも同じ月を見るので、1度選べば両方に効く。
@@ -3959,6 +4154,7 @@ class _ReviewTabState extends State<ReviewTab> {
       _loading = true;
       _failed  = false;
       _targets = [];
+      _reportsTruncated = false;
     });
     // 日報と休憩を並行取得。休憩は fail-soft＝失敗しても日報一覧は出す。
     // ★2本とも同じ月を見るので受け皿は1つ。並行のままでよい（受け皿は先に見つかった
@@ -3993,7 +4189,7 @@ class _ReviewTabState extends State<ReviewTab> {
       _breakFailed  = !breakRes.ok;
     });
     if (result.ok) {
-      final raw = List<Map<String, dynamic>>.from(result.data ?? const []);
+      final raw = List<Map<String, dynamic>>.from(result.data?.reports ?? const []);
       // ★_isPending / _isRevision が取消済を落とすので、この一覧＝
       //   「今日やる仕事」に取消済は1件も入らない。
       // ★status の作り直しは report_cancel_gate の1本に寄せた
@@ -4007,6 +4203,7 @@ class _ReviewTabState extends State<ReviewTab> {
       setState(() {
         _targets = targets;
         _loading = false;
+        _reportsTruncated = result.data?.truncated == true;
       });
     } else {
       setState(() {
@@ -4084,6 +4281,8 @@ class _ReviewTabState extends State<ReviewTab> {
         ),
         // 休憩だけ取得できなかったときに1行で知らせる（日報一覧は下にそのまま出る）
         if (_breakFailed && !_loading) _breakFailBanner(),
+        // 月の日報が上限で切れた時だけ（便BJ・見本 v1 の ⑪・承認待ちが欠けたかもしれない）
+        if (_reportsTruncated && !_loading) const ReportsTruncatedBar(),
         Expanded(
           child: _loading
               ? const Center(
@@ -5539,6 +5738,10 @@ class _CalendarTabState extends State<CalendarTab> {
 
   // 日報取得の失敗（旧実装は catch で握り潰して空表示だった＝沈黙障害）
   bool _reportsFailed = false;
+  // 月の日報がサーバの上限で切れた（便BJ・見本 v1 の ⑪）。切れた時は、取れた中で一番古い日（_reportsOldestDate）と
+  //   それより前の日の日報が欠けたかもしれない＝その日の箱は「日報：取得できませんでした」・上に ReportsTruncatedBar。
+  bool _reportsTruncated = false;
+  String? _reportsOldestDate;
 
   String get _monthStr =>
       '${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}';
@@ -5628,6 +5831,8 @@ class _CalendarTabState extends State<CalendarTab> {
       _monthReports   = [];
       _submittedDates = {};
       _reportsFailed  = false;
+      _reportsTruncated  = false;
+      _reportsOldestDate = null;
       _holidayFailed  = false;
       _restFailed     = false;
       _substituteFailed = false;
@@ -5647,10 +5852,11 @@ class _CalendarTabState extends State<CalendarTab> {
     _ensureJpHolidays(_selectedMonth.year);
   }
 
-  // 日報（既存のまま GET /reports?date=YYYY-MM&limit=300）
+  // 日報（GET /reports?date=YYYY-MM）
   Future<void> _loadReports() async {
     {
-      // limit=300 は getReportsByMonth の既定値（monthly_history_screen は 200 を明示）。
+      // 元: limit=300（getReportsByMonth の既定値・monthly_history_screen は 200 を明示）で頼み、切れた事を読まなかった。
+      // →再（2026-10-14・便BJ・見本 v1 の ⑪）: limit を付けない（サーバの月の口の既定 1000）・答えの truncated を読む。
       final res = await _closing.send(
         months: [_monthStr],
         run: (dates) =>
@@ -5664,7 +5870,8 @@ class _CalendarTabState extends State<CalendarTab> {
         return;
       }
       if (res.ok) {
-        final raw = List<Map<String, dynamic>>.from(res.data ?? const []);
+        final page = res.data;
+        final raw = List<Map<String, dynamic>>.from(page?.reports ?? const []);
         // ★status の作り直しは report_cancel_gate の1本。旧実装はこの場で
         //   approved/revision の2値だけを見ており、BE が載せてきた 'cancelled'
         //   （LIST_COLS の r.status）をここで捨てていた。
@@ -5680,9 +5887,18 @@ class _CalendarTabState extends State<CalendarTab> {
             .map((r) => r['report_date'] as String? ?? '')
             .where((d) => d.isNotEmpty)
             .toSet();
+        // 切れた時の、取れた中で一番古い日（並びはサーバが新しい順＝切れるのは古い日）。
+        final truncated = page?.truncated == true;
+        String? oldest;
+        for (final r in raw) {
+          final d = r['report_date'] as String? ?? '';
+          if (d.isNotEmpty && (oldest == null || d.compareTo(oldest) < 0)) oldest = d;
+        }
         setState(() {
           _monthReports   = enriched;
           _submittedDates = dates;
+          _reportsTruncated  = truncated;
+          _reportsOldestDate = truncated ? oldest : null;
         });
       } else {
         // 非200も通信不成立も移設前は同じ「取得失敗」。失敗の可視化（statusCode と
@@ -5803,6 +6019,8 @@ class _CalendarTabState extends State<CalendarTab> {
           ClosingPeriodBar(gate: _closing, onResolved: _loadMonth),
         // ② 取得失敗の可視化（黙って空にしない）
         _buildFailureBar(),
+        // ②-b 月の日報が上限で切れた時だけ（便BJ・見本 v1 の ⑪・取得失敗の帯と同じ所・同じ形）
+        if (_reportsTruncated && !_monthLoading) const ReportsTruncatedBar(),
         // ③④ グリッドと選択日パネルの高さの配り方
         //  ★旧: 「グリッド → 区切り線 → Expanded(パネル)」の素の並びだった。
         //    グリッドはマス48固定で自分の高さを先に取り、パネルは残りを受ける
@@ -6061,6 +6279,15 @@ class _CalendarTabState extends State<CalendarTab> {
       // ★取消済を含む全部を渡す（DayReportsScreen へ渡す元もこれ）。
       reports:
           _monthReports.where((r) => r['report_date'] == ds).toList(),
+      // 便BJ（見本 v1 の ⑪）: この日の日報が取れていない／欠けたかもしれない。月の日報が取れなかった時・
+      //   締め日が決まらず取らなかった時・上限で切れた時の、取れた中で一番古い日とそれより前の日。
+      reportsUnknown: calendarDayReportsUnknown(
+        day: ds,
+        failed: _reportsFailed,
+        closingPending: _closing.isPending,
+        truncated: _reportsTruncated,
+        oldestDate: _reportsOldestDate,
+      ),
     );
   }
 
@@ -6084,19 +6311,24 @@ class _CalendarTabState extends State<CalendarTab> {
   //   （lib/utils/rest_day_refresh.dart）で呼ばれる（下の onCompOff の→再）。
   Future<void> _openDaySheet(String ds) async {
     final info = _dayInfoOf(ds);
+    // ★今日（便BJ・見本 v1 の B）: 元は日本の暦の日（jstDateString）。夜勤の朝（0〜11時）は、まだ前の日の勤務の中＝
+    //   今の勤務の種類（utils/saved_shift_type.dart）の業務日を「今日」にする（サーバの尋ねる口と同じ物差し）。
+    final today = businessDateForShift(await savedShiftTypeForNow(), DateTime.now());
+    if (!mounted) return;
     await showCalendarDaySheet(
       context,
       info: info,
       maxHeight: _sheetMaxHeight(),
       myCompanyId: _myCompanyId,
       // 日報漏れの申告の入口（便F8・見本 v5 の D1・D3）。出す日でなければ null＝今の箱のまま。
-      //   ★出す日かは dayRequestEntryOrNull の中の決まり1本。今日はここで1回だけ読む（JST）。
+      //   ★出す日かは dayRequestEntryOrNull の中の決まり1本。今日はここで1回だけ読む（元: JST の暦の日・
+      //     →再（2026-10-14・便BJ）: 上の today＝今の勤務の種類の業務日）。
       //   ★自分の日報の数は、その日の生きている日報のうち、行の user_id が自分の id と同じ物
       //     （ownLiveReportCount）。info.liveCount は職長などの役では会社ぶんの数なので渡さない。
       //   ★許可の日報（便F8b-2）を出せたか閉じて戻ったら _loadReports（変わるのは日報だけ＝日報を確認から戻った時と同じ）。
       dayRequestEntry: dayRequestEntryOrNull(
         workDate: ds,
-        today: jstDateString(DateTime.now()),
+        today: today,
         ownReportCount: ownLiveReportCount(info.liveReports, _myUserId),
         hasOwnRest: info.restPortion != null,
         substitutePendingRest: info.substitutePendingRest,
@@ -6192,6 +6424,22 @@ String restReasonLabel(String reason) {
 ///   2つの見せ方が別々に数え直すと、同じ日について件数や語が食い違う
 ///   （lib/utils/report_cancel_gate.dart が「判定を1本にする」ために作られたのと
 ///   同じ理由で、ここでは「1日ぶんの読み取り」を1本にしている）。
+/// その日の日報が取れていない／欠けたかもしれないか（便BJ・見本 v1 の ⑪）。★決まりはここ1つ（検査も同じ1本を見る）。
+///   月の日報が取れなかった（failed）・締め日が決まらず取らなかった（closingPending）時は、どの日も true。
+///   上限で切れた（truncated）時は、取れた中で一番古い日（oldestDate）と、それより前の日が true
+///   （サーバの並びは新しい順＝切れるのは古い日。一番古い日は一部だけ取れたかもしれない）。1件も取れていなければ、どの日も true。
+///   日付は 'YYYY-MM-DD' の字のまま比べる（同じ桁の字なので、字の順が日の順）。
+bool calendarDayReportsUnknown({
+  required String day,
+  required bool failed,
+  required bool closingPending,
+  required bool truncated,
+  required String? oldestDate,
+}) =>
+    failed ||
+    closingPending ||
+    (truncated && (oldestDate == null || day.compareTo(oldestDate) <= 0));
+
 class CalendarDayInfo {
   CalendarDayInfo({
     required this.date,
@@ -6205,7 +6453,12 @@ class CalendarDayInfo {
     this.substitutePairedWorkDate,
     this.substitutePendingRestDenyText,
     this.substitutePendingWorkDenyText,
+    this.reportsUnknown = false,
   });
+
+  /// この日の日報が取れていない／欠けたかもしれない（便BJ・見本 v1 の ⑪）。true の時、日報の1行は
+  ///   「日報：取得できませんでした」（「日報：なし」と言い切らない）。★任意の名前付き引数（既定 false）＝今の呼び手と検査の組み方を変えない。
+  final bool reportsUnknown;
 
   /// この日が、事務から持ちかけられた振替休日の【休む日】で、まだ同意していないか（便F13・K1・K2）。
   ///   ★true のとき restPortion と restReason は null（休みに数えない＝便B17 と同じ）。
@@ -6347,6 +6600,7 @@ class CalendarDayInfo {
   ///   件数は生きている日報だけを数える（取消済を足すとセルのドットが
   ///   無いのに件数だけ出て食い違う。旧パネルの裁定をそのまま引き継ぐ）。
   String get reportLine {
+    if (reportsUnknown) return '日報：取得できませんでした';
     final base = liveCount > 0 ? '日報：$liveCount件' : '日報：なし';
     return cancelledCount > 0 ? '$base・取消済$cancelledCount件' : base;
   }
@@ -6464,7 +6718,7 @@ List<Widget> _dayRestRows(CalendarDayInfo info) {
 /// 日報の1行（要約とシートで共有）。
 Widget _dayReportRow(CalendarDayInfo info) => _DayInfoRow(
       icon: Icons.description_outlined,
-      color: info.liveCount > 0
+      color: (!info.reportsUnknown && info.liveCount > 0)
           ? FieldTokens.accent
           : FieldTokens.textSupport,
       text: info.reportLine,

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../main.dart' show TransportType, showJsSnackbar;
+import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../services/reports_service.dart';
 import '../utils/revision_parser.dart';
@@ -280,7 +281,9 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
 
     setState(() => _submitting = true);
 
-    {
+    // 元: 送る所に try が無く、口や写真の読み込みが投げると、回る印が戻らないまま止まった。
+    // →再（2026-10-14・便BJ・見本 v1 の ②）: 受けて、回るのを止め、kSendFailedText を知らせる（もう一度押せる）。
+    try {
       final body = <String, dynamic>{
         'edit_reason': '差戻し対応',
         'work_content': _composeWorkContent(),
@@ -355,6 +358,12 @@ class _RevisionEditScreenState extends State<RevisionEditScreen> {
         showJsSnackbar(context,
             '保存はできましたが再提出に失敗しました。もう一度「再提出」を押してください（${resubmitRes.statusCode}）',
             isError: true);
+      }
+    } catch (e) {
+      debugPrint('出し直しの送信に失敗: $e');
+      if (mounted) {
+        setState(() => _submitting = false);
+        showJsSnackbar(context, kSendFailedText, isError: true);
       }
     }
   }

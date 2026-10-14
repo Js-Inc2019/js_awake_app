@@ -38,6 +38,7 @@
 
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import '../services/bundles_service.dart';
 import '../services/site_service.dart';
 import '../main.dart' show showJsSnackbar;
@@ -355,7 +356,8 @@ class _ShareInboxScreenState extends State<ShareInboxScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  '送信社の現場名: ${_s(r['site_name'])}\n報告場所: ${_s(r['gps_address'])}',
+                  // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+                  '送信社の現場名: ${_s(r['site_name'])}\n報告場所: ${_s(reportPlaceText(r))}',
                   style: const TextStyle(
                       color: FieldTokens.textSupport, fontSize: 12, height: 1.5),
                 ),

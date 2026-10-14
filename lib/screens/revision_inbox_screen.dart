@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../main.dart' show showJsSnackbar;
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import 'revision_edit_screen.dart';
 // 作業3: 移動手段の複数対応。既存の transportNamesOf を再利用する（新設しない）。
 import '../utils/revision_parser.dart' show transportNamesOf;
@@ -344,7 +345,8 @@ class ReportDetailSheet extends StatelessWidget {
     final approvedBy = (r['approved_by'] as String?)?.trim() ?? '';
     final work       = (r['work_content'] as String?)?.trim() ?? '';
     final memo       = (r['memo'] as String?)?.trim() ?? '';
-    final gps        = (r['gps_address'] as String?)?.trim() ?? '';
+    // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+    final gps        = reportPlaceText(r) ?? '';
     // 作業3: 複数選択に対応（'・' 区切り）
     final trans      = transportNamesOf(r).join('・');
     final parking    = r['parking_fee'];

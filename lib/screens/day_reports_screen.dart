@@ -1,6 +1,7 @@
 // lib/screens/day_reports_screen.dart
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import '../services/reports_service.dart';
 import 'monthly_history_screen.dart' show JsReportTile;
 // 取消済の判定は lib/utils/report_cancel_gate.dart の1本だけを使う。
@@ -194,8 +195,9 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
       List<Map<String, dynamic>> reps) {
     final Map<String, List<Map<String, dynamic>>> g = {};
     for (final r in reps) {
+      // 住所として使うのは reportPlaceOf の address だけ（便BJ・見本 v1 の A＝測れなかった日報の字で束ねない）。
       final key = (r['site_id'] as String?) ??
-          (r['gps_address'] as String?) ??
+          reportPlaceOf(r).address ??
           '住所未取得';
       g.putIfAbsent(key, () => []).add(r);
     }
@@ -227,7 +229,8 @@ class _DayReportsScreenState extends State<DayReportsScreen> {
     final r = reps.first;
     final name = r['site_name'] as String?;
     if (name != null && name.isNotEmpty) return name;
-    final addr = r['gps_address'] as String?;
+    // 住所として使うのは reportPlaceOf の address だけ（便BJ・見本 v1 の A）。
+    final addr = reportPlaceOf(r).address;
     if (addr != null && addr.isNotEmpty) return addr;
     return '住所未取得';
   }

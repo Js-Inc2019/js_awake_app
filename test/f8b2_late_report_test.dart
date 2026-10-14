@@ -22,6 +22,7 @@
 // ★検査の名前の頭の番号（(a-1) ほか）は、ログの赤い行からどの検査かを機械で読むための物。
 // ============================================================
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -219,6 +220,27 @@ class _Routes extends RoutesService {
     calls.add((origin: origin, destination: destination, siteId: siteId));
     final i = calls.length - 1;
     return results[i < results.length ? i : results.length - 1];
+  }
+}
+
+/// 1回目はすぐ答え、2回目からは答えを待たせる目安の口（便BJ・取り直しの間を作る）。
+class _SlowRoutes extends _Routes {
+  _SlowRoutes(this.first) : super();
+  final RouteCompareResult first;
+  final List<Completer<RouteCompareResult>> pending = [];
+  int count = 0;
+
+  @override
+  Future<RouteCompareResult> compareRoutesV2({
+    required String origin,
+    String? destination,
+    String? siteId,
+  }) {
+    count++;
+    if (count == 1) return Future.value(first);
+    final c = Completer<RouteCompareResult>();
+    pending.add(c);
+    return c.future;
   }
 }
 
@@ -1413,6 +1435,127 @@ void main() {
             {'company_name': 'B社'},
           ]),
           ['相乗り商事', 'B社']);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // (k) 便BJ の直し（見本 claude/field_report_fix_mock_v1.html の ④・⑥・(8)・(9)）
+  //   ★2026-10-14・便BJ で足した。今日の日報（シェル）は検査で立てられないので、同じ部品と同じ決まりを使う
+  //     後から出す日報の画面で、動きを見る。
+  // ══════════════════════════════════════════════════════════
+  group('(k) 便BJ の直し', () {
+    Future<void> pickSite(WidgetTester tester) async {
+      await _tapText(tester, _kNoSite);
+      await tester.tap(find.widgetWithText(ListTile, _kSiteName));
+      await tester.pumpAndSettle();
+    }
+
+    for (final (carType, dialog) in [('carpool', false), ('own', true)]) {
+      testWidgets('(k-1) 車で${carType == 'own' ? '社用車・自家用車' : '相乗り'}・駐車場の写真なし → 「写真が添付されていません」の窓は${dialog ? '出る' : '出ない'}（二者比較・見本 v1 の ④）',
+          (tester) async {
+        SharedPreferences.setMockInitialValues(_prefs(extra: {
+          'last_transports': 'car',
+          'last_car_type': carType,
+        }));
+        await _withServer(() async {
+          final api = _Fake();
+          await _openLate(tester, api: api);
+          await _tapText(tester, '次へ');
+          await _tapText(tester, '次へ');
+          await _tapText(tester, _kCheck);
+          await tester.tap(find.text(_kSend));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+          expect(find.text('写真が添付されていません'), dialog ? findsOneWidget : findsNothing);
+          if (dialog) await _tapText(tester, 'このまま提出');
+          await tester.pumpAndSettle();
+          expect(api.bodies.length, 1, reason: '提出していない');
+        });
+      });
+    }
+
+    testWidgets('(k-2) 出発地が自宅で自宅の住所が無い時は、帯の外に※・住所が在れば※は無い（二者比較・見本 v1 の ⑥）', (tester) async {
+      const note = '※自宅の住所が未登録のため、自宅からの目安は出せません。';
+      for (final hasHome in [false, true]) {
+        SharedPreferences.setMockInitialValues(
+            _prefs(extra: {if (hasHome) 'home_address': _kHomeAddr}));
+        await _withServer(() async {
+          final routes = _Routes([RouteCompareResult.ok({'car': _car()})]);
+          await _openLate(tester, routes: routes);
+          await pickSite(tester);
+          await _tapText(tester, '次へ');
+          expect(find.text(note), hasHome ? findsNothing : findsOneWidget,
+              reason: hasHome ? '住所が在るのに※が出た' : '住所が無いのに※が無い');
+          expect(routes.calls.length, hasHome ? 1 : 0);
+        });
+      }
+    });
+
+    for (final (init, visible) in [('other', true), ('train', false)]) {
+      testWidgets('(k-3) 補足の欄${visible ? 'が出ている' : 'が隠れた'}時の字 → 戻る時の「閉じますか？」は${visible ? '出る' : '出ない'}（二者比較・見本 v1 の (8)）',
+          (tester) async {
+        SharedPreferences.setMockInitialValues(_prefs(extra: {'last_transports': init}));
+        final host = await _openLate(tester);
+        await _tapText(tester, '次へ');
+        if (!visible) {
+          // 電車に車を2度押しで足す（確かめの窓は OK）→ 補足の欄が出る。
+          await tester.tap(find.text('車'));
+          await tester.pump(const Duration(milliseconds: 60));
+          await tester.tap(find.text('車'));
+          await tester.pumpAndSettle();
+          await _tapText(tester, 'OK');
+        }
+        await tester.enterText(
+            find.widgetWithText(TextField, '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩'), 'バイクで駅まで');
+        await tester.pumpAndSettle();
+        if (!visible) {
+          // 車を1回押して外す（2つ選んでいる時は外れる）→ 電車だけ＝補足の欄が隠れる・選びは開いた時と同じ。
+          await _tapChip(tester, '車');
+          expect(find.widgetWithText(TextField, '移動手段の補足（任意）例：バイクで駅まで → 電車 → 徒歩'), findsNothing);
+        }
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        expect(find.text(_kLeaveMsg), visible ? findsOneWidget : findsNothing);
+        if (!visible) {
+          expect(host.closed, isTrue, reason: '隠れた欄の字で「閉じますか？」が出た');
+        }
+      });
+    }
+
+    testWidgets('(k-4) 目安の取り直しの間は前の値を使わない：確認の画面に前の距離が出ず、提出の本文の距離も null（見本 v1 の (9)）',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(_prefs(extra: {
+        'home_address': _kHomeAddr,
+        'company_address': _kOfficeAddr,
+        'last_transports': 'car',
+        'last_car_type': 'carpool',
+      }));
+      await _withServer(() async {
+        final api = _Fake();
+        final routes = _SlowRoutes(RouteCompareResult.ok({'car': _car()}));
+        await _openLate(tester, api: api, routes: routes);
+        await pickSite(tester);
+        await _tapText(tester, '次へ');
+        expect(find.textContaining('12.4km'), findsOneWidget, reason: '1回目の目安が出ていない');
+        // 出発地を会社へ替える → 取り直し（答えはまだ来ない＝計算中）。くるくるが回るので落ち着くのを待たない。
+        await tester.tap(find.text('会社'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(routes.count, 2);
+        expect(find.textContaining('12.4km'), findsNothing, reason: '取り直しの間に前の値が出ている');
+        await tester.tap(find.text('次へ'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(_kCheck));
+        await tester.pumpAndSettle();
+        await _tapText(tester, 'このまま提出する');
+        expect(_inConfirm(find.textContaining('12.4km')), findsNothing, reason: '確認の画面に前の距離が出た');
+        await tester.tap(find.text(_kSend));
+        await tester.pumpAndSettle();
+        expect(api.bodies.length, 1);
+        expect(api.bodies.single['transport_distance_km'], isNull, reason: '取り直しの間に前の距離を送った');
+        routes.pending.single.complete(RouteCompareResult.ok({'car': _car()}));
+        await tester.pumpAndSettle();
+      });
     });
   });
 }

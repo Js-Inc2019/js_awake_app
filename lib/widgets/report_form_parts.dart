@@ -5,11 +5,15 @@
 //   便F8b-1（2026-10-08）で、lib/screens/home_screen.dart から、ここへ動かした。コードの直しは、本の頭の読み込みのほかに3つだけ
 //   （名前を替えた＝部品と関数は公開の名・State の3つは非公開のまま新しい名／画面の部品16個の作り口に任意の key を足した／
 //   確認の画面の差の見張りの区切りの1字を目に見える書き方にした）。説明文は、事実と違った所を直した（直した所に、日付と便の名を書いてある）。
-// ★誰が使うか：lib/screens/home_screen.dart（今日の日報のフォーム・確認の画面・休憩の短縮のシート）と、
+// ★誰が使うか：（元）lib/screens/home_screen.dart（今日の日報のフォーム・確認の画面・休憩の短縮のシート）と、
 //   lib/widgets/report_form_steps.dart（段の部品）。次の便で、過去の日の日報を出す画面も使う。
+//   →再（2026-10-14・便BJ）: 今の使い手は3本＝lib/screens/home_screen.dart（同じ3つ）・lib/widgets/report_form_steps.dart
+//   （段の部品）・lib/screens/late_report_screen.dart（後から出す日報の画面・便F8b-2 から）。
 // ★元: この本には、動かした物のほかにコードを足さない（新しく書く物は lib/widgets/report_form_steps.dart へ）。
 //   →再（2026-10-11・便F8b-2）＝確認の画面だけ、後から出す日報のための任意の引数を足した（既定は今のまま）。
 //   ほかの部品は動かした時のまま。新しく書く物は、今も lib/widgets/report_form_steps.dart へ。
+//   →再（2026-10-14・便BJ・見本 v1 の ⑤案1 と (9)）: 押せる大きさを 44 にした（出発地のチップ・目安の帯・マイク・
+//   確認の画面の「戻って直す」）。確認の画面の差の見張りの鍵に、目安の距離を足した（routeCostKey）。
 
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
@@ -252,8 +256,10 @@ class ReportSnapshot {
   /// ルート金額の差異検知キー。旧 routeCostLabel（単一文字列）の代替。
   /// 手段名で昇順ソートしてから畳むため、選択順が違っても同じ値になる
   /// （transportKey と同じ「順序非依存」の性質を保つ）。
+  ///   元: 「手段名:金額」。→再（2026-10-14・便BJ・見本 v1 の (9)）: 「手段名:距離:金額」（距離だけが変わった時も
+  ///   見張る＝送る日報には距離も入るため）。
   String get routeCostKey =>
-      (routeRows.map((r) => '${r.label}:${r.cost ?? ''}').toList()..sort())
+      (routeRows.map((r) => '${r.label}:${r.dist ?? ''}:${r.cost ?? ''}').toList()..sort())
           .join(',');
 
   /// 相乗り相手のラベル。会社名・氏名のどちらか一方でもあれば「会社名　氏名」。
@@ -290,6 +296,7 @@ class ReportConfirmScreen extends StatefulWidget {
     this.sendLabel = '報告を送信',
     this.band,
     this.noticeOf,
+    this.bottomNoticeOf,
     this.notes = const <String>[],
     this.closeOnlyOf,
     this.onClose,
@@ -318,7 +325,13 @@ class ReportConfirmScreen extends StatefulWidget {
 
   /// 送った後の知らせ。作り直すたびに読む（送った後に画面を作り直すので、その時の答えが出る）。
   ///   null でない物が返れば、帯の下（帯が無ければ一番上）に置く（下に 12 の空き）。
+  ///   ★後から出す日報の置き方（見本 H6＝帯の下・見出しの上）。
   final Widget? Function()? noticeOf;
+
+  /// 送った後の知らせを、下のボタン（送るボタン）の真上に置く口（便BJ・見本 v1 の ② と ③＝今日の日報の置き方）。
+  ///   作り直すたびに読む。null でない物が返れば、スクロールの外の下の並びの頭に置く（下に 12 の空き）
+  ///   ＝内容のカードが画面より長くても、押した所のすぐ上に出る（検分 a251 の S2）。「閉じる」だけの形の時は置かない。
+  final Widget? Function()? bottomNoticeOf;
 
   /// カードの下に1つ1行で並べる※（空なら置かない）。
   final List<String> notes;
@@ -356,6 +369,9 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
     //   元: 「（移動手段未選択・駐車写真ダイアログで戻る等）は…閉じずにこの画面へ留まる」
     //   →再（2026-10-08・便F8b-1）: その2つの道は、呼び手の _jumpToStep が先にこの画面を閉じる（移動の段へ戻す）。
     //   この画面に留まるのは、氏名が取れていない時と、_submit の中で例外が出た時（_submit にも、ここにも catch が無い＝例外は、この行まで来ずに外へ抜ける）。どの道でも、ここで二重に閉じる事は無い。
+    //   →再（2026-10-14・便BJ・見本 v1 の ②）: 今日の日報の _submit は例外を受けて、この画面に枠「送信できません」を出す
+    //   （bottomNoticeOf＝送るボタンの真上・ボタンはまた押せる）。写真が読めない時も同じ枠で止める。
+    //   どちらも _todayReportDone が立たない＝ここでは閉じない。
     if (widget.isDone()) Navigator.pop(context);
   }
 
@@ -364,6 +380,7 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
     // ★知らせと「閉じる」だけの形は、作り直すたびに読む（送った後の答えで変わる）。
     final band = widget.band;
     final notice = widget.noticeOf?.call();
+    final bottomNotice = widget.bottomNoticeOf?.call();
     final closeOnly = widget.closeOnlyOf?.call() ?? false;
     return Scaffold(
       backgroundColor: FieldTokens.bgBase,
@@ -452,18 +469,27 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
                   : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (bottomNotice != null) ...[
+                    bottomNotice,
+                    const SizedBox(height: 12),
+                  ],
                   ReportOutlineActionButton(
                       label: widget.sendLabel, busy: _sending, onTap: _handleSend),
                   const SizedBox(height: 10),
+                  // 元: 上下の余白 10 と字 14（高さ約 40・押せるのは字の幅だけ）。
+                  // →再（2026-10-14・便BJ・見本 v1 の ⑤案1）: 行の高さ 44・横いっぱいが押せる（字の大きさと色は今のまま）。
                   GestureDetector(
                     onTap: _sending ? null : () => Navigator.pop(context),
                     behavior: HitTestBehavior.opaque,
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 10),
-                      child: Text('戻って直す',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: FieldTokens.textSupport, fontSize: 14)),
+                    child: const SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: Center(
+                        child: Text('戻って直す',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: FieldTokens.textSupport, fontSize: 14)),
+                      ),
                     ),
                   ),
                 ],
@@ -793,10 +819,14 @@ class ReportOriginSelector extends StatelessWidget {
           padding: const EdgeInsets.only(right: 8),
           child: GestureDetector(
             onTap: () => onChanged(type),
+            behavior: HitTestBehavior.opaque,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+              // 元: 上下の余白 9 と字 13（高さ約 39＝押せる大きさの決まり 44 に足りない）。
+              // →再（2026-10-14・便BJ・見本 v1 の ⑤案1）: 高さ 44（見た目も押せる所も同じ・字は真ん中・左右の余白と字は今のまま）。
+              height: 44,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
                 color: sel ? FieldTokens.outlineStrong : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
@@ -989,9 +1019,11 @@ class ReportSmallMediaButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    // 元: 幅 40・高さ 32（押せる大きさの決まり 44 に足りない）。→再（2026-10-14・便BJ・見本 v1 の ⑤案1）: 44×44（印の大きさは今のまま）。
     child: Container(
-      width: 40,
-      height: 32,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
         color: active ? FieldTokens.outlineStrong : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
@@ -1189,7 +1221,11 @@ class ReportRouteInfoBar extends StatelessWidget {
   final Future<void> Function()? onRetry;
 
   // 枠だけの共通シェル
+  //   元: 上下の余白 9 と字 12（高さ約 37）・計算中の姿だけ高さ 38。取り直しを押す失敗の姿が、押せる大きさの決まり 44 に足りない。
+  //   →再（2026-10-14・便BJ・見本 v1 の ⑤案1）: どの姿も高さ 44 以上（姿が替わっても帯の高さが跳ねない・字は縦の真ん中）。
   Widget _shell({required Widget child, Color? borderColor}) => Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: FieldTokens.bgBase,
@@ -1236,7 +1272,7 @@ class ReportRouteInfoBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (loading) {
       return Container(
-        height: 38,
+        height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: FieldTokens.bgBase,

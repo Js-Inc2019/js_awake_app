@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 import '../services/tamper_service.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import '../main.dart' show showJsSnackbar;
 
 // 状態→表示3語。この3語以外の言い方をしない。
@@ -295,7 +296,8 @@ class _TamperIncidentDetailScreenState
               style: const TextStyle(
                   color: FieldTokens.textBody, fontSize: 13, height: 1.4)),
         ],
-        if (_s(inc['gps_address']) != '-') _row('報告場所', _s(inc['gps_address'])),
+        // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+        if (_s(reportPlaceText(inc)) != '-') _row('報告場所', _s(reportPlaceText(inc))),
         const SizedBox(height: 24),
 
         // ── 共有情報 ──────────────────────────────────────

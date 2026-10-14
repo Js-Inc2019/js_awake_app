@@ -27,6 +27,7 @@
 
 import 'package:flutter/material.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_place_labels.dart';
 import '../services/bundles_service.dart';
 import '../services/reports_service.dart';
 import 'share_bundle_detail_screen.dart';
@@ -236,7 +237,8 @@ class _ShareReceiptDetailScreenState extends State<ShareReceiptDetailScreen> {
           _row('現場', _s(_r['site_name'])),
           // 提出時刻は report_created_at（束の作成時刻ではない）。
           _row('提出', fmtShareDateTime(_r['report_created_at'])),
-          if (_s(_r['gps_address']) != '-') _row('報告場所', _s(_r['gps_address'])),
+          // 報告場所の字は lib/core/report_place_labels.dart の reportPlaceText（住所か「測れませんでした（…）」・便BJ・見本 v1 の A）。
+          if (_s(reportPlaceText(_r)) != '-') _row('報告場所', _s(reportPlaceText(_r))),
           if (_s(_r['work_content']) != '-') ...[
             const SizedBox(height: 10),
             const Text('作業内容',

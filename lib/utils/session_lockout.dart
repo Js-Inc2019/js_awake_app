@@ -21,6 +21,8 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/widgets.dart' show NavigatorState;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'personal_data_cleanup.dart';
 import '../config/constants.dart';
 
 // ============================================================
@@ -86,6 +88,7 @@ const Set<String> kNonLockoutCodes = {
 };
 
 /// 送信（GET 以外）の最中に締め出された時に文言へ足す一文。
+///   ★今日の日報を送る口（POST {土台}/reports）の時は足さない（isBoxedReportPost・便BJ・見本 v2 の ⑭）。
 const String kLockoutDraftNote = '作成中の内容は保存されていません。';
 
 // ============================================================
@@ -117,6 +120,18 @@ bool isLockoutTargetUrl(Uri? url) {
   return true;
 }
 
+/// 今日の日報を送る口か（POST {土台}/reports）。★この口を使うのは ReportStore（lib/main.dart の _sendOne）だけで、
+///   日報は送る前に端末の箱（pending_reports）へ残る（便BJ）。後から出す日報（/reports/permitted）・出し直し
+///   （/reports/:id/resubmit）などは当てはまらない（道が完全に同じ時だけ true）。
+bool isBoxedReportPost(Uri? url, String method) {
+  if (url == null || method.toUpperCase() != 'POST') return false;
+  final base = Uri.parse(kApiBaseUrl);
+  if (url.scheme != base.scheme || url.host != base.host || url.port != base.port) {
+    return false;
+  }
+  return url.path == '${base.path}/reports';
+}
+
 /// 締め出すか、そのとき本人に見せる文言は何か。
 ///
 /// ★未知のコードは戻さない（名簿に無いものを勝手に締め出さない）。
@@ -131,7 +146,10 @@ bool isLockoutTargetUrl(Uri? url) {
   final message = kLockoutMessages[errorCode];
   if (message == null) return (lockOut: false, message: null);
   // GET 以外＝サーバへ書きに行った通信。作成中の内容が消えることを本人に伝える。
-  final submitting = method.toUpperCase() != 'GET';
+  //   →再（2026-10-14・便BJ・見本 v2 の ⑭）: 今日の日報を送る口は除く（日報は送る前に端末の箱へ残り、
+  //   書いた人がログインし直した時に送られる＝【Q140】。「保存されていません」は事実と違う）。
+  final submitting =
+      method.toUpperCase() != 'GET' && !isBoxedReportPost(url, method);
   return (
     lockOut: true,
     message: submitting ? '$message$kLockoutDraftNote' : message,
@@ -146,6 +164,7 @@ bool isLockoutTargetUrl(Uri? url) {
 bool _lockoutInFlight = false;
 
 /// 締め出し済みのトークン（＝そのとき送っていた保存済みトークン）。
+/// ★（便BJ）今の資格と違う前の資格の答え（締め出さなかった答え）の字も入る＝その前の資格の次の答えも何もしない。
 /// 同じトークンでの2度目は通さない。ログインし直せば別のトークンになるため、
 /// 次の締め出しは改めて効く。
 /// ★値はメモリ上の比較にだけ使う。ログにも画面にも出さない。
@@ -173,11 +192,12 @@ String _sentToken(http.BaseRequest? request) {
 
 /// 非200 の応答を受けて、締め出すべきなら理由を保存してログイン画面へ戻す。
 ///
-/// 戻り値は「締め出しとして扱ったか」。呼び手はこの値を使わなくてよい
+/// 戻り値は「締め出しとして扱ったか」（同じ資格の2つ目の答えも true）。呼び手はこの値を使わなくてよい
 /// （ApiResult の中身は締め出しの有無で変えない）。
 ///
 /// ★このメソッドは例外を投げない。runApiCall の非200分岐から呼ばれるため、
 ///   ここで投げると「サーバは401と答えた」が「通信できなかった」に化ける。
+/// ★（便BJ）送った資格が今の資格と違う時（送っている途中にログインし直した）は締め出さない（false）。
 Future<bool> applyLockoutForResponse({
   required http.BaseRequest? request,
   required String? errorCode,
@@ -199,6 +219,17 @@ Future<bool> applyLockoutForResponse({
     // ────────────────────────────────────────────────
 
     try {
+      // 便BJ（検分 a253 の N11）: 送った資格が、今の資格と違う時（送っている途中にログインし直した・別の人がログインした）は
+      //   締め出さない＝前の資格への答えで、今の人を締め出さない（今の人の物を掃除しない）。今の資格が無い時（もうログアウト
+      //   している）は、今までどおり理由を残してログイン画面へ戻す。
+      //   ★今の資格を読めない時は、締め出す側に倒す（頭の掟＝締め出しは必ず実行する・検分 a254 の Y4）。
+      var now = '';
+      try {
+        now = (await SharedPreferences.getInstance()).getString('auth_token') ?? '';
+      } catch (e) {
+        debugPrint('[session_lockout] 今の資格を読めない（締め出しは続ける）: $e');
+      }
+      if (now.isNotEmpty && token.isNotEmpty && now != token) return false;
       await saveLockoutReason(verdict.message!);
       await _discardCredentials();
       _backToLogin();
@@ -261,13 +292,15 @@ Future<void> clearLockoutReason() async {
 
 /// 締め出し時の資格情報の始末。
 ///
-/// ★消すのは auth_token だけ（ログイン画面の 401/403 分岐と同じ範囲）。
+/// ★（元）消すのは auth_token だけ（ログイン画面の 401/403 分岐と同じ範囲）。
+///   →再（2026-10-14・便BJ・見本 v1 の ⑧）: ログアウトと同じ掃除（utils/personal_data_cleanup.dart の
+///   clearPersonalData＝人に付く物を消す・未送信の日報と締め出しの理由は残す）。ログイン画面の 401/403 も同じ。
 ///   logged_out を立てるのは、戻った先で生体認証を新たに要求させないため
 ///   （＝理由の赤い帯を読める画面へ直行させる）。
 Future<void> _discardCredentials() async {
   try {
+    await clearPersonalData();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
     await prefs.setBool('logged_out', true);
   } catch (e) {
     debugPrint('[session_lockout] 資格情報の破棄に失敗（遷移は続行）: $e');

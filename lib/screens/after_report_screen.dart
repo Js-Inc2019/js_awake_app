@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 
@@ -33,15 +34,19 @@ class AfterReportBody extends StatefulWidget {
     required this.onOvertime,
     this.onRetry,
     this.onClose,
+    this.refusedMessage,
   });
   // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ＝出し分けの引数を持たない。
   //   （旧 showMoveToNextSite / showShiftContinue / onMoveToNextSite / onShiftContinue は撤去）
   final String workerName;
-  final bool sent;                       // 送信APIの成否（正直ゲート用）
+  final bool sent;                       // 頭の字（便BJ: 今の人の未送信の日報の数が 0 か＝home_screen.dart の pendingOwnCount）
   final String shiftType;                // 'day'|'night'（ヘッダのサブ行 _headerSubtitle に使う）
   final Future<void> Function() onOvertime;
   final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
   final VoidCallback? onClose;           // 主ボタン「今日はここまで」＝この画面を閉じる
+  // 送り先が受け付けなかった時の、送り先の答えの字（便BJ・見本 v2 の ⑬・ボスの裁定【Q142】）。null＝通信の字のまま。
+  //   在れば、sent==false の時の3行目を「提出できません（…）」にし、その下に※の行を足す。
+  final String? refusedMessage;
 
   @override
   State<AfterReportBody> createState() => _AfterReportBodyState();
@@ -67,8 +72,10 @@ class _AfterReportBodyState extends State<AfterReportBody> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── 頭の表示は送信成否(sent)で正直に出し分け ──
-            //    分岐条件・文言はA案でも1文字も変えていない。丸バッジだけを外した。
+            // ── 頭の表示は sent（下の →再）で出し分け ──
+            //    （元）分岐条件・文言はA案でも1文字も変えていない。丸バッジだけを外した。
+            //    →再（2026-10-14・便BJ）: sent は「今の人の未送信の数が 0 か」（見本 v1 の ①案A）。3行目は、送り先が
+            //    受け付けなかった時だけ替わる（見本 v2 の ⑬・下の refusedMessage）。
             if (widget.sent) ...[
               const Text('報告完了',
                   textAlign: TextAlign.center,
@@ -88,11 +95,27 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
               const SizedBox(height: 10),
-              const Text(
-                '通信状況により未送信です。電波の良い場所で自動再送されます。',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: FieldTokens.statusWarning, fontSize: 12),
-              ),
+              // 元: いつも通信の字（送り先が受け付けなかった時も「通信状況により…」のままで、事実と違った）。
+              // →再（2026-10-14・便BJ・見本 v2 の ⑬・【Q142】）: 受け付けなかった時だけ、送り先の答えの字と※を出す。
+              if (widget.refusedMessage == null)
+                const Text(
+                  '通信状況により未送信です。電波の良い場所で自動再送されます。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: FieldTokens.statusWarning, fontSize: 12),
+                )
+              else ...[
+                Text(
+                  refusedReportText(widget.refusedMessage!),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: FieldTokens.statusWarning, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  kRefusedReportNote,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: 12),
               // 再送は続行3行と同じ新様式。ただし文字/アイコンは warning のまま
               //（＝「まだ送れていない」という意味を色で持つ唯一の行）。機能は現行のまま。

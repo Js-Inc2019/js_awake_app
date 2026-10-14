@@ -1384,9 +1384,10 @@ void main() {
       expect(find.text('確認を開く'), findsOneWidget);
     });
 
+    // →再（2026-10-14・便BJ・見本 v1 の (9)）: 目安の距離も鍵に入れた（routeCostKey＝手段名:距離:金額）。
     test('(c-7) 差の見張りの鍵（diffKey）：7つの値のどれでも変わる・ほかの値では変わらない・境い目・区切りは6つ', () {
       final base = _snap(carpoolCompany: 'c', carpoolName: 'n');
-      // 鍵に入る7つ（1つずつ変える）。
+      // 鍵に入る7つ（1つずつ変える・目安は金額と距離の2通り＝便BJ）。
       final changed = <String, ReportSnapshot>{
         '現場の id': _snap(siteId: 's2', carpoolCompany: 'c', carpoolName: 'n'),
         '移動手段の鍵':
@@ -1395,6 +1396,9 @@ void main() {
             _snap(workContent: '2階の配線', carpoolCompany: 'c', carpoolName: 'n'),
         '目安の金額': _snap(carpoolCompany: 'c', carpoolName: 'n', routeRows: const [
           (label: '車', dist: '12.4km', cost: '⛽¥999'),
+        ]),
+        '目安の距離の字': _snap(carpoolCompany: 'c', carpoolName: 'n', routeRows: const [
+          (label: '車', dist: '99km', cost: '⛽¥141'),
         ]),
         '駐車料金':
             _snap(parkingFeeRaw: '600', carpoolCompany: 'c', carpoolName: 'n'),
@@ -1416,9 +1420,6 @@ void main() {
             _snap(workPhotoCount: 3, carpoolCompany: 'c', carpoolName: 'n'),
         '駐車場の写真の枚数':
             _snap(parkingPhotoCount: 0, carpoolCompany: 'c', carpoolName: 'n'),
-        '目安の距離の字': _snap(carpoolCompany: 'c', carpoolName: 'n', routeRows: const [
-          (label: '車', dist: '99km', cost: '⛽¥141'),
-        ]),
       };
       same.forEach((what, s) {
         expect(s.diffKey, base.diffKey, reason: '$what を変えたら鍵が変わった');
@@ -1429,7 +1430,7 @@ void main() {
       // 区切りの字（符号 1）は6つ＝7つの値の間。中身も決まった並び。
       expect(base.diffKey.codeUnits.where((c) => c == 1).length, 6);
       expect(base.diffKey.split(String.fromCharCode(1)),
-          ['s1', 'car', '1階の配線', '車:⛽¥141', '500', 'c', 'n']);
+          ['s1', 'car', '1階の配線', '車:12.4km:⛽¥141', '500', 'c', 'n']);
       // 現場が null の時は、空の字で入る。
       expect(_snap(siteId: null).diffKey.split(String.fromCharCode(1)).first, '');
     });
@@ -1461,23 +1462,26 @@ void main() {
           [TransportType.car, TransportType.other]);
     });
 
-    test('(d-2) reportWorkContentPrefix：「その他」と補足の字・順・空白・選んでいない時', () {
-      String p(Set<TransportType> t, String other, String memo) =>
-          reportWorkContentPrefix(transports: t, otherText: other, memoText: memo);
-      expect(p({TransportType.other}, 'トラック', ''), '[その他:トラック] ');
-      expect(p({TransportType.car}, '', 'バイクで駅まで'), '【移動】バイクで駅まで ');
-      expect(p({TransportType.other}, ' トラック ', ' バイクで駅まで '),
-          '[その他:トラック] 【移動】バイクで駅まで ');
+    test('(d-2) reportWorkContentPrefix：補足の字・空白・欄が出ていない時は付けない（便BJ で「その他」の字を撤去）', () {
+      // 元: (d-2) reportWorkContentPrefix：「その他」と補足の字・順・空白・選んでいない時（otherText を見ていた）。
+      // →再（2026-10-14・便BJ・見本 v1 の ⑦ と (8)）: otherText を撤去し、補足は欄が出ている時だけ付ける。
+      String p(Set<TransportType> t, String memo) =>
+          reportWorkContentPrefix(transports: t, memoText: memo);
+      // 欄が出る時（「その他」か、2つ以上）だけ頭が付く。
+      expect(p({TransportType.other}, 'バイクで駅まで'), '【移動】バイクで駅まで ');
+      expect(p({TransportType.car, TransportType.train}, ' バイクで駅まで '), '【移動】バイクで駅まで ');
+      // ★二者比較：車だけ（欄が出ない）は、字が在っても付かない（隠れた欄の字を送らない）。
+      expect(p({TransportType.car}, 'バイクで駅まで'), '',
+          reason: '隠れた補足の欄の字が送られた');
       // 全角の空白（U+3000）も、Dart の trim が除く（実測）＝空として扱う・前後からも除く。
-      expect(p({TransportType.other}, '   ', '\u3000'), '',
+      expect(p({TransportType.other}, '\u3000'), '',
           reason: '全角の空白だけの補足に、頭の字が付いた');
-      expect(p({TransportType.car}, '', '\u3000バイクで\u3000駅まで\u3000'),
+      expect(p({TransportType.other}, '\u3000バイクで\u3000駅まで\u3000'),
           '【移動】バイクで\u3000駅まで ',
           reason: '補足の前後の全角の空白が残った／間の空白が消えた');
-      expect(p({TransportType.other}, '   ', '   '), '');
-      expect(p({TransportType.car}, 'トラック', ''), '',
-          reason: '「その他」を選んでいないのに、その他の字が付いた');
-      expect(p({}, '', ''), '');
+      expect(p({TransportType.other}, '   '), '');
+      expect(p({}, ''), '');
+      expect(p({}, 'バイクで駅まで'), '');
     });
 
     test('(d-3) reportParkingFeeValue：空・空白・0・負の数・数でない字・小数', () {
@@ -1862,6 +1866,8 @@ void main() {
       });
     });
 
+    // →再（2026-10-14・便BJ・見本 v1 の ②③⑦⑧）: 「その他」の字（otherText）と氏名の名簿へ足す行を撤去し、日報の入れ物を
+    //   item に組んでから写真を確かめ、addReport(item) で送る形にした。値を組むのは最初の await（写真を読む所）より前、を見る。
     test('(f-3) シェルの送る所（_submit）が、値の関数と日報の入れ物へ、今の欄を取り違えずに渡している（値の関数を通らない物・経費の目安も）', () {
       final src = _codeOnly(home);
       expect('reportWorkContentPrefix('.allMatches(src).length, 1);
@@ -1870,7 +1876,7 @@ void main() {
       final flat = _flat(src);
       expect(
           flat.contains('final contentPrefix = reportWorkContentPrefix( '
-              'transports: _transports, otherText: _otherCtrl.text, '
+              'transports: _transports, '
               'memoText: _transportMemoCtrl.text, );'),
           isTrue,
           reason: '作業内容の頭の字へ渡す欄');
@@ -1897,14 +1903,16 @@ void main() {
       expect(flat.contains('parkingFee: parkingFeeValue,'), isTrue);
       expect(flat.contains('carpoolCompany: carpoolCompany,'), isTrue);
       expect(flat.contains('carpoolName: carpoolName,'), isTrue);
-      // 値を組むのは、氏名の名簿へ足す所（await）より前＝読む順は取り出す前と同じ。
+      // 値を組むのは、写真を読む所（await）より前＝読む順は取り出す前と同じ（元は氏名の名簿へ足す所の await）。
       final iPrefix = src.indexOf('reportWorkContentPrefix(');
       final iCarpoolName = src.indexOf('final carpoolName = reportCarpoolValue(');
-      final iAwait = src.indexOf('await WorkerNameStore.instance.add(name);');
-      final iAdd = src.indexOf('ReportStore.instance.addReport(');
+      final iItem = src.indexOf('final item = WorkerReportItem(');
+      final iAwait = src.indexOf('final photos = await reportPhotosFor(item);');
+      final iAdd = src.indexOf('await ReportStore.instance.addReport(item);');
       expect(iPrefix > 0 && iCarpoolName > iPrefix, isTrue);
-      expect(iCarpoolName < iAwait && iAwait < iAdd, isTrue,
+      expect(iCarpoolName < iItem && iItem < iAwait && iAwait < iAdd, isTrue,
           reason: '値を組む所が、await の後ろへ動いている');
+      expect(src.contains('WorkerNameStore'), isFalse, reason: '氏名の名簿へ足す行が残っている');
       // 経費の目安へ渡す欄と、日報の入れ物（WorkerReportItem）へ渡す残りの物（値の関数を通らない物）。
       //   最初の addReport が _submit の物（2つ目は、残業の報告の側）。
       expect(
@@ -1914,10 +1922,10 @@ void main() {
           reason: '経費の目安へ渡す欄');
       final iExp = src.indexOf('final exp = reportExpenseSnapshot(');
       expect(iExp > 0 && iExp < iAwait, isTrue, reason: '経費の目安を組む所が、await の後ろへ動いている');
-      final add = _flat(_callOf(src, 'ReportStore.instance.addReport'));
-      expect(add.startsWith('ReportStore.instance.addReport(WorkerReportItem( name: name,'),
+      final add = _flat(_callOf(src, 'final item = WorkerReportItem'));
+      expect(add.startsWith('final item = WorkerReportItem( name: name,'),
           isTrue,
-          reason: '最初の addReport が、_submit の物でない');
+          reason: '_submit の日報の入れ物が無い');
       for (final p in [
         'name: name,',
         'transport: _transport,',
@@ -1925,6 +1933,7 @@ void main() {
         'workPhotoPaths: _workPhotoPaths,',
         'parkingPhotoPaths: _parkingPhotoPaths,',
         'gpsAddress: gpsAddr,',
+        'gpsFailReason: _gpsFailReason,',
         'gpsLat: _lat,',
         'gpsLon: _lon,',
         'originType: _originType,',
@@ -1991,6 +2000,8 @@ void main() {
         'routeFailed: _routeFailed,',
         'routeFromCache: _routeFromCache,',
         'onRouteRetry: _calculateRoutes,',
+        // →再（2026-10-14・便BJ・見本 v1 の ⑥）: 自宅の住所が無い時の※。
+        'routeNote: _homeAddressMissing ? kHomeAddressMissingNote : null,',
         'carpoolCompanyController: _carpoolCompanyCtrl,',
         'carpoolCompanyCandidatesOf: () => carpoolCompanyNamesOf(_carpoolCompanyResults),',
         'onCarpoolCompanyChanged: _onCarpoolCompanyChanged,',
@@ -2031,7 +2042,10 @@ void main() {
       expect(
           flat.contains('ReportConfirmScreen( initial: _buildSnapshot(), '
               'currentOf: _buildSnapshot, onSend: _submit, '
-              'isDone: () => _todayReportDone, )'),
+              'isDone: () => _todayReportDone, '
+              // →再（2026-10-14・便BJ・見本 v1 の ②③）: 送る前に止まった時の枠を渡す。
+              // →再（2026-10-14・便BJ・検分 a251 の S2）: 枠は送るボタンの真上の口（bottomNoticeOf）で渡す。
+              'bottomNoticeOf: () => _sendNotice, )'),
           isTrue);
     });
 

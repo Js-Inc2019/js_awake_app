@@ -17,6 +17,7 @@ import '../services/worker_service.dart';
 import '../utils/device_id.dart';
 import '../utils/field_role_gate.dart';
 import '../utils/session_lockout.dart';
+import '../utils/personal_data_cleanup.dart';
 import '../main.dart' show bossPinOk;
 import '../core/theme/field_tokens.dart';
 
@@ -334,7 +335,9 @@ class _LoginScreenState extends State<LoginScreen>
           // ★移設前は code を優先し、無ければ error 文字列を code として扱っていた。
           //   errorCode が BE の code、errorMessage が BE の error を運ぶ（同じ出所）。
           final errCode = response.errorCode ?? response.errorMessage;
-          await prefs.remove('auth_token');
+          // 元: auth_token だけを消していた（前の人の下書き・場所・名前が端末に残った）。
+          // →再（2026-10-14・便BJ・見本 v1 の ⑧）: ログアウトと同じ掃除（utils/personal_data_cleanup.dart）。
+          await clearPersonalData();
           // ★理由を必ず本人へ見せる。verify-token は /auth/ 配下＝締め出し部品の
           //   対象外URL（戻る先が今いる画面になるため）なので、部品には
           //   「理由を残す」ことだけを頼み、帯の表示はこの画面で行う。

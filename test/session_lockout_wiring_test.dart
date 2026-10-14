@@ -85,12 +85,23 @@ void main() {
       expect(prefs.getBool('logged_out'), isTrue);
     });
 
+    // 元: 送る口の例は POST /reports（今日の日報）だった。
+    // →再（2026-10-14・便BJ・見本 v2 の ⑭）: 今日の日報を送る口は、日報が端末の箱に残る（書いた人がログインし直した時に
+    //   送られる）ので一文を足さない。例は後から出す日報の口（POST /reports/permitted）に替え、下に二者比較を足した。
     test('送信中(GET以外)の締め出しは作成中の内容が消えることも伝える', () async {
+      await _call(_res(401, '{"code":"TOKEN_EXPIRED"}',
+          method: 'POST', url: '$kApiBaseUrl/reports/permitted'));
+      final reason = await takeLockoutReason();
+      expect(reason, contains('認証の有効期限が切れました'));
+      expect(reason, contains('作成中の内容は保存されていません'));
+    });
+
+    test('今日の日報を送る口（POST /reports）の締め出しは、作成中の内容が消えるとは伝えない（日報は端末の箱に残る）', () async {
       await _call(_res(401, '{"code":"TOKEN_EXPIRED"}',
           method: 'POST', url: '$kApiBaseUrl/reports'));
       final reason = await takeLockoutReason();
       expect(reason, contains('認証の有効期限が切れました'));
-      expect(reason, contains('作成中の内容は保存されていません'));
+      expect(reason, isNot(contains('作成中の内容は保存されていません')));
     });
 
     test('入力のやり直しで済むコード(INVALID_PIN)では理由を残さない', () async {
@@ -229,6 +240,22 @@ void main() {
       await _call(_res(401, '{"code":"RETIRED"}',
           method: 'GET', url: '$kApiBaseUrl/reports', token: 'token-b'));
       expect(await takeLockoutReason(), isNotNull);
+    });
+
+    // →再（2026-10-14・便BJ・検分 a253 の N11）: 送った資格が今の資格と違う時（送っている途中にログインし直した）は、
+    //   前の資格への答え＝今の人を締め出さない。二者比較：今の資格への答えなら締め出す。
+    test('送った資格が今の資格と違う時（前の資格への答え）は締め出さない・同じなら締め出す', () async {
+      SharedPreferences.setMockInitialValues({'auth_token': 'token-new', 'user_name': '次の人'});
+      await _call(_res(401, '{"code":"TOKEN_EXPIRED"}',
+          method: 'POST', url: '$kApiBaseUrl/reports', token: 'token-old'));
+      expect(await takeLockoutReason(), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('auth_token'), 'token-new');
+      expect(prefs.getString('user_name'), '次の人', reason: '前の資格への答えで、今の人の物を消した');
+      await _call(_res(401, '{"code":"TOKEN_EXPIRED"}',
+          method: 'POST', url: '$kApiBaseUrl/reports', token: 'token-new'));
+      expect(await takeLockoutReason(), isNotNull);
+      expect(prefs.getString('auth_token'), isNull);
     });
   });
 

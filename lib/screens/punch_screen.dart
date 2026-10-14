@@ -469,7 +469,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //       （キャッシュ焼き付きの停止。理由は home_screen.dart の _readWorkStatusToday のコメントと同じ）。
   // 失敗しても打刻の成立は覆さない（例外は握って握り潰さずログのみ・秘匿値は出さない）。
   Future<void> _persistPunchGps(
-      ({String address, double? lat, double? lon, String status}) gps) async {
+      ({String address, double? lat, double? lon, String status, String? failReason}) gps) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (gps.lat != null) await prefs.setDouble('gps_lat', gps.lat!);

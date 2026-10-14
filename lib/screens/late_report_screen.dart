@@ -32,6 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/permitted_report_labels.dart' show permittedReportMarkOrNull;
+import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../main.dart'
     show
@@ -156,6 +157,8 @@ class _LateReportScreenState extends State<LateReportScreen> {
   Map<String, dynamic> _routeComparisons = {};
   bool _loadingRoutes = false;
   bool _routeFailed = false;
+  // 出発地の住所が無い時（便BJ・見本 v1 の ⑥）。true の間は帯の外に kHomeAddressMissingNote の※を出す。
+  bool _homeAddressMissing = false;
   int _routeGen = 0;
 
   // ── 提出 ──────────────────────────────────────────────
@@ -255,6 +258,9 @@ class _LateReportScreenState extends State<LateReportScreen> {
   }
 
   /// 入力が初めのまま（どの欄も初めの値から変えていない）か。
+  ///   →再（2026-10-14・便BJ・見本 v1 の (8)）: 隠れた欄（補足・駐車料金と駐車場写真・相乗りの2欄）の字と写真は数えない
+  ///   （隠れた欄の物は送らない＝送らない物で「閉じますか？」を出さない）。欄を出す式は report_form_steps.dart の
+  ///   reportTransportMemoVisible・reportParkingVisible・reportCarpoolVisible（欄を出す所と同じ1本）。
   bool get _isPristine =>
       _shiftType == 'day' &&
       _siteId == null &&
@@ -262,13 +268,14 @@ class _LateReportScreenState extends State<LateReportScreen> {
       _originType == _initOriginType &&
       setEquals(_transports, _initTransports) &&
       _carType == _initCarType &&
-      _parkingCtrl.text.isEmpty &&
-      _carpoolCompanyCtrl.text.isEmpty &&
-      _carpoolNameCtrl.text.isEmpty &&
-      _transportMemoCtrl.text.isEmpty &&
+      (!reportParkingVisible(_transports, _carType) ||
+          (_parkingCtrl.text.isEmpty && _parkingPhotoPaths.isEmpty)) &&
+      (!reportCarpoolVisible(_transports, _carType) ||
+          (_carpoolCompanyCtrl.text.isEmpty && _carpoolNameCtrl.text.isEmpty)) &&
+      (!reportTransportMemoVisible(_transports) ||
+          _transportMemoCtrl.text.isEmpty) &&
       _workCtrl.text.isEmpty &&
-      _workPhotoPaths.isEmpty &&
-      _parkingPhotoPaths.isEmpty;
+      _workPhotoPaths.isEmpty;
 
   // ── 段の移り ─────────────────────────────────────────────
   void _scrollTop() {
@@ -314,12 +321,15 @@ class _LateReportScreenState extends State<LateReportScreen> {
 
   // ── 目安 ───────────────────────────────────────────────
   // 取らない時（現場なし・出発地の住所が無い）の後片付け。前の目安を残さない（送る本文の目安の値も null になる）。
-  void _clearRoutes() {
+  //   →再（2026-10-14・便BJ・見本 v1 の ⑥）: 出発地の住所が無い時（homeAddressMissing）は、帯の外に
+  //   kHomeAddressMissingNote の※を出す（ホームと同じ字）。
+  void _clearRoutes({bool homeAddressMissing = false}) {
     if (!mounted) return;
     setState(() {
       _routeComparisons = {};
       _loadingRoutes = false;
       _routeFailed = false;
+      _homeAddressMissing = homeAddressMissing;
     });
   }
 
@@ -341,13 +351,17 @@ class _LateReportScreenState extends State<LateReportScreen> {
     }
     if (myGen != _routeGen) return;
     if (originAddr == null || originAddr.isEmpty) {
-      _clearRoutes();
+      _clearRoutes(homeAddressMissing: true);
       return;
     }
     if (!mounted) return;
+    // 元: 取り直しの頭で前の目安を消さなかった（取り直しの間に提出すると前の値が入った＝窓の「金額が入りません」と違う）。
+    // →再（2026-10-14・便BJ・見本 v1 の (9)）: 取り直しの頭で前の値を消す。
     setState(() {
       _loadingRoutes = true;
       _routeFailed = false;
+      _routeComparisons = {}; // 取り直しの頭で前の値を消す（便BJ）
+      _homeAddressMissing = false;
     });
 
     RouteCompareResult res = const RouteCompareResult.failed(RouteFailure.empty);
@@ -492,8 +506,9 @@ class _LateReportScreenState extends State<LateReportScreen> {
     }
     setState(() => _submitting = true);
     try {
-      if ((_transports.contains(TransportType.car) ||
-              _transports.contains(TransportType.other)) &&
+      // 元: 「車か その他」かつ写真0枚（相乗りで帯が無くても窓が出た）。
+      // →再（2026-10-14・便BJ・見本 v1 の ④）: 帯を出す式（reportParkingVisible）と同じ1本＋写真0枚。
+      if (reportParkingVisible(_transports, _carType) &&
           _parkingPhotoPaths.isEmpty) {
         final proceed = await confirmNoParkingPhoto(context,
             question: 'このまま提出しますか？', proceedLabel: 'このまま提出');
@@ -504,11 +519,11 @@ class _LateReportScreenState extends State<LateReportScreen> {
         }
       }
       // ホームの _submit と同じ値の関数で組む。
-      //   ★「その他」の字（otherText）の欄はフォームに無い（ホームの _otherCtrl も画面に出していない）＝空の字。
+      //   ★（元）「その他」の字（otherText）の欄はフォームに無い（ホームの _otherCtrl も画面に出していない）＝空の字。
+      //     →再（2026-10-14・便BJ・見本 v1 の ⑦）: otherText を値の関数から撤去した（ホームの _otherCtrl も撤去）。
       //   ★日付・時刻・場所は送らない（permittedReportBodyFor が除く）＝gpsAddress・gpsLat・gpsLon・timestamp は渡さない。
       final contentPrefix = reportWorkContentPrefix(
         transports: _transports,
-        otherText: '',
         memoText: _transportMemoCtrl.text,
       );
       final exp = reportExpenseSnapshot(_transports, _routeComparisons);
@@ -538,7 +553,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
       if (!mounted) return;
       if (photos.length < _workPhotoPaths.length + _parkingPhotoPaths.length) {
         setState(() {
-          _notice = _frame('写真を読み込めませんでした。戻って撮り直してください',
+          _notice = _frame(kPhotoUnreadableText,
               heading: '提出できません');
           _closeOnly = false;
         });
@@ -788,6 +803,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
                         routeFailed: _routeFailed,
                         routeFromCache: false,
                         onRouteRetry: _calculateRoutes,
+                        routeNote: _homeAddressMissing ? kHomeAddressMissingNote : null,
                         carpoolCompanyController: _carpoolCompanyCtrl,
                         carpoolCompanyCandidatesOf: () =>
                             carpoolCompanyNamesOf(_carpoolCompanyResults),
