@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
+import '../utils/pending_view.dart';
 
 // 報告完了ビュー（日報タブ index1 を占有）。
 // S5b: 縦詰まり・見切れ・スクロール不能・スライド/タップ混在を解消するため全面改修。
@@ -25,6 +26,12 @@ import '../utils/business_date.dart';
 //  ・塗り面（α0.08）を全廃。枠は暗枠1px のみ。区切りは1px線＋余白
 //  ・色は意味だけ: 未送信の警告 = FieldTokens.statusWarning。続行3行は単色（textBody/textSupport）
 //    ＝ FieldTokens.foremanBase(紫) / FieldTokens.accent の装飾用途は撤去した
+//
+// 便BK（見本 claude/field_report_fix_mock_v3.html の ⑮⑯⑰②・ボスの裁定【Q143】【Q144】【Q145】＝１）:
+//  ・頭の字と3行目は「今日の分」の日報だけで決める（呼び手が sent と refusedMessage を今日の分から渡す）。
+//  ・ほかの日の未送信と読み込めない日報は、「続けて報告」の後に「未送信日報」として並べる（受け付けなかった行と
+//    読み込めない日報の行だけ「外す」）。「今すぐ再送する」は1つだけ（今日の分が未送信なら頭の下・送れていれば下）。
+//  ・未送信の箱を読めなかった時は、頭の下に※（kPendingReadFailedNote）。
 class AfterReportBody extends StatefulWidget {
   const AfterReportBody({
     super.key,
@@ -35,34 +42,70 @@ class AfterReportBody extends StatefulWidget {
     this.onRetry,
     this.onClose,
     this.refusedMessage,
+    this.pendingReadFailed = false,
+    this.otherRows = const <PendingReportRow>[],
+    this.unreadableCount = 0,
+    this.unreadableUnknown = false,
+    this.onRemoveRow,
+    this.onRemoveUnreadable,
   });
   // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ＝出し分けの引数を持たない。
   //   （旧 showMoveToNextSite / showShiftContinue / onMoveToNextSite / onShiftContinue は撤去）
   final String workerName;
-  final bool sent;                       // 頭の字（便BJ: 今の人の未送信の日報の数が 0 か＝home_screen.dart の pendingOwnCount）
+  final bool sent;                       // 頭の字（便BK: 今日の分の未送信の日報が無いか＝lib/utils/pending_view.dart の pendingTodayRows）
   final String shiftType;                // 'day'|'night'（ヘッダのサブ行 _headerSubtitle に使う）
   final Future<void> Function() onOvertime;
-  final VoidCallback? onRetry;           // sent==false時の「今すぐ再送」
+  // 「今すぐ再送」。（元）sent==false の時だけ（頭の下）。
+  //   →再（2026-10-14・便BK・見本 v3 の ⑮）: 今日の分が送れていて、ほかの日に送れる日報が在る時も（「未送信日報」の中）。
+  final VoidCallback? onRetry;
   final VoidCallback? onClose;           // 主ボタン「今日はここまで」＝この画面を閉じる
   // 送り先が受け付けなかった時の、送り先の答えの字（便BJ・見本 v2 の ⑬・ボスの裁定【Q142】）。null＝通信の字のまま。
   //   在れば、sent==false の時の3行目を「提出できません（…）」にし、その下に※の行を足す。
+  //   →再（2026-10-14・便BK・見本 v3 の ⑮）: 今日の分の日報の中で最初の受け付けなかった字（呼び手が渡す）。
   final String? refusedMessage;
+  // 未送信の箱を読めなかったか（便BK・見本 v3 の ⑰②）。true の時、頭の下に kPendingReadFailedNote を出す。
+  final bool pendingReadFailed;
+  // 今日の分でない、今の人の未送信の日報（箱の並び・便BK・見本 v3 の ⑮）。「未送信日報」に並べる。
+  final List<PendingReportRow> otherRows;
+  // 読み込めない日報（便BK・見本 v3 の ⑯）。unreadableCount＝読めない行の数・unreadableUnknown＝読めない箱の元の字が在る。
+  final int unreadableCount;
+  final bool unreadableUnknown;
+  // 「外す」を押した時（確かめの窓と、外した後の知らせは呼び手＝home_screen.dart が出す）。null＝「外す」を出さない。
+  final Future<void> Function(PendingReportRow row)? onRemoveRow;
+  final Future<void> Function()? onRemoveUnreadable;
 
   @override
   State<AfterReportBody> createState() => _AfterReportBodyState();
 }
 
 class _AfterReportBodyState extends State<AfterReportBody> {
-  bool get _isNight => widget.shiftType == 'night';
-
   // ヘッダのサブ行「🌙夜勤 7/22分を送信しました」。
   // 業務日は送信時と同じ物差し（businessDateForShift）で出す＝黙って日付を変えない。
-  String get _headerSubtitle {
-    final biz = businessDateForShift(widget.shiftType, DateTime.now());
-    final p = biz.split('-');
-    final md = p.length == 3 ? '${int.parse(p[1])}/${int.parse(p[2])}' : biz;
-    return '${_isNight ? '🌙夜勤' : '☀日勤'} $md分を送信しました';
-  }
+  //   →再（2026-10-14・便BK・検分 a260 の N5）: 「☀日勤 M/D分」の組み方は lib/core/report_send_texts.dart の pendingRowTitle の
+  //   1本（「未送信日報」の行の題と同じ・出る字は元と同じ）。
+  String get _headerSubtitle =>
+      '${pendingRowTitle(widget.shiftType, businessDateForShift(widget.shiftType, DateTime.now()))}を送信しました';
+
+  bool get _hasUnreadable => widget.unreadableCount > 0 || widget.unreadableUnknown;
+
+  // 「未送信日報」に並べる物が在るか。
+  bool get _hasPendingSection => widget.otherRows.isNotEmpty || _hasUnreadable;
+
+  // 送った後の画面の※（未送信の箱を読めなかった時・頭の下）。
+  Widget get _readFailedNote => const Padding(
+        padding: EdgeInsets.only(top: 6),
+        child: Text(kPendingReadFailedNote,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: FieldTokens.statusWarning, fontSize: 11.5)),
+      );
+
+  Widget get _retryCard => _ActionCard(
+        icon: Icons.refresh,
+        title: '今すぐ再送する',
+        subtitle: '保存済みの報告をもう一度送信',
+        accent: FieldTokens.statusWarning,
+        onTap: () => widget.onRetry?.call(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +128,7 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               Text(_headerSubtitle,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
+              if (widget.pendingReadFailed) _readFailedNote,   // ⑰②（報告完了の時）
             ] else ...[
               const Text('未送信（再送待ち）',
                   textAlign: TextAlign.center,
@@ -97,9 +141,11 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               const SizedBox(height: 10),
               // 元: いつも通信の字（送り先が受け付けなかった時も「通信状況により…」のままで、事実と違った）。
               // →再（2026-10-14・便BJ・見本 v2 の ⑬・【Q142】）: 受け付けなかった時だけ、送り先の答えの字と※を出す。
+              //   →再（2026-10-14・便BK・検分 a260 の N6）: 頭の字は kPendingNetworkText から組む（「未送信日報」の行の字と1本・
+              //   出る字は元と同じ）。
               if (widget.refusedMessage == null)
                 const Text(
-                  '通信状況により未送信です。電波の良い場所で自動再送されます。',
+                  '$kPendingNetworkText。電波の良い場所で自動再送されます。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: FieldTokens.statusWarning, fontSize: 12),
                 )
@@ -116,16 +162,12 @@ class _AfterReportBodyState extends State<AfterReportBody> {
                   style: TextStyle(color: FieldTokens.textSupport, fontSize: 12),
                 ),
               ],
+              if (widget.pendingReadFailed) _readFailedNote,   // ⑰②（未送信の時）
               const SizedBox(height: 12),
               // 再送は続行3行と同じ新様式。ただし文字/アイコンは warning のまま
               //（＝「まだ送れていない」という意味を色で持つ唯一の行）。機能は現行のまま。
-              _ActionCard(
-                icon: Icons.refresh,
-                title: '今すぐ再送する',
-                subtitle: '保存済みの報告をもう一度送信',
-                accent: FieldTokens.statusWarning,
-                onTap: () => widget.onRetry?.call(),
-              ),
+              //   →再（2026-10-14・便BK・見本 v3 の ⑮）: 組み方は _retryCard の1本（「未送信日報」の中に出す時と同じ）。
+              _retryCard,
             ],
 
             const SizedBox(height: 24),
@@ -161,11 +203,193 @@ class _AfterReportBodyState extends State<AfterReportBody> {
             ),
             // N4: 「🚗 次の現場へ移動」「☀/🌙 シフト切替」の2カードは撤去した。
             //   2件目の作成に入る導線はホーム(punch_screen)へ一本化（N5）。
+
+            // ── 未送信日報（便BK・見本 v3 の ⑮⑯）：ほかの日の未送信と、読み込めない日報 ──
+            if (_hasPendingSection) ..._pendingSection(),
           ],
         ),
       ),
     );
   }
+
+  List<Widget> _pendingSection() {
+    final rows = widget.otherRows;
+    final refused = rows.any((r) => r.refusedMessage != null);
+    final known = rows.length + widget.unreadableCount;
+    return [
+      const SizedBox(height: 24),
+      const Divider(height: 1, thickness: 1, color: FieldTokens.outline),
+      const SizedBox(height: 20),
+      // 見出し（字の形は「続けて報告」と同じ）＋件数。
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          const Text(kPendingSectionLabel,
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
+          const SizedBox(width: 8),
+          Text(pendingSectionCountLabel(known, unknown: widget.unreadableUnknown),
+              style: const TextStyle(
+                  color: FieldTokens.statusWarning,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
+        ],
+      ),
+      const SizedBox(height: 12),
+      for (final r in rows) ...[
+        _PendingRow(
+          title: pendingRowTitle(r.shiftType, r.businessDate),
+          subtitle: r.refusedMessage != null
+              ? refusedReportText(r.refusedMessage!)
+              : kPendingNetworkText,
+          subtitleColor: FieldTokens.statusWarning,
+          // 「外す」は受け付けなかった行だけ（通信で送れていない行は、送り直しで届く）。
+          onRemove: r.refusedMessage != null && widget.onRemoveRow != null
+              ? () => widget.onRemoveRow!(r)
+              : null,
+        ),
+        const SizedBox(height: 8),
+      ],
+      if (_hasUnreadable) ...[
+        _PendingRow(
+          title: unreadableRowTitle(widget.unreadableCount,
+              unknown: widget.unreadableUnknown),
+          subtitle: kUnreadableRowText,
+          subtitleColor: FieldTokens.textSupport,
+          onRemove: widget.onRemoveUnreadable,
+        ),
+        const SizedBox(height: 8),
+      ],
+      // 「今すぐ再送する」は1つだけ：今日の分が送れていて、ほかの日に送れる日報（読み込めない物でない）が在る時はここ。
+      if (widget.sent && rows.isNotEmpty) ...[
+        _retryCard,
+        const SizedBox(height: 8),
+      ],
+      // ※は枠の外（textSupport・11.5）。「※会社のご担当者にご確認ください。」は、頭の下に同じ※が出ている時（今日の分が
+      //   受け付けられなかった時）は出さない（1つの画面に同じ字を2回出さない・検分 a260 の N2）。
+      if (refused) ...[
+        if (widget.sent || widget.refusedMessage == null) ...[
+          const SizedBox(height: 4),
+          const Text(kRefusedReportNote,
+              style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
+        ],
+        const SizedBox(height: 2),
+        const Text(kRemovedReportNote,
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
+      ],
+      if (_hasUnreadable) ...[
+        SizedBox(height: refused ? 2 : 4),
+        const Text(kUnreadableReportNote,
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
+      ],
+    ];
+  }
+}
+
+// 「未送信日報」の1行（便BK・見本 v3 の ⑮⑯）。枠は暗枠1px（_ActionCard と同じ）・題 14 太字・下の字 11。
+//   「外す」は高さ 44・幅 64 以上（触れる大きさの決まり）・枠 textSupport 1px・字 textBody 13 太字。onRemove＝null なら出さない。
+class _PendingRow extends StatelessWidget {
+  const _PendingRow({
+    required this.title,
+    required this.subtitle,
+    required this.subtitleColor,
+    this.onRemove,
+  });
+  final String title;
+  final String subtitle;
+  final Color subtitleColor;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 52),
+      padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: FieldTokens.outline),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: FieldTokens.textBody,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: TextStyle(color: subtitleColor, fontSize: 11)),
+              ],
+            ),
+          ),
+          if (onRemove != null) ...[
+            const SizedBox(width: 12),
+            OutlinedButton(
+              onPressed: onRemove,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(64, 44),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                foregroundColor: FieldTokens.textBody,
+                side: const BorderSide(color: FieldTokens.textSupport),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              child: const Text(kRemovePendingLabel),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 「外す」を押した時の確かめの窓（便BK・見本 v3 の ⑮⑯）。形と色は「今日の報告を締めますか？」（home_screen.dart の
+///   _onCloseToday）と同じ AlertDialog。本文は2つの段（line1＝「端末から外し、送信しません。」＋写真・line2＝出し直しの道）。
+///   返り＝「外す」を押した時だけ true（「キャンセル」・外を押して閉じた時は false）。
+Future<bool> confirmRemovePendingDialog(
+  BuildContext context, {
+  required String title,
+  required String line1,
+  required String line2,
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: FieldTokens.surfaceCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      title: Text(title,
+          style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(line1,
+              style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+          const SizedBox(height: 12),
+          Text(line2,
+              style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('キャンセル',
+              style: TextStyle(color: FieldTokens.textSupport)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text(kRemovePendingLabel,
+              style: TextStyle(color: FieldTokens.statusWarning)),
+        ),
+      ],
+    ),
+  );
+  return ok == true;
 }
 
 // 主ボタン「今日はここまで」。生成り枠1.5px＋同色文字・塗りなし・高さ56・角丸10。

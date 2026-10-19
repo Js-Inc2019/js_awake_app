@@ -24,6 +24,8 @@ import 'consent_view_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'notification_settings_screen.dart';
 import 'company_link_screen.dart';
+import 'device_error_log_screen.dart';
+import '../utils/device_error_log.dart';
 
 // ─── 経験年数 → 経験色 ─────────────────────────────────────
 // 色の実体は FieldTokens.getWorkerAccent（field_tokens.dart）。
@@ -162,6 +164,8 @@ class ProfileBodyState extends State<ProfileBody> {
     super.initState();
     _loadProfile();
     _loadConsentInfo();
+    // 便BK（見本 v3 の ⑰④）: 「端末｜エラー記録」の件数を読む（deviceErrorCount に入る）。
+    readDeviceErrors();
   }
 
   Future<void> _loadConsentInfo() async {
@@ -279,9 +283,21 @@ class ProfileBodyState extends State<ProfileBody> {
     return _loading
           ? const Center(child: CircularProgressIndicator(color: FieldTokens.accent))
           : p == null
-              ? const Center(
-                  child: Text('プロフィールを読み込めませんでした',
-                      style: TextStyle(color: FieldTokens.textSupport)))
+              // 便BK（見本 v3 の ⑰④）: プロフィールを読めない時も「端末｜エラー記録」を出す
+              //   （読めない時こそ、問い合わせに要る記録を見られる＝行き止まりにしない）。
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('プロフィールを読み込めませんでした',
+                            style: TextStyle(color: FieldTokens.textSupport)),
+                        const SizedBox(height: 16),
+                        _buildDeviceErrorLogTile(),
+                      ],
+                    ),
+                  ))
               : SafeArea(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(20),
@@ -299,6 +315,9 @@ class ProfileBodyState extends State<ProfileBody> {
                         // 通知設定・プライバシーポリシー・利用規約/同意状況はログアウト直上ブロックへ
                         const SizedBox(height: 16),
                         _buildNotificationSettingsTile(),
+                        // 便BK（見本 v3 の ⑰④）: 端末の中の失敗の控え（エラー記録）の入口。
+                        const SizedBox(height: 12),
+                        _buildDeviceErrorLogTile(),
                         // 協力申請は職長のみ（p.role の判定は本ファイルの既存の p.role 判定と同じ値を使う）
                         if (p.role == 'boss') ...[
                           const SizedBox(height: 12),
@@ -498,6 +517,76 @@ class ProfileBodyState extends State<ProfileBody> {
           ],
         ),
       ),
+    );
+  }
+
+  // 便BK（見本 claude/field_report_fix_mock_v3.html の ⑰④・ボスの裁定【Q145】＝１）: 「端末｜エラー記録」の行。
+  //   形は直上の _buildNotificationSettingsTile と同じ（padding 14/12・角 10・印 18・字 10 と 14）。右に件数（N件・0件は「なし」）。
+  //   行の下に※（枠の外）。件数は lib/utils/device_error_log.dart の deviceErrorCount（読む・足す時に替わる）。
+  Widget _buildDeviceErrorLogTile() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DeviceErrorLogScreen()),
+            );
+            await readDeviceErrors();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: FieldTokens.surfaceCard,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: FieldTokens.outline),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.report_gmailerrorred_outlined,
+                    color: FieldTokens.accent, size: 18),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('端末',
+                          style: TextStyle(
+                              color: FieldTokens.textSupport,
+                              fontSize: 10,
+                              letterSpacing: 0.5)),
+                      SizedBox(height: 2),
+                      Text(kDeviceErrorLogTitle,
+                          style: TextStyle(
+                              color: FieldTokens.textBody,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                ),
+                ValueListenableBuilder<int>(
+                  valueListenable: deviceErrorCount,
+                  builder: (_, n, __) => Text(n > 0 ? '$n件' : 'なし',
+                      style: TextStyle(
+                          color: n > 0
+                              ? FieldTokens.statusWarning
+                              : FieldTokens.textSupport,
+                          fontSize: 13,
+                          fontWeight:
+                              n > 0 ? FontWeight.bold : FontWeight.normal)),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right,
+                    color: FieldTokens.textSupport, size: 18),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(kDeviceErrorTileNote,
+            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
+      ],
     );
   }
 

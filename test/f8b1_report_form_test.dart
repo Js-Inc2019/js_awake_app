@@ -1545,14 +1545,18 @@ void main() {
       expect(a.transportLabel, '電車・車', reason: '字は選んだ順');
       expect(a.routeRows.map((r) => '${r.label}|${r.dist}|${r.cost}').toList(),
           ['電車|神戸→三宮|💴¥620', '車|12.4km|⛽¥141']);
-      expect(a.parkingFeeRaw, '500');
+      // →再（2026-10-14・便BK・CC の見つけた事）: 相乗りの時は駐車場の帯が隠れる＝駐車料金と駐車場の写真の枚数は出さない
+      //   （送る値と同じ）。帯が出る時（下の b＝車で社用車・自家用車）は今のまま（二者比較）。
+      expect(a.parkingFeeRaw, '', reason: '隠れた帯の駐車料金を、確認の画面に出した');
       expect(a.carpoolCompany, '相乗り商事');
       expect(a.carpoolName, '相乗 次郎');
       expect(a.workContent, '1階の配線');
       expect(a.workPhotoCount, 2);
-      expect(a.parkingPhotoCount, 1);
+      expect(a.parkingPhotoCount, 0, reason: '隠れた帯の写真の枚数を、確認の画面に出した');
 
       final b = make(transports: {TransportType.car});
+      expect(b.parkingFeeRaw, '500', reason: '帯が出ているのに、駐車料金を出さない');
+      expect(b.parkingPhotoCount, 1, reason: '帯が出ているのに、駐車場の写真の枚数を出さない');
       expect(b.siteId, isNull);
       expect(b.siteName, '該当現場なし');
       expect(b.originLabel, '自宅');
@@ -1900,7 +1904,13 @@ void main() {
       // 組んだ値を、日報の入れ物の同じ名前の所へ渡している。
       expect(flat.contains('workContent: contentPrefix + _workCtrl.text.trim(),'),
           isTrue);
-      expect(flat.contains('parkingFee: parkingFeeValue,'), isTrue);
+      // →再（2026-10-14・便BK・CC の見つけた事）: 駐車料金と駐車場の写真は、帯が出ている時（reportParkingVisible）だけ送る。
+      expect(
+          flat.contains(
+              'final parkingShown = reportParkingVisible(_transports, _carType);'),
+          isTrue,
+          reason: '帯が出ているかを、帯を出す式と同じ1本で見ていない');
+      expect(flat.contains('parkingFee: parkingShown ? parkingFeeValue : null,'), isTrue);
       expect(flat.contains('carpoolCompany: carpoolCompany,'), isTrue);
       expect(flat.contains('carpoolName: carpoolName,'), isTrue);
       // 値を組むのは、写真を読む所（await）より前＝読む順は取り出す前と同じ（元は氏名の名簿へ足す所の await）。
@@ -1931,7 +1941,7 @@ void main() {
         'transport: _transport,',
         'transportTypes: _transports.map((t) => t.name).toList(),',
         'workPhotoPaths: _workPhotoPaths,',
-        'parkingPhotoPaths: _parkingPhotoPaths,',
+        'parkingPhotoPaths: parkingShown ? _parkingPhotoPaths : const <String>[],',
         'gpsAddress: gpsAddr,',
         'gpsFailReason: _gpsFailReason,',
         'gpsLat: _lat,',

@@ -638,7 +638,10 @@ ReportSnapshot reportSnapshotFrom({
 }) {
   // 作業2: 先頭1件ではなく選択中の全手段から内訳を作る。
   final routeRows  = reportRouteBreakdown(transports, routeComparisons);
-  final parkingRaw = parkingText.trim();
+  // 駐車料金と駐車場の写真の枚数は、帯が出ている時だけ（便BK・CC の見つけた事＝送る値と同じ・隠れた欄の値を出さない）。
+  //   元: 帯が隠れていても欄の字と写真の枚数を出していた（送る値と食い違った）。
+  final parkingShown = reportParkingVisible(transports, carType);
+  final parkingRaw = parkingShown ? parkingText.trim() : '';
   return ReportSnapshot(
     dateLabel:         dateLabel,
     shiftLabel:        shiftLabel,
@@ -658,7 +661,7 @@ ReportSnapshot reportSnapshotFrom({
         ? carpoolNameText.trim() : '',
     workContent:       workText.trim(),
     workPhotoCount:    workPhotoCount,
-    parkingPhotoCount: parkingPhotoCount,
+    parkingPhotoCount: parkingShown ? parkingPhotoCount : 0,
   );
 }
 

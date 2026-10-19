@@ -14,7 +14,13 @@
 //   便BJ より前の形（人の印が無い＝'<業務日>|<status>'・'<業務日>'）は、今ログインしている人の物として読む
 //   （ログインしたまま更新した人の印を消さないため）。人の印が無い印は、掃除で消す（clearUnownedTodayMarks＝次の人に渡さない）。
 // ★書く人が分からない時（'user_id' が無い時）は書かない（人の印の無い印を作らない）。
+// →再（2026-10-14・便BK・見つけた事 (28)）: 前の形の印を「今ログインしている人の物」として読むので、ログインした人が
+//   替わった時（書く前の 'user_id' が空か、別の人）に、人の印の無い前の形の印を消す。'user_id' を書く所は
+//   saveLoginUserId の1本（ログイン画面の2か所・機種変更の画面・登録の画面が呼ぶ）。
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'device_error_log.dart';
 
 /// 勤務の種類の鍵（'day'|'night'）。
 const String kShiftTypeKey = 'shift_type';
@@ -81,4 +87,30 @@ Future<void> clearUnownedTodayMarks(SharedPreferences prefs) async {
     await prefs.remove(kShiftTypeKey);
     await prefs.remove(kShiftBusinessDateKey);
   }
+}
+
+/// ログインした人の 'user_id' を書く（便BK・見つけた事 (28)）。★'user_id' を書く所はこの1本だけ
+///   （login_screen.dart の2か所・recovery_screen.dart・register_screen.dart）。
+///   書く前の 'user_id' が空か、userId と違えば、人の印の無い前の形の今日の印を消してから書く（clearUnownedTodayMarks＝
+///   前の人の前の形の印を、次の人の物として読まない）。ログインしたまま更新した人（同じ人）の前の形の印は消さない。
+///   消せなかった時は、端末の失敗の控えに残し、書くのは止めない（ログインを止めない）。★書く方の失敗は投げる（今までと同じ）。
+///   →再（2026-10-14・便BK・検分 a261 の任意 8）: 書く前の 'user_id' を読めない時（字でない値）は、空として扱う
+///   （読めないままログインを止めない・前の形の印は消してから書く）。
+Future<void> saveLoginUserId(SharedPreferences prefs, String userId) async {
+  String before;
+  try {
+    before = todayMarkOwnerOf(prefs);
+  } catch (e) {
+    debugPrint('書く前のログインした人を読めませんでした（空として続行）: $e');
+    before = '';
+  }
+  if (before.isEmpty || before != userId) {
+    try {
+      await clearUnownedTodayMarks(prefs);
+    } catch (e) {
+      debugPrint('前の形の今日の印を消せませんでした（続行）: $e');
+      await recordDeviceError('unowned_marks_clear');
+    }
+  }
+  await prefs.setString('user_id', userId);
 }

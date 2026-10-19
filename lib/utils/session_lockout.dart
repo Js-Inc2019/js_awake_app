@@ -23,6 +23,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'personal_data_cleanup.dart';
+import 'device_error_log.dart';
 import '../config/constants.dart';
 
 // ============================================================
@@ -223,13 +224,22 @@ Future<bool> applyLockoutForResponse({
       //   締め出さない＝前の資格への答えで、今の人を締め出さない（今の人の物を掃除しない）。今の資格が無い時（もうログアウト
       //   している）は、今までどおり理由を残してログイン画面へ戻す。
       //   ★今の資格を読めない時は、締め出す側に倒す（頭の掟＝締め出しは必ず実行する・検分 a254 の Y4）。
+      //   →再（2026-10-14・便BK・見つけた事 (29)）: 資格を付けずに送った頼み（送った資格が空＝ログインの前やログアウトの
+      //   後に出た頼み・サーバは NO_TOKEN と答える）の答えも、今の資格が在れば締め出さない（元: 送った資格が空の時は比べずに
+      //   締め出した＝前の頼みの答えで、今ログインしている人を締め出す道があった）。
       var now = '';
       try {
         now = (await SharedPreferences.getInstance()).getString('auth_token') ?? '';
       } catch (e) {
         debugPrint('[session_lockout] 今の資格を読めない（締め出しは続ける）: $e');
+        await recordDeviceError('lockout_token_read');   // 便BK（見本 v3 の ⑰④）
       }
-      if (now.isNotEmpty && token.isNotEmpty && now != token) return false;
+      if (now.isNotEmpty && now != token) {
+        // 資格を付けずに送った頼み（空の資格）は、多重の鍵に残さない（残すと、今の資格が無くなった後の、資格を付けない頼みの
+        //   答えを「締め出し済み」として止め、理由も残さずログイン画面へも戻さない＝検分 a261 の任意 2）。
+        if (token.isEmpty) _lockedOutToken = null;
+        return false;
+      }
       await saveLockoutReason(verdict.message!);
       await _discardCredentials();
       _backToLogin();

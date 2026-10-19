@@ -12,6 +12,8 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../utils/device_error_log.dart';
+
 /// 電波の知らせが「つながっている」か（none だけの知らせのほかは、つながっている）。
 bool isConnectivityOnline(List<ConnectivityResult> results) =>
     results.isNotEmpty && !results.contains(ConnectivityResult.none);
@@ -36,10 +38,14 @@ class PendingReportAutoRetry {
         (results) {
           if (isConnectivityOnline(results)) unawaited(retry());
         },
-        onError: (Object e) => debugPrint('電波の知らせを読めませんでした: $e'),
+        onError: (Object e) {
+          debugPrint('電波の知らせを読めませんでした: $e');
+          unawaited(recordDeviceError('net_watch'));   // 便BK（見本 v3 の ⑰④・知らせを読めなかった時）
+        },
       );
     } catch (e) {
       debugPrint('電波の知らせを聞けませんでした: $e');
+      unawaited(recordDeviceError('net_watch'));   // 便BK（見本 v3 の ⑰④・聞けなかった時）
     }
   }
 

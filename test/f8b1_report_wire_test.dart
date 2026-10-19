@@ -7,6 +7,9 @@
 //     変わっていない事の証し（直す前の実装で緑を確かめてから、lib を直した）。
 //   →再（2026-10-14・便BJ）: 端末の保存の偽物に、今の人の id（user_id）を足した（保留の箱の日報は持ち主の印を持ち、
 //   送り直しは今の人の日報だけを送る＝ボスの裁定【Q140】）。送る字の期待は1字も変えていない。
+//   →再（2026-10-14・便BK・見つけた事 (26)）: 今日の日報の本文の終わり（写真の前）に client_report_id（日報の id）が
+//   付いた（同じ日報を2回作らせない印・サーバの migration v95・lib/main.dart の ReportStore._sendOne が足す）。
+//   期待の字にその1つを足した（ほかの鍵と値と並びは1字も変えていない）。
 //
 // ★何を守るか（届いた本文の「生の字」をそのまま比べる＝鍵の並び・値の形まで）:
 //   (w-1) 日勤・値が全部在る形
@@ -91,7 +94,8 @@ const String _kFullHead = '{"worker_name":"検査 太郎","worker_company":"",'
     '"transport_toll":300,'
     '"transport_breakdown":[{"mode":"car","distance_km":12.4,"fuel_cost":141,"toll":300}],'
     '"carpool_company":null,"carpool_name":null,'
-    '"site_id":"site-1","gps_lat":34.5,"gps_lon":135.25';
+    '"site_id":"site-1","gps_lat":34.5,"gps_lon":135.25,'
+    '"client_report_id":"w1"';
 
 /// (w-1) 写真なし＝上の字を閉じただけ。
 const String _kFullBody = '$_kFullHead}';
@@ -102,7 +106,8 @@ const String _kSparseBody = '{"worker_name":"検査 太郎","worker_company":"",
     '"gps_address":"","origin_type":"home","work_content":"",'
     '"transport_distance_km":null,"transport_fuel_cost":null,"transport_fare":null,'
     '"transport_toll":null,"transport_breakdown":null,'
-    '"carpool_company":"相乗り商事","carpool_name":"相乗 次郎"}';
+    '"carpool_company":"相乗り商事","carpool_name":"相乗 次郎",'
+    '"client_report_id":"w2"}';
 
 // ── 偽物の通信 ────────────────────────────────────────────────
 

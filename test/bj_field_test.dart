@@ -42,6 +42,7 @@ import 'package:js_awake_app/services/api_result.dart';
 import 'package:js_awake_app/services/pending_report_auto_retry.dart';
 import 'package:js_awake_app/services/reports_service.dart';
 import 'package:js_awake_app/utils/business_date.dart';
+import 'package:js_awake_app/utils/pending_view.dart';
 import 'package:js_awake_app/utils/personal_data_cleanup.dart';
 import 'package:js_awake_app/utils/report_photo_store.dart';
 import 'package:js_awake_app/utils/saved_shift_type.dart';
@@ -64,6 +65,17 @@ String _codeOnly(String path) => File(path)
 
 /// 空白を1つに畳む（改行と字下げの違いで落ちないように）。
 String _flat(String s) => s.replaceAll(RegExp(r'\s+'), ' ');
+
+// →再（2026-10-14・便BK・見本 v3 の ⑮）: ReportStore の pendingOwnCount と pendingRefusedMessage は、pendingView の1つに
+//   替わった（送った後の画面の頭の字は今日の分で決める）。この本の検査は、便BJ の時と同じ事（今の人の箱の日報の数と、
+//   箱の並びで最初の受け付けなかった字）を pendingView から読んで見る。
+int _ownCount() => ReportStore.instance.pendingView.value.own.length;
+String? _ownRefused() {
+  for (final r in ReportStore.instance.pendingView.value.own) {
+    if (r.refusedMessage != null) return r.refusedMessage;
+  }
+  return null;
+}
 
 /// 名前で始まる関数の本体（最初の「名前」から、対になる「}」まで）。
 String _bodyOf(String src, String head) {
@@ -176,9 +188,8 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues(
         {'auth_token': 'T', 'user_id': 'U1', 'user_name': '検査 太郎'});
-    ReportStore.instance.pendingOwnCount.value = 0;
+    ReportStore.instance.pendingView.value = const PendingView();
     ReportStore.instance.droppedPhotoCount.value = 0;
-    ReportStore.instance.pendingRefusedMessage.value = null;
     // 置き場の名前は本物と同じ report_photos（写真の見分けは置き場の中の名前＝検分 a251 の N1）。
     photoBase = Directory.systemTemp.createTempSync('bj_photos_');
     photoDir = Directory('${photoBase.path}/report_photos')..createSync();
@@ -224,12 +235,12 @@ void main() {
       await _withServer(seen, [500, 201], () async {
         final ok = await ReportStore.instance.addReport(_item('a2'));
         expect(ok, isFalse);
-        expect(ReportStore.instance.pendingOwnCount.value, 1);
+        expect(_ownCount(), 1);
         final box = await _box();
         expect(box.map((e) => e['id']), ['a2']);
         expect(box.single['ownerUserId'], 'U1', reason: '持ち主の印が無い');
         await ReportStore.instance.retryPending();
-        expect(ReportStore.instance.pendingOwnCount.value, 0);
+        expect(_ownCount(), 0);
         expect(await _box(), isEmpty);
       }, onRequest: (_) async {
         // 送っている途中の箱。
@@ -245,12 +256,12 @@ void main() {
       await _withServer(seen, [500, 500, 500, 201], () async {
         await ReportStore.instance.addReport(_item('a3-1', gpsAddress: '一'));
         await ReportStore.instance.addReport(_item('a3-2', gpsAddress: '二'));
-        expect(ReportStore.instance.pendingOwnCount.value, 2);
+        expect(_ownCount(), 2);
         await ReportStore.instance.retryPending();
       });
       expect(seen.length, 4);
       expect((await _box()).map((e) => e['id']), ['a3-1']);
-      expect(ReportStore.instance.pendingOwnCount.value, 1);
+      expect(_ownCount(), 1);
     });
 
     test('(BJ-a4) 持ち主：ほかの人（U2）の日報は送らずに箱へ残す・数に入れない／U2 がログインし直すと送る（二者比較）', () async {
@@ -264,7 +275,7 @@ void main() {
       await _withServer(seen, [201], () async {
         await ReportStore.instance.retryPending();
         expect(seen, isEmpty, reason: 'ほかの人の日報を、今の人の資格で送った');
-        expect(ReportStore.instance.pendingOwnCount.value, 0);
+        expect(_ownCount(), 0);
         expect((await _box()).map((e) => e['id']), ['a4']);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_id', 'U2');
@@ -332,19 +343,20 @@ void main() {
       await ctrl.close();
     });
 
-    test('(BJ-a8) シェルの繋ぎ：頭の字は残りの数・アプリへ戻った時と電波で送り直す・写真の知らせ（ソースの字）', () {
+    test('(BJ-a8) シェルの繋ぎ：頭の字は今日の分（便BK で替えた）・アプリへ戻った時と電波で送り直す・写真の知らせ（ソースの字）', () {
       final src = _codeOnly(_home);
       final flat = _flat(src);
       expect(src.contains('_lastSentOk'), isFalse, reason: '送った直後の成否の欄が残っている');
+      // →再（2026-10-14・便BK・見本 v3 の ⑮）: 頭の字と3行目は、今日の分の日報で決める。
       expect(
-          flat.contains('return ValueListenableBuilder<int>( '
-              'valueListenable: ReportStore.instance.pendingOwnCount, '
-              'builder: (_, pending, __) => ValueListenableBuilder<String?>( '
-              'valueListenable: ReportStore.instance.pendingRefusedMessage, '
-              'builder: (_, refused, __) => AfterReportBody( '
-              'workerName: _userName, sent: pending == 0, refusedMessage: refused,'),
+          flat.contains('return ValueListenableBuilder<PendingView>( '
+              'valueListenable: ReportStore.instance.pendingView, '
+              'builder: (_, view, __) { final now = DateTime.now(); '
+              'final today = pendingTodayRows(view, shiftType: _shiftType, now: now); '
+              'return AfterReportBody( '
+              'workerName: _userName, sent: today.isEmpty, refusedMessage: firstRefusedMessageOf(today),'),
           isTrue,
-          reason: '送った後の画面の頭の字が残りの数で、3行目が受け付けなかった字で決まっていない');
+          reason: '送った後の画面の頭の字と3行目が、今日の分の日報で決まっていない');
       final resumed = _flat(_bodyOf(src, 'void didChangeAppLifecycleState('));
       expect(resumed.contains('ReportStore.instance.retryPending();'), isTrue,
           reason: 'アプリへ戻った時に送り直していない');
@@ -420,7 +432,7 @@ void main() {
         expect(await _box(), isEmpty, reason: '書けなかった日報が手元の写しの箱に残った');
         await ReportStore.instance.retryPending();
         expect(seen, isEmpty, reason: '書けなかった日報を送り直しが送った（もう一度押すと2枚目になる）');
-        expect(ReportStore.instance.pendingOwnCount.value, 0);
+        expect(_ownCount(), 0);
         expect(await ReportStore.instance.addReport(_item('a10-2')), isTrue);
       });
       expect(seen.length, 1);
@@ -519,15 +531,15 @@ void main() {
           request: req, headers: {'content-type': 'application/json; charset=utf-8'});
       await retryWith((req) => json(403, {'error': '有効な所属がありません', 'code': 'MEMBERSHIP_INACTIVE'}, req));
       expect((await _box()).single['refusedMessage'], '有効な所属がありません');
-      expect(ReportStore.instance.pendingRefusedMessage.value, '有効な所属がありません');
-      expect(ReportStore.instance.pendingOwnCount.value, 1, reason: '受け付けなかった日報を箱から外した');
+      expect(_ownRefused(), '有効な所属がありません');
+      expect(_ownCount(), 1, reason: '受け付けなかった日報を箱から外した');
       await retryWith((req) => json(500, {'error': 'サーバーエラー', 'code': 'SERVER_ERROR'}, req));
       expect((await _box()).single['refusedMessage'], isNull, reason: '受け付けない答えでなくなったのに字が残った');
-      expect(ReportStore.instance.pendingRefusedMessage.value, isNull);
+      expect(_ownRefused(), isNull);
       await retryWith((req) => json(403, {'error': '有効な所属がありません', 'code': 'MEMBERSHIP_INACTIVE'}, req));
       await retryWith((req) => throw const SocketException('届かない'));
       expect((await _box()).single['refusedMessage'], '有効な所属がありません', reason: '届かなかった時に前の答えを消した');
-      expect(ReportStore.instance.pendingRefusedMessage.value, '有効な所属がありません');
+      expect(_ownRefused(), '有効な所属がありません');
       expect(n, 4);
     });
 
@@ -636,7 +648,7 @@ void main() {
         expect(await ReportStore.instance.addReport(_item('a18')), isFalse);
       });
       expect(seen, isEmpty, reason: '今の人が分からないのに送った');
-      expect(ReportStore.instance.pendingOwnCount.value, 1,
+      expect(_ownCount(), 1,
           reason: '今の人が分からないのに、残った日報を数えない（送った後の画面が「報告完了」と事実と違う字を出す）');
       expect((await _box()).single['ownerUserId'], isNull, reason: '持ち主を空の字にした（名前で今の人の物と見られなくなる）');
       final prefs = await SharedPreferences.getInstance();
@@ -1442,7 +1454,8 @@ void main() {
       expect(save.contains('reportDoneValue(bizDate, status, who)'), isTrue);
       final read = _flat(_bodyOf(home, '  Future<String?> _readWorkStatusToday() async {'));
       expect(read.contains('return reportDoneStatusOf('), isTrue);
-      final shift = _flat(_bodyOf(home, '  Future<void> _saveShiftType(String v) async {'));
+      // →再（2026-10-14・便BK・見本 v3 の ⑰①）: 返りが「書けたか」になった（Future<bool>）。
+      final shift = _flat(_bodyOf(home, '  Future<bool> _saveShiftType(String v) async {'));
       expect(shift.contains('shiftDateValue(businessDateForShift(v, DateTime.now()), who)'), isTrue);
       final push = _flat(_bodyOf(mainSrc, '  Future<void> _pushWorker(BuildContext context) async {'));
       expect(push.contains('final workStatus = reportDoneStatusOf(prefs.getString(reportDoneKeyOf(shiftType)),'), isTrue);
@@ -1541,15 +1554,18 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'pending_reports': jsonEncode([_item('l1', owner: 'U1', work: [keep.path]).toJson()]),
       });
-      ReportStore.instance.pendingOwnCount.value = 3;
+      ReportStore.instance.pendingView.value = const PendingView(own: [
+        PendingReportRow(id: 'p1', shiftType: 'day', businessDate: '2026-10-13', refusedMessage: '前の人の字'),
+        PendingReportRow(id: 'p2', shiftType: 'day', businessDate: '2026-10-13'),
+        PendingReportRow(id: 'p3', shiftType: 'day', businessDate: '2026-10-13'),
+      ]);
       ReportStore.instance.droppedPhotoCount.value = 2;
-      ReportStore.instance.pendingRefusedMessage.value = '前の人の字';
       await ReportStore.instance.afterPersonalDataCleared();
       expect(ReportStore.instance.droppedPhotoCount.value, 0, reason: '前の人の除いた写真の数を残した');
-      expect(ReportStore.instance.pendingRefusedMessage.value, isNull, reason: '前の人の受け付けなかった字を残した');
+      expect(_ownRefused(), isNull, reason: '前の人の受け付けなかった字を残した');
       expect(keep.existsSync(), isTrue, reason: '未送信の日報の写真を消した');
       expect(drop.existsSync(), isFalse);
-      expect(ReportStore.instance.pendingOwnCount.value, 0);
+      expect(_ownCount(), 0);
       expect((await _box()).single['id'], 'l1', reason: '未送信の箱を消した');
     });
   });

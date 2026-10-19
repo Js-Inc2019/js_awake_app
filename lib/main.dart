@@ -43,6 +43,9 @@ import 'utils/report_photo_store.dart';
 import 'utils/personal_data_cleanup.dart';
 import 'utils/saved_shift_type.dart';
 import 'utils/today_marks.dart';
+import 'utils/device_error_log.dart';
+import 'utils/pending_view.dart';
+import 'widgets/photo_strip_field.dart' show removedPhotoUnused;
 
 // ★API のベースURLは config/constants.dart の kApiBaseUrl 一本。
 //   別名 `API_URL` は段6で退役した（同じ値に2つの名前があると、
@@ -78,6 +81,10 @@ void main() async {
   // 未送信の数の読み直しをする口を差す（便BJ）。★utils から main.dart を読み込むと依存が逆流するため、
   //   上の lockoutNavigatorLookup と同じく参照だけをここで渡す。差し忘れは test/bj_field_test.dart が検出する。
   afterPersonalDataCleared = ReportStore.instance.afterPersonalDataCleared;
+  // 写真の帯の ✕ で外した写真を、未送信の箱のどれも指していない時だけ消す口を差す（便BK・見つけた事 (30)）。
+  //   ★widgets から main.dart を読み込むと依存が逆流するため、上と同じく参照だけをここで渡す。差し忘れは
+  //   test/bk_field_test.dart が検出する。
+  removedPhotoUnused = ReportStore.instance.isPhotoUnused;
   // 写真の置き場の掃除（便BJ・見本 v1 の ③）。起動より前に作られ、未送信の日報のどれも指していない写真を消す。
   //   ★待たない（起動を遅らせない）。起動の後に撮った写真は消さない（before）。
   unawaited(ReportStore.instance.sweepPhotos(before: DateTime.now()));
@@ -204,6 +211,8 @@ class WorkerReportItem {
   // 送り先（サーバ）が受け付けなかった時の、送り先の答えの字（便BJ・見本 v2 の ⑬・ボスの裁定【Q142】）。
   //   null＝受け付けなかった答えは来ていない。★送り先が答えるたびに書き直す（受け付けない答え＝その字・ほかの答え＝null・
   //   通信が届かなかった時は前の値のまま）。送った後の画面の「提出できません（…）」に使う（ReportStore.pendingRefusedMessage）。
+  //   →再（2026-10-14・便BK・見本 v3 の ⑮）: 使う所は ReportStore.pendingView の行（PendingReportRow.refusedMessage）。
+  //   頭の3行目（今日の分）と「未送信日報」の行の下の字に出る。
   String? refusedMessage;
 
   // 後方互換：表示/エクスポート系は先頭1枚を参照（読み取り専用）
@@ -341,18 +350,18 @@ class ReportStore {
   //     もう一度押して作った2枚目と二重になる）。送れた後に箱から外せなかった時は「送れた」として返す。
   //   ・箱の中の読めない行は消さずに書き戻し、箱そのものが読めない時は元の字を別の鍵へ写して残す（黙って消さない）。
   //   ・送れた日報の写真は、箱に残るほかの日報が指していない物だけ消す。
+  //   →再（2026-10-14・便BK・見本 v3 の ⑮⑯・ボスの裁定【Q143】【Q144】）:
+  //   ・送った後の画面に出す姿は pendingView の1つ（元の pendingOwnCount と pendingRefusedMessage は撤去した＝頭の字は
+  //     「今日の分」だけで決める・ほかの日と読めない日報は下に並べる・同じ事を2つの知らせで持たない）。
+  //   ・今の人の日報（受け付けなかった物）と読めない日報を、送った後の画面から外せる（removePending・removeUnreadable）。
+  //   ・読めない行と読めない箱の元の字から拾った写真の名前は、外すまで消さない（写真の掃除・送れた時の写真の消し方）。
 
-  /// 今ログインしている人の、端末に残っている未送信の日報の数（0＝送った後の画面は「報告完了」）。
-  ///   ★書き直すのは、箱を書き換えた後と refreshPendingCount を呼んだ時だけ。
-  final ValueNotifier<int> pendingOwnCount = ValueNotifier<int>(0);
+  /// 送った後の画面に出す、未送信の箱の姿（今の人の日報・読めない行と箱の数・読めなかったか）。
+  ///   ★書き直すのは refreshPendingCount だけ（箱を書き換えた後と、呼ばれた時）。
+  final ValueNotifier<PendingView> pendingView = ValueNotifier<PendingView>(const PendingView());
 
   /// 送り直しで読めずに除いた写真の数。★シェルが「写真 N枚を送れませんでした」と知らせてから 0 に戻す。
   final ValueNotifier<int> droppedPhotoCount = ValueNotifier<int>(0);
-
-  /// 今の人の未送信の日報のうち、送り先が受け付けなかった物の、送り先の答えの字（箱の並びで最初の1件・無ければ null）。
-  ///   ★送った後の画面が「提出できません（…）」を出すのに使う（見本 v2 の ⑬・ボスの裁定【Q142】）。
-  ///   書き直すのは pendingOwnCount と同じ時（refreshPendingCount）。
-  final ValueNotifier<String?> pendingRefusedMessage = ValueNotifier<String?>(null);
 
   // 箱の読み書きの列（前の読み書きが終わってから次を始める）。★列の中から列を呼ばない（待ち合って止まる）。
   Future<void> _boxTail = Future<void>.value();
@@ -412,6 +421,7 @@ class ReportStore {
           await _savePendingAll(box);
         } catch (e) {
           debugPrint('書けなかった日報を箱から外せませんでした: $e');
+          await recordDeviceError('box_undo');   // 便BK（見本 v3 の ⑰④）
         }
         rethrow;
       }
@@ -433,6 +443,11 @@ class ReportStore {
       // 認証ヘッダは ReportsService（AuthService.getAuthHeaders）が組む。
       // 本文と写真の組み方は、下の reportBodyFor・reportPhotosFor（このファイル）に在る。
       final body = reportBodyFor(item);
+      // 同じ日報を2回作らせない印（便BK・見つけた事 (26)・サーバの reports.client_report_id・migration v95）。
+      //   日報の id（箱の中の見分け＝作った時の時刻の数字）を送る。サーバは、同じ人の同じ印の日報が在れば作らずに
+      //   200（duplicate: true と前の report_id）を返す＝届いたのに答えが返らずに送り直した時も、2枚目にならない。
+      //   ★reportBodyFor には入れない（後から出す日報の本文＝permittedReportBodyFor に入れない）。
+      body['client_report_id'] = item.id;
       final photos = await reportPhotosFor(item);
       final dropped =
           item.workPhotoPaths.length + item.parkingPhotoPaths.length - photos.length;
@@ -467,18 +482,17 @@ class ReportStore {
           final box = await _loadPending();
           box.removeWhere((e) => e.id == item.id);
           await _savePendingAll(box);
-          return <String>{
-            for (final e in box) ...[...e.workPhotoPaths, ...e.parkingPhotoPaths],
-          };
+          // 残す写真＝箱に残るほかの日報と、読めない行・読めない箱が指している写真（便BK・見本 v3 の ⑯＝外すまで消さない）。
+          return _keptPhotoKeys(box);   // 送れた時
         });
       } catch (e) {
         debugPrint('送れた日報を箱から外せませんでした（送れた事として返す）: $e');
+        await recordDeviceError('box_remove_after_send');   // 便BK（見本 v3 の ⑰④）
         return true;
       }
-      // 写真は、箱に残るほかの日報が指していない物だけ消す（名前で見比べる・検分 a251 の N2）。
-      final usedKeys = stillUsed.map(reportPhotoKey).toSet();
+      // 写真は、箱に残るほかの日報（と読めない行・読めない箱）が指していない物だけ消す（名前で見比べる・検分 a251 の N2）。
       await deleteReportPhotos([...item.workPhotoPaths, ...item.parkingPhotoPaths]
-          .where((p) => !usedKeys.contains(reportPhotoKey(p))));
+          .where((p) => !stillUsed.contains(reportPhotoKey(p))));
       return true;
     } catch (e) {
       debugPrint('API送信失敗: $e');
@@ -492,8 +506,19 @@ class ReportStore {
   //   元: 箱の読み取りで1つでも投げると、箱を空として扱い、次に書く時に箱の中身が全部黙って消えた。
   //   →再（2026-10-14・便BJ・検分 a251 の N3）: 読めた行だけを日報として扱い、読めない行は書き戻す。
   //   ★読むのも書くのも箱の列の中（_withBox）なので、読んだ時の行がそのまま次の書き込みに戻る
-  //     （pendingCount は列の外で読むが、同じ箱を読むので同じ行になる）。
+  //     （元: pendingCount は列の外で読むが、同じ箱を読むので同じ行になる）。
+  //   →再（2026-10-14・便BK・検分 a259 の S1）: 箱を読む所は全部、列の中で読む（pendingCount も列の中へ入れた）。列の外で
+  //     読むと、読み込めない日報を外す途中（読めない行を空にしてから書くまで）に、読めない行を元へ戻して書き戻す道があった。
   List<Object?> _unreadableRows = const <Object?>[];
+
+  // 読めない行・読めない箱を、端末の中の失敗の控え（lib/utils/device_error_log.dart）に、1回の起動で1件だけ残す
+  //   （便BK・見本 v3 の ⑰④）。★箱を読むたびに残すと、同じ事で控えが埋まる＝1回だけ。
+  bool _unreadableNoted = false;
+  void _noteUnreadableOnce() {
+    if (_unreadableNoted) return;
+    _unreadableNoted = true;
+    unawaited(recordDeviceError('pending_unreadable'));
+  }
 
   // ★端末が「書けなかった」と答えた時（false）も投げる（投げずに進むと、箱に入っていない日報を入った事にする・検分 a253 の N6）。
   Future<void> _savePendingAll(List<WorkerReportItem> items) async {
@@ -530,6 +555,7 @@ class ReportStore {
         items.add(WorkerReportItem.fromJson(e as Map<String, dynamic>));
       } catch (err) {
         debugPrint('未送信の箱の1行を読めませんでした（消さずに残す）: $err');
+        _noteUnreadableOnce();   // 便BK（見本 v3 の ⑰④・1回の起動で1件だけ）
         bad.add(e);
       }
     }
@@ -545,8 +571,10 @@ class ReportStore {
         await prefs.setStringList(_K.unreadablePending, [...kept, raw]);
       }
       debugPrint('未送信の箱を読めませんでした（元の字を ${_K.unreadablePending} に残した）');
+      _noteUnreadableOnce();   // 便BK（見本 v3 の ⑰④・1回の起動で1件だけ）
     } catch (e) {
       debugPrint('読めない箱の元の字を残せませんでした: $e');
+      await recordDeviceError('pending_unreadable_keep');   // 便BK（見本 v3 の ⑰④）
     }
   }
 
@@ -588,6 +616,7 @@ class ReportStore {
       }
     } catch (e) {
       debugPrint('送り直しに失敗: $e');
+      await recordDeviceError('retry_failed');   // 便BK（見本 v3 の ⑰④）
     } finally {
       await refreshPendingCount();
     }
@@ -611,59 +640,267 @@ class ReportStore {
       });
     } catch (e) {
       debugPrint('送り先の答えを箱に書き留められませんでした: $e');
+      await recordDeviceError('note_answer');   // 便BK（見本 v3 の ⑰④）
     }
   }
 
-  // 今の人の、箱に残っている日報。今の人が分からない時（'user_id' が無い・空）は、持ち主の分からない日報（ownerUserId が null）
-  //   を数える（検分 a254 の Y1＝今の人が分からないまま日報を出すと、送らずに箱へ残る。その時に数が 0 だと、送った後の画面が
-  //   「報告完了」と事実と違う字を出す）。
+  // 今の人の日報か。今の人が分からない時（'user_id' が無い・空）は、持ち主の分からない日報（ownerUserId が null）を
+  //   今の人の物とする（検分 a254 の Y1＝今の人が分からないまま日報を出すと、送らずに箱へ残る。その時に数が 0 だと、
+  //   送った後の画面が「報告完了」と事実と違う字を出す）。★決まりはここ1つ（数える・外す・送った後の画面の姿）。
+  static bool _isOwn(WorkerReportItem e, String me) =>
+      me.isEmpty ? e.ownerUserId == null : e.ownerUserId == me;
+
+  // 今の人の、箱に残っている日報。
   Future<List<WorkerReportItem>> _ownPending() async {
     final prefs = await SharedPreferences.getInstance();
     final me = prefs.getString('user_id') ?? '';
     final box = await _loadPending();
-    if (me.isEmpty) return box.where((e) => e.ownerUserId == null).toList();
-    return box.where((e) => e.ownerUserId == me).toList();
+    return box.where((e) => _isOwn(e, me)).toList();
   }
 
   /// 今の人の、箱に残っている日報の数（今の人が分からない時は、持ち主の分からない日報の数）。
-  Future<int> pendingCount() async => (await _ownPending()).length;
+  ///   ★箱の列の中で読む（便BK・検分 a259 の S1）。
+  Future<int> pendingCount() => _withBox(() async => (await _ownPending()).length);
 
-  /// pendingOwnCount と pendingRefusedMessage を箱の今の姿に合わせる。★投げない（読めなければ今の値のまま）。
+  /// pendingView を箱の今の姿に合わせる。★投げない。
+  ///   読めなかった時は、前に読めた姿のまま「読めなかった」の印を立てる（送った後の画面が※を出す・見本 v3 の ⑰②）。
+  ///   端末の失敗の控えには、印が立った時に1件だけ残す（読み直すたびに残さない）。
+  ///   ★箱の列の中で読む（箱を書いている途中の姿を読まない）。列の中からは呼ばない。
   Future<void> refreshPendingCount() async {
     try {
-      final mine = await _ownPending();
-      pendingOwnCount.value = mine.length;
-      String? refused;
-      for (final e in mine) {
-        if (e.refusedMessage != null) {
-          refused = e.refusedMessage;
-          break;
-        }
-      }
-      pendingRefusedMessage.value = refused;
+      final view = await _withBox(() async {
+        final prefs = await SharedPreferences.getInstance();
+        final mine = await _ownPending();
+        return PendingView(
+          own: [
+            for (final e in mine)
+              PendingReportRow(
+                id: e.id,
+                shiftType: e.shiftType,
+                businessDate: businessDateForShift(e.shiftType, e.timestamp),
+                refusedMessage: e.refusedMessage,
+              ),
+          ],
+          unreadableRows: _unreadableRows.length,
+          unreadableBoxes:
+              (prefs.getStringList(_K.unreadablePending) ?? const <String>[]).length,
+        );
+      });
+      pendingView.value = view;
     } catch (e) {
       debugPrint('未送信の数を読めませんでした: $e');
+      if (!pendingView.value.readFailed) {
+        pendingView.value = pendingView.value.copyWith(readFailed: true);
+        await recordDeviceError('pending_read');   // 便BK（見本 v3 の ⑰④）
+      }
     }
+  }
+
+  // 読めない行と読めない箱の元の字から拾った、写真の置き場の写真の名前（便BK・見本 v3 の ⑯＝外すまで消さない）。
+  //   ★箱の列の中で、_loadPending の後に呼ぶ（_unreadableRows がその時の箱の読めない行）。投げる（呼び手が受ける）。
+  Future<Set<String>> _unreadablePhotoNames() async {
+    final prefs = await SharedPreferences.getInstance();
+    return <String>{
+      if (_unreadableRows.isNotEmpty) ...reportPhotoNamesIn(jsonEncode(_unreadableRows)),
+      for (final b in prefs.getStringList(_K.unreadablePending) ?? const <String>[])
+        ...reportPhotoNamesIn(b),
+    };
+  }
+
+  // 残す写真の鍵（名前で見比べる鍵＝reportPhotoKey）＝箱の日報（skip 番目を除く）が指す写真と、withUnreadable の時は
+  //   読めない行・読めない箱が指す写真（便BK・検分 a259 の N3）。
+  //   ★写真を消す所（送れた時・✕・外す・掃除）と外す前の数が、この1本で見比べる（同じ見比べを所ごとに書かない）。
+  //   ★箱の列の中で、_loadPending の後に呼ぶ。投げる（呼び手が受ける）。
+  Future<Set<String>> _keptPhotoKeys(List<WorkerReportItem> box,
+      {int? skip, bool withUnreadable = true}) async {
+    return <String>{
+      for (var j = 0; j < box.length; j++)
+        if (j != skip) ...[...box[j].workPhotoPaths, ...box[j].parkingPhotoPaths],
+      if (withUnreadable) ...await _unreadablePhotoNames(),
+    }.map(reportPhotoKey).toSet();
+  }
+
+  // 外すと消える写真の名前（置き場の直下の名前）。index＝箱の、今の人の日報の番目（null＝読み込めない日報）。
+  //   ★外す前の数（removablePhotoCount）と、外す時に消す物（removePending・removeUnreadable）が、この1本で決める
+  //     （便BK・検分 a259 の N3＝数と消す物を同じ見比べにする）。置き場の外の道は入れない（deleteReportPhotos も触らない）。
+  //   ★箱の列の中で、外す前の箱（と、その時の読めない行）で呼ぶ。投げる（呼び手が受ける）。
+  Future<Set<String>> _removablePhotoNames(List<WorkerReportItem> box, int? index) async {
+    if (index == null) {
+      final kept = await _keptPhotoKeys(box, withUnreadable: false);   // 読み込めない日報の写真
+      return <String>{
+        for (final n in await _unreadablePhotoNames())
+          if (!kept.contains(n)) n,
+      };
+    }
+    final kept = await _keptPhotoKeys(box, skip: index);   // 外す1件の写真
+    return <String>{
+      for (final p in [...box[index].workPhotoPaths, ...box[index].parkingPhotoPaths])
+        if (reportPhotoKey(p) != p && !kept.contains(reportPhotoKey(p))) reportPhotoKey(p),
+    };
+  }
+
+  // 名前の並び（置き場の直下の名前）を、置き場の道に直して消す（deleteReportPhotos は置き場の外の道を触らない）。★投げない。
+  Future<void> _deletePhotoNames(Iterable<String> names) =>
+      deleteReportPhotos([for (final n in names) '$kReportPhotoDirName/$n']);
+
+  // 箱に書けなかった時に、箱の鍵を書く前の字に戻す（端末の手元の写しの箱を、外していない姿に戻す）。★投げない。
+  //   わけ: shared_preferences は、端末へ書く前に手元の写しを替える（書けなくても写しは替わっている＝検分 a251 の N4）。
+  //   →再（2026-10-14・便BK・検分 a259 の N6）: 戻せなかった時は、端末の失敗の控えにも残す（remove_undo）。
+  Future<void> _restoreBoxRaw(SharedPreferences prefs, String? raw) async {
+    try {
+      if (raw == null) {
+        await prefs.remove(_K.pendingReports);
+      } else {
+        await prefs.setString(_K.pendingReports, raw);
+      }
+    } catch (e) {
+      debugPrint('未送信の箱を元に戻せませんでした: $e');
+      await recordDeviceError('remove_undo');
+    }
+  }
+
+  /// 写真の帯の ✕ で外した写真を消してよいか（便BK・見つけた事 (30)・main() が lib/widgets/photo_strip_field.dart の
+  ///   removedPhotoUnused に差す）。未送信の箱のどの日報（持ち主を問わない）も、読めない行・読めない箱も、その写真を
+  ///   指していない時だけ true（名前で見比べる）。置き場の外の写真は false（消す的にしない）。★投げない（読めなければ false）。
+  Future<bool> isPhotoUnused(String path) async {
+    final key = reportPhotoKey(path);
+    if (key == path) return false;
+    try {
+      return await _withBox(() async {
+        final box = await _loadPending();
+        return !(await _keptPhotoKeys(box)).contains(key);   // ✕で外した写真
+      });
+    } catch (e) {
+      debugPrint('外した写真を見比べられませんでした: $e');
+      await recordDeviceError('photo_delete');   // 便BK（見本 v3 の ⑰④＝写真を残した）
+      return false;
+    }
+  }
+
+  /// 外す前の窓に出す写真の数（便BK・見本 v3 の ⑮⑯）。id＝今の人の日報（null＝読み込めない日報）。★投げない（読めなければ 0）。
+  ///   数える物＝外すと消える写真（_removablePhotoNames＝removePending・removeUnreadable が消す物と同じ1本）のうち、
+  ///   写真の置き場に在ると確かめられた写真（countReportPhotos）。
+  Future<int> removablePhotoCount(String? id) async {
+    try {
+      final names = await _withBox(() async {
+        final prefs = await SharedPreferences.getInstance();
+        final me = prefs.getString('user_id') ?? '';
+        final box = await _loadPending();
+        if (id == null) return _removablePhotoNames(box, null);
+        final i = box.indexWhere((e) => e.id == id && _isOwn(e, me));   // 数える1件
+        if (i < 0) return const <String>{};
+        return _removablePhotoNames(box, i);
+      });
+      return await countReportPhotos(names);
+    } catch (e) {
+      debugPrint('外す日報の写真の数を読めませんでした: $e');
+      return 0;
+    }
+  }
+
+  /// 今の人の日報を1件、箱から外す（送らない・便BK・見本 v3 の ⑮）。★投げない。
+  ///   送っている途中の日報は外さない（inFlight）。もう箱に無い時は gone。箱に書けなかった時は failed（手元の写しの箱も
+  ///   元に戻す＝外せていないのに外した事にしない）。外せたら、_removablePhotoNames の写真（箱のほかの日報と、読めない行・
+  ///   読めない箱が指していない写真）を消す。どの時も、終わりに姿を読み直す。
+  Future<PendingRemoveResult> removePending(String id) async {
+    var names = const <String>{};
+    PendingRemoveResult result;
+    try {
+      result = await _withBox(() async {
+        if (_inFlight.contains(id)) return PendingRemoveResult.inFlight;
+        final prefs = await SharedPreferences.getInstance();
+        final me = prefs.getString('user_id') ?? '';
+        final raw = prefs.getString(_K.pendingReports);
+        final box = await _loadPending();
+        final i = box.indexWhere((e) => e.id == id && _isOwn(e, me));   // 外す1件
+        if (i < 0) return PendingRemoveResult.gone;
+        // 消す写真は、書く前に決める（書けた後で投げて「外せませんでした」と事実と違う字を出さない・検分 a259 の N1）。
+        final gone = await _removablePhotoNames(box, i);
+        box.removeAt(i);
+        try {
+          await _savePendingAll(box);
+        } catch (_) {
+          await _restoreBoxRaw(prefs, raw);   // 外す1件の書けなかった時
+          rethrow;
+        }
+        names = gone;
+        return PendingRemoveResult.removed;
+      });
+    } catch (e) {
+      debugPrint('未送信の日報を外せませんでした: $e');
+      result = PendingRemoveResult.failed;
+    }
+    if (result == PendingRemoveResult.removed) await _deletePhotoNames(names);   // 外した1件の写真
+    await refreshPendingCount();   // 外した後
+    return result;
+  }
+
+  /// 読めない行と、読めない箱の元の字を全部外す（便BK・見本 v3 の ⑯）。★投げない。
+  ///   箱は、読めた日報だけの形に書き直す（箱そのものが読めなかった時も、次に読んだ時に元の字を写し直さない）。
+  ///   無い時は gone。書けなかった時は failed（箱の鍵と読めない箱の鍵を、書く前の字に戻す）。外せたら、
+  ///   _removablePhotoNames の写真（拾った名前のうち、箱の日報が指していない写真）を消す。どの時も、終わりに姿を読み直す。
+  Future<PendingRemoveResult> removeUnreadable() async {
+    var names = const <String>{};
+    PendingRemoveResult result;
+    try {
+      result = await _withBox(() async {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_K.pendingReports);
+        final box = await _loadPending();
+        final bad = _unreadableRows;
+        final rawBoxes = prefs.getStringList(_K.unreadablePending);
+        if (bad.isEmpty && (rawBoxes == null || rawBoxes.isEmpty)) {
+          return PendingRemoveResult.gone;
+        }
+        // 消す写真は、書く前に（読めない行を空にする前に）決める。
+        final gone = await _removablePhotoNames(box, null);
+        _unreadableRows = const <Object?>[];
+        try {
+          await _savePendingAll(box);   // 読めない日報を外す
+          if (rawBoxes != null && !await prefs.remove(_K.unreadablePending)) {
+            throw StateError('読めない箱の元の字を消せませんでした');
+          }
+        } catch (_) {
+          _unreadableRows = bad;
+          await _restoreBoxRaw(prefs, raw);   // 読めない日報の書けなかった時
+          if (rawBoxes != null) {
+            try {
+              await prefs.setStringList(_K.unreadablePending, rawBoxes);
+            } catch (e) {
+              debugPrint('読めない箱の元の字を元に戻せませんでした: $e');
+              await recordDeviceError('remove_undo');
+            }
+          }
+          rethrow;
+        }
+        names = gone;
+        return PendingRemoveResult.removed;
+      });
+    } catch (e) {
+      debugPrint('読めない日報を外せませんでした: $e');
+      result = PendingRemoveResult.failed;
+    }
+    if (result == PendingRemoveResult.removed) await _deletePhotoNames(names);   // 読めない日報の写真
+    await refreshPendingCount();   // 読めない日報を外した後
+    return result;
   }
 
   /// 写真の置き場の中で、箱のどの日報（持ち主を問わない）も指していない写真を消す（★投げない）。
   ///   before が在れば、それより前に作られた写真だけ（起動の後に撮った写真を消さない）。
+  ///   →再（2026-10-14・便BK・見本 v3 の ⑯）: 読めない行と読めない箱の元の字から拾った写真の名前も残す（外すまで消さない）。
   Future<void> sweepPhotos({DateTime? before}) async {
     try {
-      final keep = <String>{
-        for (final e in await _withBox(_loadPending)) ...[
-          ...e.workPhotoPaths,
-          ...e.parkingPhotoPaths,
-        ],
-      };
+      final keep = await _withBox(() async => _keptPhotoKeys(await _loadPending()));   // 掃除
       await sweepReportPhotos(keep: keep, before: before);
     } catch (e) {
       debugPrint('写真の置き場の掃除に失敗: $e');
+      await recordDeviceError('photo_sweep');   // 便BK（見本 v3 の ⑰④）
     }
   }
 
   /// ログアウト・締め出し・期限切れの掃除（utils/personal_data_cleanup.dart）の後に呼ばれる口（main() で差す）。
-  ///   箱は残す（【Q140】）。写真は箱が指す物だけを残す。今の人が居なくなったので数を読み直す（0 になる）。
+  ///   箱は残す（【Q140】）。写真は箱が指す物（と読めない行・読めない箱が指す物）だけを残す。今の人が居なくなったので
+  ///   姿を読み直す（今の人の日報は無くなる）。
   ///   →再（2026-10-14・便BJ・検分 a251 の N8）: 送り直しで除いた写真の数も 0 に戻す（前の人の数を次の人に出さない）。
   Future<void> afterPersonalDataCleared() async {
     droppedPhotoCount.value = 0;

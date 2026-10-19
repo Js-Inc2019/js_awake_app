@@ -18,10 +18,44 @@
 //     人の印が無い物（便BJ より前の形）は消す（clearUnownedTodayMarks）。
 // ★次の人の初めの画面：出発地は「自宅」（default_origin が無い）・天気は測り終わるまで空（控えが無い）・
 //   規約は同意し直す（同意の印が無い）。
+// →再（2026-10-14・便BK・見本 claude/field_report_fix_mock_v3.html の ⑰③・ボスの裁定【Q145】＝１）:
+//   元: 消せなかった時は開発の記録（debugPrint）に書くだけで、最初に投げた鍵の後ろの鍵は消さずに進んだ（次の人に、
+//   前の人の物が残っている事が誰にも見えなかった）。
+//   →再: 鍵は1つずつ消し、1つ消せなくても残りを消す。消せなかった時は、端末に印（kPersonalCleanupPendingKey）を残し、
+//   端末の失敗の控え（utils/device_error_log.dart）にも残す。次にログイン画面を開いた時（login_screen.dart の _init の頭・
+//   資格を読む前）に retryPendingPersonalCleanup がもう一度消す。それでも消せない時だけ、ログイン画面に※
+//   （kPersonalCleanupFailedNote）を出す（personalCleanupFailedAgain）。全部消せた時に印を消す。
+//   →再（2026-10-14・便BK・検分 a260 の K1・a261 の直すべき 1 と 2）:
+//   ・新しくログインする時（ログイン画面・機種変更の画面・登録の画面が、新しい資格を書く前）にも、もう一度消す。書き終えたら
+//     印を消し、※を下ろす（endPersonalCleanupPending）＝印を残したままにすると、次に開いた時のやり直しが、今ログインした
+//     人の資格まで黙って消していた。前の人の物が、それでも消せずに残る時は、ログイン画面の※で知らせ済み。
+//   ・やり直しても消せなかった時（※が出ている時）は、ログイン画面が残った資格で自動のログインをしない（login_screen.dart の _init）。
+//   ・全部消せた時と、印が無い時は、※を下ろす（後で全部消せたのに※が出続けない）。
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'device_error_log.dart';
 import 'today_marks.dart';
+
+/// 掃除をやり直す印の鍵（便BK・⑰③）。★人に付く物でなく端末に付く物（名簿に入れない＝掃除で消さない・全部消せた時に消す）。
+const String kPersonalCleanupPendingKey = 'personal_cleanup_pending';
+
+/// ログイン画面の※（便BK・見本 v3 の ⑰③）。
+const String kPersonalCleanupFailedNote =
+    '※前の利用者の記録の一部を消せませんでした。アプリを開き直すと、もう一度消します。';
+
+/// やり直しても消せなかったか（true の間、ログイン画面に kPersonalCleanupFailedNote を出し、残った資格で自動のログインをしない）。
+///   ★true にするのは retryPendingPersonalCleanup だけ。false にするのは、全部消せた時（clearPersonalData）・印が無い時
+///   （retryPendingPersonalCleanup）・ログインが通った時（endPersonalCleanupPending）。
+final ValueNotifier<bool> personalCleanupFailedAgain = ValueNotifier<bool>(false);
+
+/// 名簿の鍵を1つ消す口（便BK）。★検査だけが差し替える（本体からは替えない）。
+///   わけ: 端末が消せなかった時（false・投げる）の動き（残りを消す・印を残す・※を出す）を、検査で確かめるため
+///   （前例＝lib/main.dart の pendingBoxWriter）。
+@visibleForTesting
+Future<bool> Function(SharedPreferences prefs, String key) personalKeyRemover = _removeKey;
+
+Future<bool> _removeKey(SharedPreferences prefs, String key) => prefs.remove(key);
 
 /// 消す鍵の名簿（63）。★今日の印の4つは、この名簿でなく clearUnownedTodayMarks（人の印の無い物だけを消す）で見る。
 const List<String> kPersonalDataKeys = <String>[
@@ -77,19 +111,89 @@ Future<void> Function() afterPersonalDataCleared = _nothing;
 Future<void> _nothing() async {}
 
 /// 人に付く物を消す。★投げない（掃除の失敗で、ログアウト・締め出し・ログイン画面への道を止めない）。
-Future<void> clearPersonalData() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    for (final k in kPersonalDataKeys) {
-      await prefs.remove(k);
-    }
-    await clearUnownedTodayMarks(prefs);
-  } catch (e) {
-    debugPrint('[personal_data_cleanup] 鍵の掃除に失敗（続行）: $e');
-  }
+///   返り＝鍵を全部消せたか（便BK・⑰③）。消せなかった時は、やり直しの印を残す（全部消せた時は印を消す）。
+Future<bool> clearPersonalData() async {
+  final ok = await _clearPersonalKeys();
+  await _setCleanupPending(!ok);
+  if (!ok) await recordDeviceError('cleanup_keys');
+  if (ok) personalCleanupFailedAgain.value = false;
   try {
     await afterPersonalDataCleared();
   } catch (e) {
     debugPrint('[personal_data_cleanup] 写真の掃除に失敗（続行）: $e');
+    await recordDeviceError('photo_sweep');   // 便BK（見本 v3 の ⑰④）
+  }
+  return ok;
+}
+
+/// ログイン画面を開いた時（login_screen.dart の _init の頭・資格を読む前）に呼ぶ：前の掃除で消せなかった物が在れば、
+///   もう一度消す（便BK・⑰③）。やり直しても消せなかった時は personalCleanupFailedAgain を立てる（※を出す）。
+///   印が無い時は何もしない。★投げない。
+Future<void> retryPendingPersonalCleanup() async {
+  bool pending;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    pending = prefs.getBool(kPersonalCleanupPendingKey) ?? false;
+  } catch (e) {
+    debugPrint('[personal_data_cleanup] やり直しの印を読めませんでした: $e');
+    await recordDeviceError('cleanup_keys');   // 便BK（検分 a260・a261＝黙らない）
+    return;
+  }
+  if (!pending) {
+    personalCleanupFailedAgain.value = false;
+    return;
+  }
+  final ok = await clearPersonalData();
+  personalCleanupFailedAgain.value = !ok;
+}
+
+/// 新しくログインした人の資格を書き終えた時に呼ぶ（便BK・検分 a260 の K1・a261 の直すべき 2）。やり直しの印を消し、※を下ろす。
+///   ★呼ぶ所＝ログイン画面・機種変更の画面・登録の画面の、新しい資格を書く所の終わり（書く前には retryPendingPersonalCleanup）。
+///   わけ＝印を残したままにすると、次に開いた時のやり直しが、今ログインした人の資格まで黙って消す。★投げない。
+Future<void> endPersonalCleanupPending() async {
+  await _setCleanupPending(false);
+  personalCleanupFailedAgain.value = false;
+}
+
+// 名簿の鍵を1つずつ消す（1つ消せなくても残りを消す）。端末が「消せなかった」と答えた時（false）も、消せなかった事にする。
+//   返り＝全部消せたか。★投げない。
+Future<bool> _clearPersonalKeys() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    var ok = true;
+    for (final k in kPersonalDataKeys) {
+      try {
+        if (!await personalKeyRemover(prefs, k)) ok = false;
+      } catch (e) {
+        debugPrint('[personal_data_cleanup] 鍵を消せませんでした（続行）: $k: $e');
+        ok = false;
+      }
+    }
+    try {
+      await clearUnownedTodayMarks(prefs);
+    } catch (e) {
+      debugPrint('[personal_data_cleanup] 前の形の今日の印を消せませんでした（続行）: $e');
+      ok = false;
+    }
+    return ok;
+  } catch (e) {
+    debugPrint('[personal_data_cleanup] 鍵の掃除に失敗（続行）: $e');
+    return false;
+  }
+}
+
+// やり直しの印を立てる・消す（変わる時だけ書く）。★投げない（印を書けなかった時は、端末の失敗の控えに残す）。
+Future<void> _setCleanupPending(bool pending) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final now = prefs.getBool(kPersonalCleanupPendingKey) ?? false;
+    if (now == pending) return;
+    final ok = pending
+        ? await prefs.setBool(kPersonalCleanupPendingKey, true)
+        : await prefs.remove(kPersonalCleanupPendingKey);
+    if (!ok) throw StateError('やり直しの印を書けませんでした');
+  } catch (e) {
+    debugPrint('[personal_data_cleanup] やり直しの印を書けませんでした: $e');
+    await recordDeviceError('cleanup_keys');
   }
 }

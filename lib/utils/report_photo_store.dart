@@ -7,6 +7,9 @@
 // ★消すのは、この置き場の中の写真だけ（ほかの道は触らない）。
 // ★呼ぶ所：写すのは写真の帯（lib/widgets/photo_strip_field.dart の撮る所）だけ。消すのは ReportStore
 //   （lib/main.dart・送れた日報の写真）だけ。掃除は ReportStore.sweepPhotos（起動の時・ログアウトの掃除の後）だけ。
+//   →再（2026-10-14・便BK）: 消すのは、ReportStore（送れた日報の写真・送った後の画面で外した日報の写真＝見本 v3 の ⑮⑯）と、
+//   写真の帯の ✕（外した写真を、箱のどの日報も指していない時だけ＝見つけた事 (30)）。数えるのは ReportStore
+//   （外す前の窓の「写真N枚も消えます。」）。
 // ★写真の見分けは名前（reportPhotoKey）。置き場の場所は使うたびにシステムに聞く（Apple の技術資料 TN2406
 //   「標準の置き場の場所は、いつもシステムに聞く」）。箱や下書きが覚えた道は、聞いた時の場所の字なので、
 //   場所そのものが替わった後も、名前で今の置き場の写真に当てる（読む・消す・掃除の3つとも同じ決まり）。
@@ -14,6 +17,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'device_error_log.dart';
 
 /// 置き場の名前（アプリの置き場の下）。
 const String kReportPhotoDirName = 'report_photos';
@@ -53,6 +57,7 @@ Future<String> resolveReportPhotoPath(String path) async {
     if (await File(now).exists()) return now;
   } catch (e) {
     debugPrint('写真の道を読み替えられませんでした: $e');
+    await recordDeviceError('photo_path');   // 便BK（見本 v3 の ⑰④）
   }
   return path;
 }
@@ -73,6 +78,7 @@ Future<String> keepReportPhoto(String sourcePath) async {
     return copied.path;
   } catch (e) {
     debugPrint('写真を置き場へ写せませんでした（元の道のまま）: $e');
+    await recordDeviceError('photo_keep');   // 便BK（見本 v3 の ⑰④）
     return sourcePath;
   }
 }
@@ -91,11 +97,47 @@ Future<void> deleteReportPhotos(Iterable<String> paths) async {
         if (await f.exists()) await f.delete();
       } catch (e) {
         debugPrint('写真を消せませんでした: $e');
+        await recordDeviceError('photo_delete');   // 便BK（見本 v3 の ⑰④）
       }
     }
   } catch (e) {
     debugPrint('写真の置き場を開けませんでした: $e');
+    await recordDeviceError('photo_delete');   // 便BK（見本 v3 の ⑰④）
   }
+}
+
+/// 字の中の、置き場（kReportPhotoDirName）の直下の写真の名前（便BK・見本 v3 の ⑯）。
+///   読めない箱・読めない行の字から拾う（日報として読めなくても、指している写真は外すまで消さない）。
+///   「置き場の名前/」（JSON の「\/」も）の後ろの、「/」「\」「"」と空白までの字。「.」「..」は拾わない。
+Set<String> reportPhotoNamesIn(String text) {
+  final re = RegExp('${RegExp.escape(kReportPhotoDirName)}' r'(?:\\)?/([^/\\"\s]+)');
+  return <String>{
+    for (final m in re.allMatches(text))
+      if (m.group(1) != '.' && m.group(1) != '..') m.group(1)!,
+  };
+}
+
+/// 置き場の直下に在る写真のうち、names（名前）の数（外す前の窓の「写真N枚も消えます。」・便BK）。★投げない。
+///   数えるのは、在ると確かめられた写真だけ（便BK・検分 a259 の N2）＝確かめられない写真（1枚の読みが投げた・置き場を
+///   開けない）は、消す時（deleteReportPhotos）にも消せないので数えない（窓の数と、実際に消える数を食い違わせない）。
+Future<int> countReportPhotos(Iterable<String> names) async {
+  final Directory dir;
+  try {
+    dir = await reportPhotoDirOf();
+  } catch (e) {
+    debugPrint('写真の置き場を開けませんでした（数えない）: $e');
+    return 0;
+  }
+  var n = 0;
+  for (final name in names.toSet()) {
+    if (name.isEmpty || name.contains('/') || name == '.' || name == '..') continue;
+    try {
+      if (await File('${dir.path}/$name').exists()) n++;
+    } catch (e) {
+      debugPrint('写真を確かめられませんでした（数えない）: $e');
+    }
+  }
+  return n;
 }
 
 /// 置き場の中で、keep の道（名前で当てる）に無い写真を消す。before が在れば、それより前に書かれた写真だけ。
@@ -115,10 +157,12 @@ Future<int> sweepReportPhotos({required Set<String> keep, DateTime? before}) asy
         removed++;
       } catch (err) {
         debugPrint('写真を消せませんでした: $err');
+        await recordDeviceError('photo_sweep');   // 便BK（見本 v3 の ⑰④）
       }
     }
   } catch (e) {
     debugPrint('写真の置き場の掃除に失敗: $e');
+    await recordDeviceError('photo_sweep');   // 便BK（見本 v3 の ⑰④）
   }
   return removed;
 }

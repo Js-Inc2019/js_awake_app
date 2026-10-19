@@ -18,6 +18,7 @@ import '../utils/device_id.dart';
 import '../utils/field_role_gate.dart';
 import '../utils/session_lockout.dart';
 import '../utils/personal_data_cleanup.dart';
+import '../utils/today_marks.dart' show saveLoginUserId;
 import '../main.dart' show bossPinOk;
 import '../core/theme/field_tokens.dart';
 
@@ -196,6 +197,9 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _init() async {
+    // 便BK（見本 v3 の ⑰③）: 前のログアウト・締め出し・期限切れの掃除で消せなかった物が在れば、資格（auth_token）を
+    //   読む前にもう一度消す（utils/personal_data_cleanup.dart）。それでも消せない時は、この画面に※を出す。
+    await retryPendingPersonalCleanup();   // 開いた時
     await _warmUpServer();
 
     final prefs = await SharedPreferences.getInstance();
@@ -235,7 +239,9 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     final cachedToken = prefs.getString('auth_token') ?? '';
-    if (cachedToken.isNotEmpty) {
+    // 便BK（検分 a260 の K1）: 前の人の物を、やり直しても消せなかった時（※が出ている時）は、残った資格で自動のログインを
+    //   しない（前の人の資格かもしれない）。下の、PIN・生体のログインの道へ進む。
+    if (cachedToken.isNotEmpty && !personalCleanupFailedAgain.value) {
       {
         // 単一の顔の掟: verify-token は body の device_id 必須（未送信は 400 DEVICE_ID_REQUIRED）
         // token / device_id は AuthService が prefs と device_id.dart から取る
@@ -294,7 +300,8 @@ class _LoginScreenState extends State<LoginScreen>
                 }
                 final serverUserId = user['user_id'] as String?;
                 if (serverUserId != null && serverUserId.isNotEmpty) {
-                  await prefs.setString('user_id', serverUserId);
+                  // 'user_id' を書く所は utils/today_marks.dart の saveLoginUserId の1本（便BK・見つけた事 (28)）。
+                  await saveLoginUserId(prefs, serverUserId);
                 }
               }
               // 旧 'role' キーの残骸掃除（二重キー統一・ログイン成功時に1回）
@@ -918,6 +925,8 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _saveAndNavigate(Map<String, dynamic> data) async {
+    // 便BK（見本 v3 の ⑰③・検分 a260 の K1）: 新しい資格を書く前に、前の掃除で消せなかった物をもう一度消す。
+    await retryPendingPersonalCleanup();   // 新しい資格を書く前
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token',  data['token']      as String? ?? '');
     await prefs.setString('user_name',   data['name']       as String? ?? '');
@@ -926,7 +935,8 @@ class _LoginScreenState extends State<LoginScreen>
     await prefs.setString('company_id',  data['company_id'] as String? ?? '');
     await prefs.setString('company_name', data['company_name'] as String? ?? '');
     await prefs.setString('work_mode',   data['work_mode']  as String? ?? 'deemed');
-    await prefs.setString('user_id',     data['user_id']    as String? ?? '');
+    // 'user_id' を書く所は utils/today_marks.dart の saveLoginUserId の1本（便BK・見つけた事 (28)）。
+    await saveLoginUserId(prefs, data['user_id'] as String? ?? '');
     // 同意証跡はサーバ真実に一本化: サーバ値が非null/非空の時だけ保存（毎回 now() 上書きを廃止）。
     final serverConsentAt  = data['consent_agreed_at'] as String?;
     final serverConsentVer = data['consent_version']   as String?;
@@ -974,6 +984,8 @@ class _LoginScreenState extends State<LoginScreen>
       await prefs.setString('device_id', deviceId);
     }
     await _writePersistentRegistered();
+    // 便BK（検分 a260 の K1）: 書き終えたら、やり直しの印を消す（次に開いた時に、今ログインした人の資格を消さない）。
+    await endPersonalCleanupPending();
     // FCM token 取得・POST はホーム画面で権限取得後に行う
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
@@ -1099,6 +1111,7 @@ class _LoginScreenState extends State<LoginScreen>
                 child: const Text('機種変更（新しいデバイスで再登録）',
                     style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
               ),
+              _buildCleanupFailedNote(),
             ],
           ),
         ),
@@ -1180,6 +1193,7 @@ class _LoginScreenState extends State<LoginScreen>
                       style: TextStyle(color: FieldTokens.textSupport, fontSize: 13)),
                 ),
               ),
+              _buildCleanupFailedNote(),
               const SizedBox(height: 40),
 
               // ── はじめての方 セクション ──────────────────
@@ -1526,6 +1540,7 @@ class _LoginScreenState extends State<LoginScreen>
                               fontSize: 17, fontWeight: FontWeight.bold)),
                 ),
               ),
+              _buildCleanupFailedNote(),
             ],
                 ),
               ),
@@ -1535,4 +1550,20 @@ class _LoginScreenState extends State<LoginScreen>
       ),
     );
   }
+
+  // 前の利用者の記録を消せなかった時の※（便BK・見本 v3 の ⑰③）。やり直しても消せなかった時だけ出す
+  //   （utils/personal_data_cleanup.dart の personalCleanupFailedAgain）。出す所は3つ＝PIN の画面は「ログイン」のボタンの
+  //   すぐ下（見本 v3 の ③）・生体の画面とはじめの画面は、ログインの操作のまとまり（「機種変更…」の案内まで）のすぐ下。
+  Widget _buildCleanupFailedNote() => ValueListenableBuilder<bool>(
+        valueListenable: personalCleanupFailedAgain,
+        builder: (_, failed, __) => failed
+            ? const Padding(
+                padding: EdgeInsets.only(top: 16),
+                child: Text(kPersonalCleanupFailedNote,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: FieldTokens.statusWarning, fontSize: 11.5)),
+              )
+            : const SizedBox.shrink(),
+      );
 }

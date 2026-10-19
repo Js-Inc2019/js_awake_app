@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/worker_service.dart';
 import '../utils/device_id.dart';
+import '../utils/personal_data_cleanup.dart'
+    show endPersonalCleanupPending, retryPendingPersonalCleanup;
+import '../utils/today_marks.dart' show saveLoginUserId;
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.initialInviteCode});
@@ -85,14 +88,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
         return;
       }
+      // 便BK（見本 v3 の ⑰③・検分 a260 の K1）: 新しい資格を書く前に、前の掃除で消せなかった物をもう一度消す。
+      await retryPendingPersonalCleanup();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_token', body['token']      ?? '');
-      await prefs.setString('user_id',    body['user_id']    ?? '');
+      // 'user_id' を書く所は utils/today_marks.dart の saveLoginUserId の1本（便BK・見つけた事 (28)）。
+      await saveLoginUserId(prefs, body['user_id'] ?? '');
       await prefs.setString('user_name',  body['name']       ?? '');
       await prefs.setString('user_role',  body['role']       ?? 'worker');
       await prefs.setString('company_id', body['company_id'] ?? '');
       await prefs.setString('device_id',  deviceId);
       await prefs.setBool('is_registered', true);
+      // 便BK（検分 a260 の K1）: 書き終えたら、やり直しの印を消す（次に開いた時に、今ログインした人の資格を消さない）。
+      await endPersonalCleanupPending();
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/gate');
     } else if (r.statusCode == 0) {

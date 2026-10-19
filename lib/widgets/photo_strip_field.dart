@@ -8,11 +8,22 @@
 // ・種別ごと maxCount 枚（既定5）。到達で＋タイル非活性＋「上限n枚」表示。
 // ・重要操作はラベル必須（＋タイルは「＋撮影」ラベル付き・アイコンのみ禁止）。
 // ・配色は core/theme/field_tokens.dart（Asphalt Dawn）準拠・直書きHEX禁止。
+// ・✕で外した写真は、未送信の箱のどの日報（と読めない行・読めない箱）も指していない時だけ、その場で置き場から消す
+//   （便BK・見つけた事 (30)。元は消さずに、次に開いた時の掃除まで残っていた）。見比べるのは main() が差す
+//   removedPhotoUnused（ReportStore の見比べ）。
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/report_photo_store.dart';
+
+/// ✕で外した写真を消してよいかを見る口（便BK・見つけた事 (30)）。★main() が ReportStore.isPhotoUnused（未送信の箱の
+///   どの日報も、読めない行・読めない箱も、その写真を指していない時だけ true）を差す（widgets から main.dart を読み込むと
+///   依存が逆流するため、参照だけを受け取る）。既定は「消さない」（差していない時は今のまま＝次に開いた時の掃除まで残る）。
+Future<bool> Function(String path) removedPhotoUnused = _keepRemovedPhoto;
+
+Future<bool> _keepRemovedPhoto(String _) async => false;
 
 class PhotoStripField extends StatelessWidget {
   const PhotoStripField({
@@ -59,8 +70,20 @@ class PhotoStripField extends StatelessWidget {
   }
 
   void _remove(int index) {
+    final removed = paths[index];
     final next = <String>[...paths]..removeAt(index);
     onChanged(next);
+    // 便BK（見つけた事 (30)）: 外した写真を、ほかに指す物が無い時だけ消す（待たない＝画面は止めない）。
+    unawaited(_deleteIfUnused(removed));
+  }
+
+  // ★投げない（消せなかった時は deleteReportPhotos が端末の失敗の控えに残す・見る口が投げた時は消さずに残す）。
+  static Future<void> _deleteIfUnused(String path) async {
+    try {
+      if (await removedPhotoUnused(path)) await deleteReportPhotos([path]);
+    } catch (e) {
+      debugPrint('外した写真を見比べられませんでした（消さずに残す）: $e');
+    }
   }
 
   // 既存 main.dart _showPhoto と同方式（InteractiveViewer・ローカルFile表示）

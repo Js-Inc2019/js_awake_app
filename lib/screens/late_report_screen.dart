@@ -527,14 +527,16 @@ class _LateReportScreenState extends State<LateReportScreen> {
         memoText: _transportMemoCtrl.text,
       );
       final exp = reportExpenseSnapshot(_transports, _routeComparisons);
+      // 駐車料金と駐車場の写真は、帯が出ている時だけ出す（便BK・CC の見つけた事＝隠れた欄の値を出さない・数えない）。
+      final parkingShown = reportParkingVisible(_transports, _carType);
       final item = WorkerReportItem(
         name: _userName,
         transport: _transport,
         transportTypes: _transports.map((t) => t.name).toList(),
         workContent: contentPrefix + _workCtrl.text.trim(),
-        parkingFee: reportParkingFeeValue(_parkingCtrl.text),
+        parkingFee: parkingShown ? reportParkingFeeValue(_parkingCtrl.text) : null,
         workPhotoPaths: _workPhotoPaths,
-        parkingPhotoPaths: _parkingPhotoPaths,
+        parkingPhotoPaths: parkingShown ? _parkingPhotoPaths : const <String>[],
         originType: _originType,
         siteId: _siteId,
         shiftType: _shiftType,
@@ -551,7 +553,8 @@ class _LateReportScreenState extends State<LateReportScreen> {
       // ★読めない写真を黙って落とさない（今日の日報は飛ばして送る＝ここでは送らずに知らせる）。
       final photos = await reportPhotosFor(item);
       if (!mounted) return;
-      if (photos.length < _workPhotoPaths.length + _parkingPhotoPaths.length) {
+      // 数えるのは出す写真だけ（item の並び・便BK＝隠れた帯の写真は数えない）。
+      if (photos.length < item.workPhotoPaths.length + item.parkingPhotoPaths.length) {
         setState(() {
           _notice = _frame(kPhotoUnreadableText,
               heading: '提出できません');
@@ -561,10 +564,11 @@ class _LateReportScreenState extends State<LateReportScreen> {
       }
       final body = permittedReportBodyFor(item, confirmationId: widget.confirmationId);
       // この回に送る内容（写真を足す前の本文の字と、写真のパスの並び）。届いたか分からなかった回と比べる。
+      //   →再（2026-10-14・便BK）: 写真の並びは出す物（item の並び＝隠れた帯の写真を入れない）。
       final sent = jsonEncode([
         jsonEncode(body),
-        _workPhotoPaths,
-        _parkingPhotoPaths,
+        item.workPhotoPaths,
+        item.parkingPhotoPaths,
       ]);
       if (photos.isNotEmpty) body['photos'] = photos;
       final res = await _api.submitPermittedReport(body);

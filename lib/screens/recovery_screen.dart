@@ -8,6 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../utils/device_id.dart';
 import '../utils/field_role_gate.dart';
+import '../utils/personal_data_cleanup.dart'
+    show endPersonalCleanupPending, retryPendingPersonalCleanup;
+import '../utils/today_marks.dart' show saveLoginUserId;
 import 'consent_screen.dart';
 import 'membership_select_screen.dart';
 
@@ -292,6 +295,8 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
 
   // login_screen.dart の _saveAndNavigate と同一キーで保存
   Future<void> _saveAndNavigate(Map<String, dynamic> data, String deviceId) async {
+    // 便BK（見本 v3 の ⑰③・検分 a260 の K1）: 新しい資格を書く前に、前の掃除で消せなかった物をもう一度消す。
+    await retryPendingPersonalCleanup();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token',   data['token']        as String? ?? '');
     await prefs.setString('user_name',    data['name']         as String? ?? '');
@@ -299,7 +304,8 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     await prefs.setString('company_id',   data['company_id']   as String? ?? '');
     await prefs.setString('company_name', data['company_name'] as String? ?? '');
     await prefs.setString('work_mode',    data['work_mode']    as String? ?? 'deemed');
-    await prefs.setString('user_id',      data['user_id']      as String? ?? '');
+    // 'user_id' を書く所は utils/today_marks.dart の saveLoginUserId の1本（便BK・見つけた事 (28)）。
+    await saveLoginUserId(prefs, data['user_id'] as String? ?? '');
     // 同意証跡はサーバ真実に一本化: サーバ値が非null/非空の時だけ保存（毎回 now() 上書きを廃止）。
     final serverConsentAt  = data['consent_agreed_at'] as String?;
     final serverConsentVer = data['consent_version']   as String?;
@@ -346,6 +352,8 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
       did = deviceId;
       await prefs.setString('device_id', did);
     }
+    // 便BK（検分 a260 の K1）: 書き終えたら、やり直しの印を消す（次に開いた時に、今ログインした人の資格を消さない）。
+    await endPersonalCleanupPending();
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/gate');
   }

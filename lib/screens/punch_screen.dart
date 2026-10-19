@@ -59,6 +59,7 @@ class PunchScreen extends StatefulWidget {
     this.weatherPanel,
     required this.shiftType,
     required this.onShiftTypeChanged,
+    this.shiftReadFailed = false,
     this.revisionCount = 0,
     this.substituteCount = 0,
     this.substituteTruncated = false,
@@ -146,6 +147,9 @@ class PunchScreen extends StatefulWidget {
   // 送信時の report_date 補正・shift_type 送出は親側で行う。
   final String shiftType;                       // 'day'|'night'
   final ValueChanged<String> onShiftTypeChanged;
+  // 勤務の種類を読み込めなかったか（便BK・見本 v3 の ⑰①）。真実は親（home_screen.dart の _shiftReadFailed）。
+  //   true の間、選ぶ所の下に kShiftReadFailedNote を出す。既定 false＝今の呼び手は1文字も変わらない。
+  final bool shiftReadFailed;
   @override
   State<PunchScreen> createState() => _PunchScreenState();
 }
@@ -765,6 +769,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       businessDate: businessDateForShift(
                           widget.shiftType, DateTime.now()),
                       onChanged: widget.onShiftTypeChanged,
+                      readFailed: widget.shiftReadFailed,
                     ),
                   ],
                 ),
@@ -944,6 +949,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 // N1: 実打刻の2択行の高さ（モック承認済）。相方の「本日休み」もこの値に揃える。
 const double _kOpButtonHeight = 52;
 
+/// 勤務の種類を読み込めなかった時の※（便BK・見本 claude/field_report_fix_mock_v3.html の ⑰①）。
+const String kShiftReadFailedNote = '※勤務区分を読み込めませんでした。日勤で表示しています。';
+
 // ─────────────────────────────────────────────
 // ⓪ 勤務区分 2択（日勤 / 夜勤）＋ 業務日表示
 //   タッチターゲット 44pt以上・選択=ゴールド / 非選択=沈み
@@ -954,10 +962,12 @@ class _ShiftTypeSelector extends StatelessWidget {
     required this.selected,
     required this.businessDate,
     required this.onChanged,
+    this.readFailed = false,
   });
   final String selected;        // 'day'|'night'
   final String businessDate;    // 送信される report_date（'YYYY-MM-DD'）
   final ValueChanged<String> onChanged;
+  final bool readFailed;        // 勤務の種類を読み込めなかったか（便BK・⑰①）
 
   @override
   Widget build(BuildContext context) {
@@ -1016,6 +1026,16 @@ class _ShiftTypeSelector extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(color: FieldTokens.textSupport, fontSize: 11),
         ),
+        // 勤務の種類を読み込めなかった時だけ（便BK・見本 v3 の ⑰①＝その場で夜勤に切り替えられる）。
+        //   大きさは見本 v3 の※（.note＝11.5）・色は意味の色（statusWarning）。
+        if (readFailed) ...[
+          const SizedBox(height: 2),
+          const Text(
+            kShiftReadFailedNote,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: FieldTokens.statusWarning, fontSize: 11.5),
+          ),
+        ],
         // 夜勤を選んでいるときだけ、業務日の切替時刻を注記する。
         //   判定は上の chip と同じ形（selected == 'night'）＝新しい判定は作らない。
         //   ★表示だけ。業務日の算出（businessDateForShift）には一切触れていない。
