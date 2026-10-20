@@ -367,7 +367,9 @@ class FcmService {
         MaterialPageRoute(builder: (_) => const RevisionInboxScreen()),
       );
     } else {
-      // report_remind → 日報作成画面（JsMainShell 日報タブ index0）へ。
+      // report_remind → シェル（JsMainShell）のホームのタブ（index0）へ戻す（日報のフォームは、ホームの「日報を報告」から全画面で開く）。
+      //   （元の説明「日報作成画面（JsMainShell 日報タブ index0）へ」＝フォームをタブに置いていた頃の作り＝便BM で今の作りに合わせた・
+      //   見つけた事 (43)）
       // ■2 と同一ルート（ReportTabNavigator）。シェル未生成時は通知一覧へフォールバック。
       if (!ReportTabNavigator.go()) {
         navigatorKey.currentState?.push(

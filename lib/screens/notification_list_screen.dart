@@ -124,10 +124,13 @@ class NotificationListBodyState extends State<NotificationListBody> {
     }
   }
 
-  // 展開部アクション: 日報を書く（一覧を閉じて日報タブへ）
-  // ★この画面はボトム「通知」タブの実体としても使われる（home_screen.dart のタブ index2）。
-  //   タブとして表示されているときは pop する相手が居らず、無条件 pop はシェルごと
-  //   閉じてしまう。canPop() で守る（push されて開かれている従来経路の挙動は不変）。
+  // 展開部アクション: 日報を書く（一覧を閉じて、シェルのホームのタブへ戻す＝日報のフォームは開かない・ホームの
+  //   「日報を報告」から全画面で開く）。
+  //   （元の説明「一覧を閉じて日報タブへ」＝フォームをタブに置いていた頃の作り＝便BM で今の作りに合わせた・見つけた事 (43)）
+  // ★（元）この画面はボトム「通知」タブの実体としても使われる（home_screen.dart のタブ index2）。
+  //   →再（便BM・見つけた事 (43) の型の外の1か所）: 通知タブは退役した（ボトムの index2 は「共有」・home_screen.dart の
+  //   _notifBodyKey の★）＝今は🔔などから push で開く時だけ。canPop() で守るのは今のまま（pop する相手が居ない形で
+  //   開かれても、シェルごと閉じない＝push されて開かれている経路の挙動は不変）。
   void _goReport() {
     final nav = Navigator.of(context);
     if (nav.canPop()) nav.pop();

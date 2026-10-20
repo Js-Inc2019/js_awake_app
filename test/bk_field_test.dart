@@ -325,7 +325,7 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, '外す'), findsOneWidget);
       expect(find.text('今すぐ再送する'), findsOneWidget);
       expect(find.text('※会社のご担当者にご確認ください。'), findsOneWidget);
-      expect(find.text('※外した日報は、管理・履歴のカレンダーから出し直せます。'), findsOneWidget);
+      expect(find.text('※外した日報は送信されません。管理・履歴のカレンダーに「日報漏れを申告する」が出ている日は、そこから出し直しを申告できます。'), findsOneWidget);
       expect(find.text('※日報の無い日は、管理・履歴のカレンダーで確かめられます。'), findsNothing);
       // 「未送信日報」は「続けて報告」の後（下）。再送は未送信日報の中（見出しの下）。
       final cont = tester.getRect(find.text('続けて報告'));
@@ -340,7 +340,7 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, '外す'), findsNothing, reason: '通信の行に外すを出した');
       expect(find.text('今すぐ再送する'), findsOneWidget);
       expect(find.text('※会社のご担当者にご確認ください。'), findsNothing);
-      expect(find.text('※外した日報は、管理・履歴のカレンダーから出し直せます。'), findsNothing);
+      expect(find.text('※外した日報は送信されません。管理・履歴のカレンダーに「日報漏れを申告する」が出ている日は、そこから出し直しを申告できます。'), findsNothing);
       // ほかの日が無い（二者比較）：未送信日報も再送も出ない。
       await _pump(tester, _after(sent: true));
       expect(find.text('未送信日報'), findsNothing);
@@ -359,7 +359,7 @@ void main() {
       //   「※外した日報は…」は下に出る（二者比較＝今日の分が送れていれば、下に1つ）。
       await _pump(tester, _after(sent: false, refused: '有効な所属がありません', others: const [_refusedRow]));
       expect(find.text('※会社のご担当者にご確認ください。'), findsOneWidget, reason: '同じ※が2回出た・出ない');
-      expect(find.text('※外した日報は、管理・履歴のカレンダーから出し直せます。'), findsOneWidget);
+      expect(find.text('※外した日報は送信されません。管理・履歴のカレンダーに「日報漏れを申告する」が出ている日は、そこから出し直しを申告できます。'), findsOneWidget);
       final noteTop = tester.getRect(find.text('※会社のご担当者にご確認ください。')).top;
       expect(noteTop < tester.getRect(find.text('未送信日報')).top, isTrue, reason: '頭の下の※でない');
       await _pump(tester, _after(sent: true, others: const [_refusedRow]));
@@ -375,7 +375,7 @@ void main() {
       expect(find.text('1件'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, '外す'), findsOneWidget);
       expect(find.text('※日報の無い日は、管理・履歴のカレンダーで確かめられます。'), findsOneWidget);
-      expect(find.text('※外した日報は、管理・履歴のカレンダーから出し直せます。'), findsNothing,
+      expect(find.text('※外した日報は送信されません。管理・履歴のカレンダーに「日報漏れを申告する」が出ている日は、そこから出し直しを申告できます。'), findsNothing,
           reason: '読み込めない日報だけなのに、出し直しの※を出した');
       expect(find.text('今すぐ再送する'), findsNothing, reason: '送れない日報だけなのに再送を出した');
       await _pump(tester, _after(sent: true, unreadable: 2));
@@ -455,7 +455,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('10/13分の日報を外しますか？'), findsOneWidget);
       expect(find.text('端末から外し、送信しません。写真2枚も消えます。'), findsOneWidget);
-      expect(find.text('出し直しは、管理・履歴のカレンダーの10/13から「日報漏れを申告する」で行えます。'), findsOneWidget);
+      expect(find.text('管理・履歴のカレンダーの10/13に「日報漏れを申告する」が出ていれば、そこから出し直しを申告できます。'), findsOneWidget);
       await tester.tap(find.text('キャンセル'));
       await tester.pumpAndSettle();
       expect(got, isFalse);
@@ -508,7 +508,11 @@ void main() {
       expect(un.contains('if (_removing) return;'), isTrue);
       expect(rm.contains('} finally { _removing = false; }'), isTrue, reason: '止めを外さない（2回目から押せない）');
       // 「今すぐ再送する」の残りの数は、送り直しの後に読み直した姿から取る（読めなかった時は数を出さない）。
-      final retry = _flat(src.substring(src.indexOf('onRetry: () async {'), src.indexOf('onOvertime: _openExtraDeclarationPicker,')));
+      //   →再（2026-10-19・便BM）: 中身は _retryPendingNow の1本（送った後の画面と「未送信日報」の画面が同じ口）＝見る所をそこへ移した
+      //   （見る事は今のまま）。
+      final afterWire = _flat(src.substring(src.indexOf('return AfterReportBody('), src.indexOf('onOvertime: _openExtraDeclarationPicker,')));
+      expect(afterWire.contains('onRetry: _retryPendingNow,'), isTrue, reason: '送った後の画面の再送が _retryPendingNow でない');
+      final retry = _flat(_bodyOf(src, '  Future<void> _retryPendingNow() async {'));
       expect(retry.contains('await ReportStore.instance.retryPending(); final v = ReportStore.instance.pendingView.value; '
               'if (mounted && !v.readFailed) { final remaining = v.own.length;'),
           isTrue, reason: '残りの数を、姿と別の道で数えている・読めなかった時に数を出す');

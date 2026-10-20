@@ -6,6 +6,7 @@ import '../main.dart' show fetchGpsAddress, showJsSnackbar;
 import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
 import '../core/theme/field_tokens.dart';
+import '../core/report_send_texts.dart';
 import '../utils/business_date.dart';
 import '../utils/rest_day_refresh.dart';
 import '../widgets/deny_reason_line.dart' show denyReasonText;
@@ -76,6 +77,9 @@ class PunchScreen extends StatefulWidget {
     this.onExtraDeclaration,
     this.reports,
     this.restStatusRequestId = 0,
+    this.pendingReportsCount,
+    this.onOpenPendingReports,
+    this.isTodayPending,
   });
   /// 本日休みの状態をもう一度読んでほしいときに親（シェル）が +1 する通し番号（便F13）。
   ///   ★前例＝management_history_screen.dart の segmentRequestId（「今もう一度開いてほしい」の番号）。
@@ -130,6 +134,15 @@ class PunchScreen extends StatefulWidget {
   // K5(Q9): 当日ぶんの報告が済んでいるか。親が持つ真実を読むだけ
   //   （home_screen.dart の `isDone: () => _todayReportDone` と同じ流儀。prefs 直読みはしない）。
   final bool Function()? isReportDone;
+  // 便BM（見本 claude/field_refused_today_mock_v1.html の ②③・【Q150】＝１）:
+  //   ・pendingReportsCount … 要対応の一番上の「未送信日報」の行の数（null＝行を出さない）。数の決まりは親が
+  //     lib/utils/pending_view.dart の homePendingCountOf で作る（ここに判定式を複製しない）。
+  //   ・onOpenPendingReports … その行を押した時（「未送信日報」の画面を開くのは親）。
+  //   ・isTodayPending … 今日の分（今の勤務区分・今の業務日）に未送信の日報が在るか。本日休みの窓の字を替えるためだけに、
+  //     押した瞬間に親の真実を読む（isReportDone と同じ流儀）。既定 null＝在る事にしない（今の字のまま）。
+  final PendingCountLabel? pendingReportsCount;
+  final VoidCallback? onOpenPendingReports;
+  final bool Function()? isTodayPending;
   // ── 要対応の件数と遷移（値も遷移先も親 JsMainShell の既存資産をそのまま下ろす）──
   //   件数取得・遷移先はこの画面では一切作らない（home_screen.dart の PunchScreen 生成箇所を参照）。
   //   0件のときは行そのものを描画しない＝「無いものは見せない」。
@@ -415,9 +428,12 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     setState(() => _busy = true);
     // 裁定(b): 退勤スライド確定直後は日報へ直行する（ホームに戻さない）。
     // 遷移先の出し分け（未提出=日報フォーム / 提出済=完了ビュー）は既存資産に委ねる:
-    //   _onReportTap → widget.onNavigateToReport → home_screen.dart の `_setTab(1)`
-    //   → home_screen.dart の `if (_todayReportDone) AfterReportBody`（提出済判定は
-    //     home_screen:_readReportDone が単一の真実源）。判定式はここに複製しない。
+    //   _onReportTap → widget.onNavigateToReport → home_screen.dart の `_openReportForm`（日報のフォームを全画面で開く）
+    //   → そのフォームの中の `if (_todayReportDone) AfterReportBody`（提出済判定は
+    //     home_screen の _todayReportDone（読む時は _readWorkStatusToday の印を _isReportDoneStatus で見る）が単一の真実源）。
+    //     判定式はここに複製しない。
+    //   （元の説明は「_setTab(1)」＝フォームを日報タブに置いていた頃の作り＝便BM で今の作りに合わせた・見つけた事 (43)。
+    //   元の説明の「home_screen:_readReportDone」は今は無い名前＝便BM の検分 a329 の R1 で今の名前にした）
     // _busy 解除後に呼ぶため finally の外へ出す（ゲート内のダイアログ中も操作可）。
     bool goReport = false;
     try {
@@ -604,17 +620,21 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   ・実打刻は締めが退勤打刻であり、そもそも出勤後は「本日休み」ボタンが出ない
   //     （_buildOperationArea の showRestDay）ため対象外＝true を返して素通しする
   //   ・false を返した場合、_RestDayButton は画面遷移しない（袋小路を作らずその場に留まる）
+  //   →再（2026-10-19・便BM・見本 claude/field_refused_today_mock_v1.html の ③・【Q150】＝１）: 今日の分に未送信の日報が在る時
+  //   （widget.isTodayPending・親の真実）だけ、題と本文を事実に合わせる（「提出済みです」と言わない）。全部届いている時は今の字。
   Future<bool> _restDayGuard() async {
     if (_isActual) return true;
     if (widget.isReportDone?.call() != true) return true;
+    final pending = widget.isTodayPending?.call() == true;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
-        title: const Text('本日は報告済みです',
-            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-        content: const Text('本日は既に日報を提出済みです。休みとして登録しますか？',
-            style: TextStyle(color: FieldTokens.textBody)),
+        title: Text(pending ? kTodayPendingTitle : '本日は報告済みです',
+            style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
+        content: Text(
+            pending ? kRestDayPendingBody : '本日は既に日報を提出済みです。休みとして登録しますか？',
+            style: const TextStyle(color: FieldTokens.textBody)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -702,6 +722,18 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     //   ・検査 test/report_status_style_test.dart の名簿
                     //     kKnownOutsideStatusTable にこのファイルを載せてある。
                     //     寄せると決めた日は、名簿から外して検査を緑に戻すこと。
+                    //   ・便BM の「未送信日報」の行（下）と振替休日の行も、同じ帯（statusWarning）＝同じ例外。
+                    // 未送信日報（便BM・見本 claude/field_refused_today_mock_v1.html の ②・【Q150】＝１）。★要対応の一番上。
+                    //   形・高さ・帯の色（statusWarning＝橙）は差し戻し・振替休日の行と同じ。数の字は送った後の画面の
+                    //   「未送信日報」の見出しと同じ決まり（N件・N件以上・件数不明＝親の homePendingCountOf）。どの状態のホームでも出る。
+                    if (widget.pendingReportsCount != null)
+                      _AttentionRow(
+                        accent: FieldTokens.statusWarning,
+                        label:  kPendingSectionLabel,
+                        count:  null,                             // 数は下の countLabel だけ（_AttentionRow の★）
+                        countLabel: widget.pendingReportsCount,
+                        onTap:  widget.onOpenPendingReports,
+                      ),
                     if (widget.revisionCount > 0)
                       _AttentionRow(
                         accent: FieldTokens.statusWarning,          // 差し戻し = warning系
@@ -1310,6 +1342,11 @@ class _PendingSubstituteBox extends StatelessWidget {
 // ── _AttentionRow ─────────────────────────────────────────────────────────────
 // 要対応の1行。左に2pxの縦線・右に件数＋「›」。箱で囲まず、下は1pxの線で区切る。
 // ★件数が0のときは呼び出し側で行ごと描画しない（punch_screen.dart の build を参照）。
+//   →再（2026-10-19・便BM）: 「未送信日報」の行は、数を countLabel（数と単位に分けた字・数が無い時は「件数不明」）で渡し、
+//   count は null を渡す（行を出すかは呼び手の pendingReportsCount が null かで決める）。今までの3本（差し戻し・振替休日・
+//   承認待ち）は count を渡す（今までどおり）。
+//   count は required のまま int?（既定の 0＝数の実体の無い値を置かない・渡し忘れは型が止める）。
+//   count と countLabel の両方が null の時は assert で止める（数も字も無い行を作らせない＝そのまま描くと「null件」になる）。
 class _AttentionRow extends StatelessWidget {
   const _AttentionRow({
     required this.accent,
@@ -1317,13 +1354,18 @@ class _AttentionRow extends StatelessWidget {
     required this.count,
     required this.onTap,
     this.countTruncated = false,
-  });
+    this.countLabel,
+  }) : assert(count != null || countLabel != null);
   final Color accent;       // 意味の色（差し戻し=warning / 承認待ち=accent）
   final String label;
-  final int count;
+  final int? count;         // 数（今までの3本）。null＝数は countLabel で渡す（未送信日報の行だけ）
   // 天井で切れた回だけ true。★数の後ろに + を付けるためだけの純追加で、
   //   既定 false ＝今までの呼び手（差し戻し・承認待ち）の見え方は1ピクセルも変わらない。
   final bool countTruncated;
+  // 数の字を、数と単位に分けた字で渡す時（便BM・「未送信日報」の行だけ）。渡すと count と countTruncated は使わない。
+  //   数が在れば 数（20）＋単位（11）・数が無い時（件数不明）は1つの字（13・w600・本文の色＝見本の形）。
+  //   既定 null ＝今までの呼び手の見え方は1ピクセルも変わらない。
+  final PendingCountLabel? countLabel;
   final VoidCallback? onTap;
 
   @override
@@ -1347,17 +1389,23 @@ class _AttentionRow extends StatelessWidget {
                 ),
               ),
               // 数字が主役: 件数20px / 単位11px
-              Text(
-                countTruncated ? '$count+' : '$count',
-                style: const TextStyle(
-                  color: _text,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  height: 1.0,
+              if (countLabel != null && countLabel!.number == null)
+                Text(countLabel!.unit,
+                    style: const TextStyle(
+                        color: _text, fontSize: 13, fontWeight: FontWeight.w600))
+              else ...[
+                Text(
+                  countLabel?.number ?? (countTruncated ? '$count+' : '$count'),
+                  style: const TextStyle(
+                    color: _text,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    height: 1.0,
+                  ),
                 ),
-              ),
-              const Text('件',
-                  style: TextStyle(color: _label, fontSize: 11)),
+                Text(countLabel?.unit ?? '件',
+                    style: const TextStyle(color: _label, fontSize: 11)),
+              ],
               const SizedBox(width: 6),
               const Icon(Icons.chevron_right, color: _label, size: 18),
             ],

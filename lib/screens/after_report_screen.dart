@@ -4,8 +4,10 @@ import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../utils/business_date.dart';
 import '../utils/pending_view.dart';
+import '../widgets/pending_report_parts.dart';
 
-// 報告完了ビュー（日報タブ index1 を占有）。
+// 報告完了ビュー（日報のフォームの全画面＝home_screen.dart の _pushReportForm の中で出る）。
+//   （元の説明「日報タブ index1 を占有」は、フォームを全画面へ移す前の作り＝便BM で今の作りに合わせた・見つけた事 (43)）
 // S5b: 縦詰まり・見切れ・スクロール不能・スライド/タップ混在を解消するため全面改修。
 //  ・全体を SingleChildScrollView 化（小画面でも必ず最後まで届く）
 //  ・操作は全てタップ式カードに統一（旧 _SlideBtn / 円形 GestureDetector は廃止）
@@ -92,20 +94,11 @@ class _AfterReportBodyState extends State<AfterReportBody> {
   bool get _hasPendingSection => widget.otherRows.isNotEmpty || _hasUnreadable;
 
   // 送った後の画面の※（未送信の箱を読めなかった時・頭の下）。
-  Widget get _readFailedNote => const Padding(
-        padding: EdgeInsets.only(top: 6),
-        child: Text(kPendingReadFailedNote,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: FieldTokens.statusWarning, fontSize: 11.5)),
-      );
+  //   便BM: 字と形は「未送信日報」の画面の頭の※と1つ（lib/widgets/pending_report_parts.dart の kPendingReadFailedNoteView）。
+  Widget get _readFailedNote => kPendingReadFailedNoteView;
 
-  Widget get _retryCard => _ActionCard(
-        icon: Icons.refresh,
-        title: '今すぐ再送する',
-        subtitle: '保存済みの報告をもう一度送信',
-        accent: FieldTokens.statusWarning,
-        onTap: () => widget.onRetry?.call(),
-      );
+  //   便BM: 「今すぐ再送する」のカードは「未送信日報」の画面と1つ（同じ本の pendingRetryCard）。
+  Widget get _retryCard => pendingRetryCard(widget.onRetry);
 
   @override
   Widget build(BuildContext context) {
@@ -194,7 +187,7 @@ class _AfterReportBodyState extends State<AfterReportBody> {
             //    home_screen 側で種別を選ばせる1段を挟むだけ＝ここは入口の名前だけを変える。
             //    サブ行は既存3行で唯一2行に渡るため subtitleMaxLines: 2 を渡す
             //    （既定は 1 のまま＝下の2行の描画は1ピクセルも変わらない）。
-            _ActionCard(
+            ReportActionCard(
               icon: Icons.more_time,
               title: '⏰  追加の申告',
               subtitle: '※残業や休憩の短縮を、あとから申告できます',
@@ -221,6 +214,7 @@ class _AfterReportBodyState extends State<AfterReportBody> {
       const Divider(height: 1, thickness: 1, color: FieldTokens.outline),
       const SizedBox(height: 20),
       // 見出し（字の形は「続けて報告」と同じ）＋件数。
+      //   便BM: 未送信の箱を読めなかった時も「件数不明」（数の決まりは pendingCountLabel の1本＝ホームの要対応の行と同じ）。
       Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
@@ -228,7 +222,9 @@ class _AfterReportBodyState extends State<AfterReportBody> {
           const Text(kPendingSectionLabel,
               style: TextStyle(color: FieldTokens.textSupport, fontSize: 12)),
           const SizedBox(width: 8),
-          Text(pendingSectionCountLabel(known, unknown: widget.unreadableUnknown),
+          Text(
+              pendingSectionCountLabel(known,
+                  unknown: widget.unreadableUnknown, readFailed: widget.pendingReadFailed),
               style: const TextStyle(
                   color: FieldTokens.statusWarning,
                   fontSize: 12,
@@ -236,115 +232,22 @@ class _AfterReportBodyState extends State<AfterReportBody> {
         ],
       ),
       const SizedBox(height: 12),
-      for (final r in rows) ...[
-        _PendingRow(
-          title: pendingRowTitle(r.shiftType, r.businessDate),
-          subtitle: r.refusedMessage != null
-              ? refusedReportText(r.refusedMessage!)
-              : kPendingNetworkText,
-          subtitleColor: FieldTokens.statusWarning,
-          // 「外す」は受け付けなかった行だけ（通信で送れていない行は、送り直しで届く）。
-          onRemove: r.refusedMessage != null && widget.onRemoveRow != null
-              ? () => widget.onRemoveRow!(r)
-              : null,
-        ),
-        const SizedBox(height: 8),
-      ],
-      if (_hasUnreadable) ...[
-        _PendingRow(
-          title: unreadableRowTitle(widget.unreadableCount,
-              unknown: widget.unreadableUnknown),
-          subtitle: kUnreadableRowText,
-          subtitleColor: FieldTokens.textSupport,
-          onRemove: widget.onRemoveUnreadable,
-        ),
-        const SizedBox(height: 8),
-      ],
-      // 「今すぐ再送する」は1つだけ：今日の分が送れていて、ほかの日に送れる日報（読み込めない物でない）が在る時はここ。
-      if (widget.sent && rows.isNotEmpty) ...[
-        _retryCard,
-        const SizedBox(height: 8),
-      ],
-      // ※は枠の外（textSupport・11.5）。「※会社のご担当者にご確認ください。」は、頭の下に同じ※が出ている時（今日の分が
-      //   受け付けられなかった時）は出さない（1つの画面に同じ字を2回出さない・検分 a260 の N2）。
-      if (refused) ...[
-        if (widget.sent || widget.refusedMessage == null) ...[
-          const SizedBox(height: 4),
-          const Text(kRefusedReportNote,
-              style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
-        ],
-        const SizedBox(height: 2),
-        const Text(kRemovedReportNote,
-            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
-      ],
-      if (_hasUnreadable) ...[
-        SizedBox(height: refused ? 2 : 4),
-        const Text(kUnreadableReportNote,
-            style: TextStyle(color: FieldTokens.textSupport, fontSize: 11.5)),
-      ],
+      // 行・読み込めない日報の行・「今すぐ再送する」・※は、「未送信日報」の画面と同じ部品（便BM・lib/widgets/pending_report_parts.dart）。
+      ...pendingRowsSection(
+        rows: rows,
+        // 「外す」は受け付けなかった行だけ（通信で送れていない行は、送り直しで届く）。
+        canRemove: (r) => r.refusedMessage != null,
+        unreadableCount: widget.unreadableCount,
+        unreadableUnknown: widget.unreadableUnknown,
+        onRemoveRow: widget.onRemoveRow,
+        onRemoveUnreadable: widget.onRemoveUnreadable,
+        // 「今すぐ再送する」は1つだけ：今日の分が送れていて、ほかの日に送れる日報（読み込めない物でない）が在る時はここ。
+        retry: widget.sent && rows.isNotEmpty ? _retryCard : null,
+        // 「※会社のご担当者にご確認ください。」は、頭の下に同じ※が出ている時（今日の分が受け付けられなかった時）は出さない
+        //   （1つの画面に同じ字を2回出さない・検分 a260 の N2）。
+        refusedNote: refused && (widget.sent || widget.refusedMessage == null),
+      ),
     ];
-  }
-}
-
-// 「未送信日報」の1行（便BK・見本 v3 の ⑮⑯）。枠は暗枠1px（_ActionCard と同じ）・題 14 太字・下の字 11。
-//   「外す」は高さ 44・幅 64 以上（触れる大きさの決まり）・枠 textSupport 1px・字 textBody 13 太字。onRemove＝null なら出さない。
-class _PendingRow extends StatelessWidget {
-  const _PendingRow({
-    required this.title,
-    required this.subtitle,
-    required this.subtitleColor,
-    this.onRemove,
-  });
-  final String title;
-  final String subtitle;
-  final Color subtitleColor;
-  final VoidCallback? onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 52),
-      padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: FieldTokens.outline),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        color: FieldTokens.textBody,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(color: subtitleColor, fontSize: 11)),
-              ],
-            ),
-          ),
-          if (onRemove != null) ...[
-            const SizedBox(width: 12),
-            OutlinedButton(
-              onPressed: onRemove,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(64, 44),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                foregroundColor: FieldTokens.textBody,
-                side: const BorderSide(color: FieldTokens.textSupport),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              child: const Text(kRemovePendingLabel),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 }
 
@@ -424,79 +327,4 @@ class _PrimaryOutlineButton extends StatelessWidget {
           ),
         ),
       );
-}
-
-// 次の行動の1行。A案で塗り面（旧: 背景α0.08 + 枠α0.4 + 行ごとの色）を撤去した。
-//   ・面は透明。枠は暗枠1px = FieldTokens.outline(= FieldTokens.outline #2E333A)
-//     ＝ home_screen.dart の二次様式 _StepBackButton と同一トークン
-//   ・アイコン/サブ/シェブロンは単色 FieldTokens.textSupport、タイトルのみ FieldTokens.textBody
-//   ・accent は「未送信の再送行」だけが渡す意味色。null のときは単色に落ちる。
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.accent,
-    this.subtitleMaxLines = 1,
-  });
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final Color? accent;
-  // サブ行の行数。既定 1 ＝従来の描画そのまま（現場移動・シフト切替・再送の3行は不変）。
-  // 「追加の申告」行だけが 2 を渡す＝長い注記が見切れるのを防ぐ。
-  final int subtitleMaxLines;
-
-  @override
-  Widget build(BuildContext context) {
-    // 単色統一。accent が来た行だけ意味色（warning）で塗り分ける。
-    final sub   = accent ?? FieldTokens.textSupport;
-    final head  = accent ?? FieldTokens.textBody;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,                                   // 行全面がタップ領域
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 52),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: BoxDecoration(
-            // 塗り面なし（透明）。枠のみで領域を示す。
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: FieldTokens.outline),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: sub, size: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: head,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text(subtitle,
-                        maxLines: subtitleMaxLines,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: sub, fontSize: 11)),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: sub, size: 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

@@ -6,12 +6,15 @@
 //   読めなかったか）と、それを「今日の分」と「ほかの日」に分ける決まり（pendingTodayRows・pendingOtherRows・
 //   決まりの式は _isTodayRow の1本）。
 //   送った後の画面（lib/screens/after_report_screen.dart）と、その呼び手（lib/screens/home_screen.dart）が読む。
+//   →再（2026-10-19・便BM）: ホームの要対応の「未送信日報」の行（下の homePendingCountOf）と、その行から開く「未送信日報」の画面
+//   （lib/screens/pending_reports_screen.dart）も読む。
 // ★なぜ：元は、頭の字を「今の人の未送信の数が 0 か」で決めていた（見本 v1 の ①案A）。送り先が受け付けなかった日報は、
 //   送り直しても同じ答えで箱に残り続けるので、次の日からの日報が送れても、頭が「未送信（再送待ち）」になった
 //   （見つけた事 (25)）。読めない行は、数えず・画面にも出なかった（見つけた事 (27)）。
 // ★今日の分＝勤務の種類が画面の勤務の種類と同じで、業務日（送る report_date と同じ物差し＝businessDateForShift）が
 //   今の業務日と同じ日報。
 // ★通信しない・端末の保存を読まない（読むのは ReportStore）。
+import '../core/report_send_texts.dart' show PendingCountLabel, pendingCountLabel;
 import 'business_date.dart';
 
 /// 今の人の未送信の日報の1件（送った後の画面に出す分だけ）。
@@ -114,4 +117,14 @@ String? firstRefusedMessageOf(List<PendingReportRow> rows) {
     if (r.refusedMessage != null) return r.refusedMessage;
   }
   return null;
+}
+
+/// ホームの要対応の「未送信日報」の行の数（便BM・見本 claude/field_refused_today_mock_v1.html の ②・
+///   claude/field_close_date_remove_mock_v1.html の「決めた所」）。行を出さない時は null。
+///   出すのは、今の人の日報か読み込めない日報が在る時と、未送信の箱を読めなかった時（読めない事を黙らない）。
+///   数＝今の人の日報（今日の分も・ほかの日の分も）と読み込めない行の数・決まりは pendingCountLabel の1本。
+PendingCountLabel? homePendingCountOf(PendingView v) {
+  if (v.own.isEmpty && !v.hasUnreadable && !v.readFailed) return null;
+  return pendingCountLabel(v.own.length + v.unreadableRows,
+      unknown: v.unreadableBoxes > 0, readFailed: v.readFailed);
 }

@@ -80,6 +80,7 @@ import '../services/notification_service.dart';
 // CalendarTab が会社休日(/attendance/holidays/my)と祝日(/attendance/holidays/jp)を取るため。
 import '../services/work_mode_service.dart';
 import 'after_report_screen.dart';
+import 'pending_reports_screen.dart';
 import 'punch_screen.dart';
 import '../widgets/approval_dialogs.dart';
 import '../widgets/report_photos.dart';
@@ -303,9 +304,11 @@ Future<T> _withRetry<T>(
 // JsMainShell — 全画面共通シェル
 // ─────────────────────────────────────────────
 // ============================================================
-// ReportTabNavigator — 日報作成画面（JsMainShell の日報タブ index0）への
-// 単一の入口。通知一覧の 'report_remind' タップと FCM 'report_reminder' の
-// 両方が「■2と同じルート」でここを経由する。
+// ReportTabNavigator — 日報の知らせから、シェル（JsMainShell）のホームのタブ（index0＝PunchScreen）へ戻すだけの
+// 単一の入口（日報のフォームは開かない＝ホームの「日報を報告」から全画面で開く）。通知一覧の 'report_remind' タップと
+// FCM 'report_reminder' の両方が「■2と同じルート」でここを経由する。
+//   （元の説明「日報作成画面（JsMainShell の日報タブ index0）への単一の入口」は、フォームをタブに置いていた頃の作り
+//   ＝便BM で今の作りに合わせた・見つけた事 (43)）
 //   →再（2026-09-29・便F13）: FCM の種類も 'report_remind'（lib/services/fcm_service.dart の
 //   handleNotificationTap が旧名 'report_reminder' から是正した）。
 // シェルが initState で register / dispose で unregister する。
@@ -403,8 +406,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ※ company_link_screen.dart 本体は削除していない。
   int _unreadCount   = 0; // 通知未読件数（0=バッジ非表示・失敗時も0でfail-soft）
 
-  // 日報タブ(index0)への遷移ハンドラ（ReportTabNavigator へ登録/解除する実体・
+  // ホームのタブ(index0)へ戻すハンドラ（ReportTabNavigator へ登録/解除する実体・
   // register/unregister で identical 比較するため単一インスタンスを保持）
+  //   （元の説明「日報タブ(index0)への遷移ハンドラ」＝便BM で今の作りに合わせた・見つけた事 (43)）
   late final VoidCallback _openReportTabCb = _goReportTab;
   void _goReportTab() {
     if (mounted) _setTab(0);
@@ -524,7 +528,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // ─── 送信 ───
   bool _submitting = false;
-  // 完了ビューが日報タブ(index1)を占有中か。true の間フォームへ到達不能＝二重報告防止の要
+  // 完了ビュー（送った後の画面）を出すか。true の間、日報のフォームの全画面（_pushReportForm）は送った後の画面を出し、
+  // フォームへ到達不能＝二重報告防止の要（元の説明「日報タブ(index1)を占有中か」＝便BM で今の作りに合わせた・見つけた事 (43)）
   bool _todayReportDone = false;
   // K1: 打刻状態のミラー。真実源は PunchScreen が fetchToday から受け取った値で、
   //   onPunchStateChanged(punch_screen.dart) 経由で流れてくるだけ＝ここで判定は作らない。
@@ -538,8 +543,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   Future<void> Function()? _punchOutFromHome;
 
   // K3(Q8): みなしの「締め」。work_status == 'closed' の日は true。
-  //   done と同じく報告済み扱い（_readReportDone）だが、完了ビューのアクションを
+  //   done と同じく報告済み扱い（_isReportDoneStatus）だが、完了ビューのアクションを
   //   「追加の申告」だけに絞るために done と区別して保持する。
+  //   （元の説明の「_readReportDone」は今は無い名前＝便BM の検分 a329 の R1 の続きで今の名前にした）
   bool _todayClosed = false;
 
   // 送った印を読めなかった時（便BK・見本 v3 の ⑰②）。立っている間、日報のフォームの「今日の報告」の下に
@@ -704,7 +710,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 'done'（送信済み）と 'closed'（K3: みなしの締め）はどちらも報告済み扱いにする。
   static bool _isReportDoneStatus(String? s) => s == 'done' || s == 'closed';
 
-  // 起動時: 現在のシフトの業務日ぶんが報告済み(done/closed)なら完了ビューを日報タブに出す。
+  // 起動時: 現在のシフトの業務日ぶんが報告済み(done/closed)なら、日報のフォームの全画面を開いた時に完了ビューを出す。
+  //   （元の説明「完了ビューを日報タブに出す」＝便BM で今の作りに合わせた・見つけた事 (43)）
   // closed かどうかも同時に拾う＝再起動しても「締めた日」のアクション制限が維持される。
   Future<void> _initTodayReportDone() async {
     final s = await _readWorkStatusToday();
@@ -735,7 +742,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // チップ切替など _shiftType が変わった直後に判定をやり直す。
-  // 夜勤done後に日勤へ切替 → 複合キー不一致 → false → フォームが自然に開く。
+  // 夜勤done後に日勤へ切替 → 複合キー不一致 → false → 次に日報のフォームの全画面を開くと、フォームが出る。
+  //   （元の説明「フォームが自然に開く」はフォームをタブに置いていた頃の作り＝便BM で今の作りに合わせた・見つけた事 (43)）
   //   元: 読めなかった時は投げて（待たずに呼ばれる＝誰にも見えない）、前の勤務の種類の送った後の画面が残った。
   //   →再（2026-10-14・便BK・見本 v3 の ⑰②）: 読めなかった時は、開いた時と同じく日報のフォームを出し、
   //   見出しの下に※を出す（_doneMarkReadFailed）。端末の失敗の控えにも残す。読めたら※を消す。★投げない。
@@ -830,18 +838,22 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //                              締めた日のアクションは「追加の申告」だけ）
   //   ・報告済み × 未締め      → 確認ダイアログ → OK なら _resetForNextReport してフォームへ
   // 対象は「日報を報告」ボタン全経路（みなしの主ボタン／実打刻・退勤済の主ボタン）。
+  //   →再（2026-10-19・便BM・見本 claude/field_refused_today_mock_v1.html の ③・【Q150】＝１）: 今日の分に未送信の日報が在る時
+  //   （_todayHasPending）だけ、題と本文を事実に合わせる（受け付けられていないのに「提出済みです」と言わない）。
+  //   全部届いている時は今の字のまま。
   Future<bool> _confirmSecondReportIfNeeded() async {
     if (!_todayReportDone) return true;
     if (_todayClosed) return true;
+    final pending = _todayHasPending;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('本日は報告済みです',
-            style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-        content: const Text('本日の日報は提出済みです。2件目を作成しますか？',
-            style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+        title: Text(pending ? kTodayPendingTitle : '本日は報告済みです',
+            style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
+        content: Text(pending ? kSecondReportPendingBody : '本日の日報は提出済みです。2件目を作成しますか？',
+            style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -925,10 +937,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('今日の報告を締めますか？',
             style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-        content: const Text(
-            '締めると、この日は「次の現場へ移動」と「勤務区分の切替」ができなくなります。\n'
+        // 元: 「締めると、この日は「次の現場へ移動」と「勤務区分の切替」ができなくなります。」＝どちらも今の作りと違った
+        //   （見つけた事 (41)）。→再（2026-10-19・便BM・【Q151】＝１・見本 claude/field_close_date_remove_mock_v1.html の (41)）:
+        //   締める業務日と勤務区分（_saveWorkStatus('closed') が書く物と同じ）で、締めた後にできなくなる事だけを言う。
+        content: Text(
+            '${closeTodayLine1(_shiftType, businessDateForShift(_shiftType, DateTime.now()))}\n'
             '残業や休憩の申告はこのあとも行えます。',
-            style: TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+            style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1865,7 +1880,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       //   選んだ現場は次回のデフォルトとして残るのが裁定であり、
       //   ここで null に戻すと同じ日の2枚目で毎回選び直しになるため。
       //   payload は上の addReport で送信済み＝この変更の影響を受けない。
-      // 全画面push(AfterReportScreen)は廃止。完了ビューを日報タブ(index1)に出す。
+      // 全画面push(AfterReportScreen)は廃止。完了ビューは、日報のフォームの全画面（_pushReportForm）の中で出す。
+      //   （元の説明「完了ビューを日報タブ(index1)に出す」＝便BM で今の作りに合わせた・見つけた事 (43)）
       // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
       _todayReportDone = true;
       // K3: 直前に刻んだ work_status は 'done'＝締め済みではない。
@@ -1931,11 +1947,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ─── 日付ラベル ───
-  // 日報タブ(index1)では勤務区分に応じた業務日（JST固定・夜勤の深夜〜午前は始業日=前日）を出す。
-  // ＝送信される report_date と画面表示を一致させる（黙って日付を変えない）。
+  // （元）日報タブ(index1)では勤務区分に応じた業務日（JST固定・夜勤の深夜〜午前は始業日=前日）を出す。
+  //   ＝送信される report_date と画面表示を一致させる（黙って日付を変えない）。
+  //   →再（2026-10-19・便BM・見つけた事 (42)・【Q152】＝１・見本 claude/field_close_date_remove_mock_v1.html の (42) 案１）:
+  //   どのタブも暦の日（JST）。index1 は今は「管理・履歴」で、日報のフォームは全画面（_formDateLabel が業務日を出す）＝
+  //   業務日を出していたのは、日報のフォームをタブに置いていた頃の残り。夜勤の 0〜11時は、上の段とカレンダーの今日の印が
+  //   食い違っていた。
+  //   業務日は、ホームの勤務区分の下の「業務日」の行と、日報のフォームの頭が出す（今のまま）。
   String get _dateLabel {
-    final ds = businessDateForShift(
-        _tabIndex == 1 ? _shiftType : 'day', DateTime.now());
+    final ds = businessDateForShift('day', DateTime.now());
     final d  = DateTime.parse(ds);
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     final w = weekdays[d.weekday - 1];
@@ -2037,7 +2057,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     //   0: ホーム(PunchScreen) / 1: 管理・履歴 / 2: 共有 / 3: 設定
     // 日報フォーム(_buildHomeTabContent)はタブから外し、Navigator.push の全画面へ移した（_openReportForm）。
     final tabChildren = <Widget>[
-      PunchScreen(
+      // 便BM（見本 claude/field_refused_today_mock_v1.html の ②・【Q150】＝１）: 要対応の一番上の「未送信日報」の行の数は、
+      //   未送信の箱の姿（ReportStore.instance.pendingView）を聞いて下ろす（届けば数が減り、0件で行が消える）。
+      ValueListenableBuilder<PendingView>(
+        valueListenable: ReportStore.instance.pendingView,
+        builder: (_, pendingViewNow, __) => PunchScreen(
         // 日報フォームはタブ切替ではなく全画面 push で開く（push 先で同一の
         // _buildHomeTabContent() をそのまま描画する＝フォームの中身は不変）。
         onNavigateToReport: _openReportForm,
@@ -2132,6 +2156,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           });
           _setTab(1);
         },
+        //   未送信日報 → PendingReportsScreen（便BM）。数の決まりは lib/utils/pending_view.dart の homePendingCountOf の1本。
+        pendingReportsCount: homePendingCountOf(pendingViewNow),
+        onOpenPendingReports: _openPendingReports,
+        //   本日休みの窓の字（便BM・見本 ③）：今日の分に未送信の日報が在るか（押した瞬間に読む・2件目の窓と同じ _todayHasPending）。
+        isTodayPending: () => _todayHasPending,
+        ),
       ),
       ManagementHistoryScreen(
         isForeman:        widget.isForeman,
@@ -2468,6 +2498,55 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     }
   }
 
+  // ─── 今すぐ再送（送った後の画面と「未送信日報」の画面の口・便BK の中身を便BM で1本にした）───
+  //   既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
+  //   残りの数は、送り直しの終わりに読み直した姿（pendingView）から取る。姿を読めなかった時は、数を出さない
+  //   （送った後の画面の頭の下と「未送信日報」の画面の頭に「※送信状況を読み込めませんでした。」が出る＝黙らない）。
+  Future<void> _retryPendingNow() async {
+    await ReportStore.instance.retryPending();
+    final v = ReportStore.instance.pendingView.value;
+    if (mounted && !v.readFailed) {
+      final remaining = v.own.length;
+      showJsSnackbar(
+        context,
+        remaining == 0
+            ? '✅ 再送しました'
+            : '📋 まだ未送信です（$remaining件・自動再送を継続します）',
+        isWarning: remaining != 0,
+      );
+    }
+  }
+
+  // ─── 今日の分に未送信の日報が在るか（便BM・見本 claude/field_refused_today_mock_v1.html の ③）───
+  //   今日の分＝今の勤務区分（_shiftType）で今の業務日の日報（lib/utils/pending_view.dart の pendingTodayRows の1本）。
+  //   2件目の窓と本日休みの窓の字を替えるためだけに読む（読めなかった時は、前に読めた時の姿のまま＝readFailed の★）。
+  bool get _todayHasPending => pendingTodayRows(ReportStore.instance.pendingView.value,
+          shiftType: _shiftType, now: DateTime.now())
+      .isNotEmpty;
+
+  // ─── 「未送信日報」の画面（便BM・見本 ②・ホームの要対応の行から）───
+  //   外す・今すぐ再送は、送った後の画面と同じ口（窓と知らせを2つに書き分けない）。
+  //   ★開いている間は、もう一度開かない（行を素早く2回押して同じ画面が2枚積まれない・前例＝_openReportForm の _reportFormOpen）。
+  bool _pendingReportsOpen = false;
+  Future<void> _openPendingReports() async {
+    if (_pendingReportsOpen) return;
+    _pendingReportsOpen = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PendingReportsScreen(
+            shiftType: _shiftType,
+            onRemoveRow: _confirmRemovePending,
+            onRemoveUnreadable: _confirmRemoveUnreadable,
+            onRetry: _retryPendingNow,
+          ),
+        ),
+      );
+    } finally {
+      _pendingReportsOpen = false;
+    }
+  }
+
   // ─── ホームタブ本体 ───
   Widget _buildHomeTabContent() {
     // 完了ビューが占有中は日報フォームを出さない＝到達不能（二重報告防止の要）
@@ -2506,20 +2585,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   →再（2026-10-14・便BK・検分 a259 の N5）: 残りの数は、送り直しの終わりに読み直した姿（pendingView）から取る
         //   （元: もう一度箱を数えていた＝同じ数を2つの道で持っていた）。姿を読めなかった時は、数を出さない
         //   （送った後の画面の頭の下に「※送信状況を読み込めませんでした。」が出る＝黙らない）。
-        onRetry: () async {
-          await ReportStore.instance.retryPending();
-          final v = ReportStore.instance.pendingView.value;
-          if (mounted && !v.readFailed) {
-            final remaining = v.own.length;
-            showJsSnackbar(
-              context,
-              remaining == 0
-                  ? '✅ 再送しました'
-                  : '📋 まだ未送信です（$remaining件・自動再送を継続します）',
-              isWarning: remaining != 0,
-            );
-          }
-        },
+        //   →再（2026-10-19・便BM）: 中身は「未送信日報」の画面の「今すぐ再送する」と同じ _retryPendingNow の1本（元はここに直に書いていた）。
+        onRetry: _retryPendingNow,
         // 「追加の申告」＝種別を選ばせる1段を挟むだけ。残業の実処理は build の下の
         // _openOvertimeDialog() へ丸ごと退避しており、中身は1文字も変えていない。
         onOvertime: _openExtraDeclarationPicker,

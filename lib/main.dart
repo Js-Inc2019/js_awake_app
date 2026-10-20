@@ -1521,7 +1521,10 @@ class _GateScreenState extends State<GateScreen> {
         workStatus != 'done' &&
         workStatus != 'closed';
 
-    // 報告完了(done)状態は HomeScreen 側(日報タブ)が prefs を読んで完了ビューを出すため、
+    // 報告完了(done)状態は HomeScreen 側が起動時に prefs を読み（_initTodayReportDone）、日報のフォームの全画面を開いた時に
+    //   完了ビューを出すため、
+    //   （元の説明「HomeScreen 側(日報タブ)が prefs を読んで完了ビューを出す」＝フォームをタブに置いていた頃の作り＝便BM で
+    //   今の作りに合わせた・見つけた事 (43)）
     // ここでは全画面pushによる復元を行わない（復元経路を一本化）。
     // 業務日が変わったキーは次回書込で上書きされ、判定側も日付一致を要求するため掃除不要。
 
