@@ -233,8 +233,7 @@ Future<void> _pumpConfirm(
   WidgetTester tester, {
   required ReportSnapshot initial,
   required ReportSnapshot Function() currentOf,
-  required Future<void> Function() onSend,
-  required bool Function() isDone,
+  required Future<bool> Function() onSend,
 }) async {
   tester.view.physicalSize = const Size(400, 1600);
   tester.view.devicePixelRatio = 1.0;
@@ -253,7 +252,6 @@ Future<void> _pumpConfirm(
                   initial: initial,
                   currentOf: currentOf,
                   onSend: onSend,
-                  isDone: isDone,
                 ),
               ),
             ),
@@ -1221,8 +1219,7 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.widgetWithText(AppBar, '確認'), findsOneWidget);
       expect(find.text(_kConfirmHead), findsOneWidget);
       const rows = ['日付', '現場', '移動', '距離・時間', '交通費（駐車料金）', '作業内容', '写真'];
@@ -1247,8 +1244,7 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(routeRows: const [], parkingFeeRaw: '', workContent: ''),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.text('—'), findsNWidgets(3));
       expect(find.text('¥'), findsNothing);
 
@@ -1258,8 +1254,7 @@ void main() {
             (label: '徒歩', dist: '1.2km', cost: null),
           ]),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.text('電車　—　💴¥620\n徒歩　1.2km　—'), findsOneWidget);
     });
 
@@ -1267,15 +1262,13 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.text('相乗り'), findsNothing);
 
       await _pumpConfirm(tester,
           initial: _snap(carpoolCompany: '相乗り商事', carpoolName: '相乗 次郎'),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.text('相乗り'), findsOneWidget);
       expect(find.text('相乗り商事　相乗 次郎'), findsOneWidget);
       expect(
@@ -1289,8 +1282,7 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(carpoolName: '相乗 次郎'),
           currentOf: () => _snap(),
-          onSend: () async {},
-          isDone: () => false);
+          onSend: () async => false);
       expect(find.text('相乗り'), findsOneWidget);
       expect(find.text('相乗 次郎'), findsOneWidget);
     });
@@ -1301,8 +1293,10 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => _snap(),
-          onSend: () async => sent++,
-          isDone: () => done);
+          onSend: () async {
+            sent++;
+            return done;
+          });
       await tester.tap(find.text(_kSend));
       await tester.pumpAndSettle();
       expect(sent, 1);
@@ -1322,8 +1316,10 @@ void main() {
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => now,
-          onSend: () async => sent++,
-          isDone: () => false);
+          onSend: () async {
+            sent++;
+            return false;
+          });
       now = _snap(workContent: '2階の配線');
       await tester.tap(find.text(_kSend));
       await tester.pump();
@@ -1341,15 +1337,14 @@ void main() {
 
     testWidgets('(c-5) 送っている間に、もう一度押しても送るのは1回だけ', (tester) async {
       var sent = 0;
-      final gate = Completer<void>();
+      final gate = Completer<bool>();
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => _snap(),
           onSend: () {
             sent++;
             return gate.future;
-          },
-          isDone: () => false);
+          });
       await tester.tap(find.text(_kSend));
       await tester.pump();
       expect(sent, 1);
@@ -1357,25 +1352,24 @@ void main() {
       await tester.tap(find.byType(ReportOutlineActionButton));
       await tester.pump();
       expect(sent, 1, reason: '送っている間に、もう一度送った');
-      gate.complete();
+      gate.complete(false);
       await tester.pumpAndSettle();
       expect(find.text(_kSend), findsOneWidget);
     });
 
     testWidgets('(c-6) 「戻って直す」：押すと閉じる／送っている間は押しても閉じない', (tester) async {
-      final gate = Completer<void>();
+      final gate = Completer<bool>();
       await _pumpConfirm(tester,
           initial: _snap(),
           currentOf: () => _snap(),
-          onSend: () => gate.future,
-          isDone: () => false);
+          onSend: () => gate.future);
       await tester.tap(find.text(_kSend));
       await tester.pump();
       await tester.tap(find.text(_kBackToFix));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text(_kConfirmHead), findsOneWidget, reason: '送っている間に閉じた');
-      gate.complete();
+      gate.complete(false);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text(_kBackToFix));
@@ -1385,10 +1379,13 @@ void main() {
     });
 
     // →再（2026-10-14・便BJ・見本 v1 の (9)）: 目安の距離も鍵に入れた（routeCostKey＝手段名:距離:金額）。
-    test('(c-7) 差の見張りの鍵（diffKey）：7つの値のどれでも変わる・ほかの値では変わらない・境い目・区切りは6つ', () {
+    // →再（2026-10-21・便BN・下調べの (D7)・見つけた事 (49)）: 「日付」の字も鍵に入れた（一番前・確かめの画面を開いたまま業務日が替われば
+    //   送らずに見せ直す）。値は8つ・区切りは7つ。
+    test('(c-7) 差の見張りの鍵（diffKey）：8つの値のどれでも変わる・ほかの値では変わらない・境い目・区切りは7つ', () {
       final base = _snap(carpoolCompany: 'c', carpoolName: 'n');
-      // 鍵に入る7つ（1つずつ変える・目安は金額と距離の2通り＝便BJ）。
+      // 鍵に入る8つ（1つずつ変える・目安は金額と距離の2通り＝便BJ・日付の字＝便BN）。
       final changed = <String, ReportSnapshot>{
+        '日付の字': _snap(dateLabel: '9月21日（月）', carpoolCompany: 'c', carpoolName: 'n'),
         '現場の id': _snap(siteId: 's2', carpoolCompany: 'c', carpoolName: 'n'),
         '移動手段の鍵':
             _snap(transportKey: 'train', carpoolCompany: 'c', carpoolName: 'n'),
@@ -1410,7 +1407,6 @@ void main() {
       });
       // 鍵に入らない値。
       final same = <String, ReportSnapshot>{
-        '日付の字': _snap(dateLabel: '9月21日（月）', carpoolCompany: 'c', carpoolName: 'n'),
         '勤務の字': _snap(shiftLabel: '🌙夜勤', carpoolCompany: 'c', carpoolName: 'n'),
         '現場の名前': _snap(siteName: '別の名前', carpoolCompany: 'c', carpoolName: 'n'),
         '出発地の字': _snap(originLabel: '会社', carpoolCompany: 'c', carpoolName: 'n'),
@@ -1427,12 +1423,12 @@ void main() {
       // 値の境い目をずらした2つは、別の鍵（区切りが在るから）。
       expect(_snap(siteId: 'a', transportKey: 'bc').diffKey,
           isNot(_snap(siteId: 'ab', transportKey: 'c').diffKey));
-      // 区切りの字（符号 1）は6つ＝7つの値の間。中身も決まった並び。
-      expect(base.diffKey.codeUnits.where((c) => c == 1).length, 6);
+      // 区切りの字（符号 1）は7つ＝8つの値の間。中身も決まった並び（日付の字が一番前）。
+      expect(base.diffKey.codeUnits.where((c) => c == 1).length, 7);
       expect(base.diffKey.split(String.fromCharCode(1)),
-          ['s1', 'car', '1階の配線', '車:12.4km:⛽¥141', '500', 'c', 'n']);
-      // 現場が null の時は、空の字で入る。
-      expect(_snap(siteId: null).diffKey.split(String.fromCharCode(1)).first, '');
+          ['9月20日（日）', 's1', 'car', '1階の配線', '車:12.4km:⛽¥141', '500', 'c', 'n']);
+      // 現場が null の時は、空の字で入る（日付の字の次）。
+      expect(_snap(siteId: null).diffKey.split(String.fromCharCode(1))[1], '');
     });
   });
 
@@ -2023,8 +2019,13 @@ void main() {
         'parkingPhotoPaths: _parkingPhotoPaths,',
         'onParkingPhotosChanged: (v) => setState(() => _parkingPhotoPaths = v),',
       ]);
+      // 元: 'dateLabel: _formDateLabel,'。→再（2026-10-21・便BN・下調べの (D2)）: 日付の字は、_buildSnapshot が覚える今から作る
+      //   （同じ今を、送る日報の時刻にする＝_submit の一番頭で _snapshotNow を手元に移す）。
+      expect(_flat(src).contains('ReportSnapshot _buildSnapshot() { final now = businessNow(); _snapshotNow = now; return reportSnapshotFrom('),
+          isTrue,
+          reason: '日付の字の今を覚えていない');
       has('reportSnapshotFrom', [
-        'dateLabel: _formDateLabel,',
+        'dateLabel: _formDateLabelAt(now),',
         'shiftLabel: _shiftLabel,',
         'siteId: _selectedSiteId,',
         'siteName: _selectedSiteName,',
@@ -2052,7 +2053,8 @@ void main() {
       expect(
           flat.contains('ReportConfirmScreen( initial: _buildSnapshot(), '
               'currentOf: _buildSnapshot, onSend: _submit, '
-              'isDone: () => _todayReportDone, '
+              // 元: 'isDone: () => _todayReportDone, '（送った後の写しで閉じた）。
+              // →再（2026-10-21・便BN・下調べの (D4)）: isDone の口は外した（閉じるのは _submit が true を返した時＝この送るで箱に入れた時）。
               // →再（2026-10-14・便BJ・見本 v1 の ②③）: 送る前に止まった時の枠を渡す。
               // →再（2026-10-14・便BJ・検分 a251 の S2）: 枠は送るボタンの真上の口（bottomNoticeOf）で渡す。
               'bottomNoticeOf: () => _sendNotice, )'),

@@ -8,6 +8,7 @@
 //   書いた人が今の人でない時は、保存が無い物として読む（utils/today_marks.dart の shiftDateOf）。
 // ★なぜ：夜勤の人の朝（JST 0〜11時）は、まだ前の日の勤務の中に居る。日報漏れの申告の入口と、尋ねる口・申告の口は、
 //   その業務日を「今日」として扱う（サーバは送られた shift_type で今日を決める＝便BI）。
+// →再（2026-10-21・便BN・下調べの ■4）: 今は business_date.dart の businessNow() で読む（組む業務日の今と同じ口）。
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'business_date.dart';
@@ -32,7 +33,7 @@ Future<String> savedShiftTypeForNow() async {
             prefs.getString(kShiftTypeKey),
             shiftDateOf(prefs.getString(kShiftBusinessDateKey),
                 me: todayMarkOwnerOf(prefs)),
-            DateTime.now()) ??
+            businessNow()) ??
         'day';
   } catch (_) {
     return 'day';

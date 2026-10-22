@@ -267,11 +267,14 @@ class ReportSnapshot {
   String get carpoolLabel =>
       [carpoolCompany, carpoolName].where((s) => s.isNotEmpty).join('　');
 
-  // 差の見張りの鍵。7つの値＝現場ID・移動手段・作業内容・ルート金額・駐車料金・相乗りの会社名・相乗りの氏名。
+  // 差の見張りの鍵。8つの値＝日付の字・現場ID・移動手段・作業内容・ルート金額・駐車料金・相乗りの会社名・相乗りの氏名。
   //   元: 「差異検知は4項目に限定: 現場ID・移動手段・作業内容・金額（ルート金額+駐車料金）」（carpoolLabel の説明の上に書いてあった）
   //   →再（2026-10-08・便F8b-1）: 作業4 で相乗りの2つを足してあり、実物は7つ。区切りは、目に見えない1字（U+0001）。
+  //   →再（2026-10-21・便BN・見つけた事 (49)・下調べの (D7)）: 日付の字（dateLabel）を足した＝8つ。確かめの画面を開いたまま
+  //   業務日が替われば、送らずに「内容が変わりました。もう一度ご確認ください」で見せ直す（日付の字が替わる・字は増えない）。
   // 作業4: 差異検知に相乗り2項目を追加（金額・移動に加えて相乗りの変更も検知する）。
   String get diffKey => [
+        dateLabel,
         siteId ?? '',
         transportKey,
         workContent,
@@ -291,7 +294,6 @@ class ReportConfirmScreen extends StatefulWidget {
     required this.initial,
     required this.currentOf,
     required this.onSend,
-    required this.isDone,
     this.heading = 'この内容で送ります',
     this.sendLabel = '報告を送信',
     this.band,
@@ -307,9 +309,9 @@ class ReportConfirmScreen extends StatefulWidget {
   /// 現在stateから作り直すための取得口（送信直前の差異検知に使う）
   final ReportSnapshot Function() currentOf;
   /// 実送信。従来どおり現在stateを読む _submit をそのまま呼ぶ
-  final Future<void> Function() onSend;
-  /// 送信が成立したか（_todayReportDone）。成立時のみ画面を閉じる
-  final bool Function() isDone;
+  ///   →再（2026-10-21・便BN・下調べの (D4)）: 返り＝この送るで箱に入れたか（出せたか）。true の時だけ画面を閉じる
+  ///   （元の isDone の口＝送った後の写しを読む形は外した＝業務日が替わって写しが下りても、送れた時は閉じる）。
+  final Future<bool> Function() onSend;
 
   // ── 便F8b-2 で足した任意の引数（後から出す日報だけが渡す・既定は今の字と今の姿）──────
   //   既定の時（帯・知らせ・※が無い時）は、その物も空きも置かない＝今日の日報の確認の画面は1ピクセルも変わらない。
@@ -359,8 +361,9 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
       return;
     }
     setState(() => _sending = true);
+    var done = false;
     try {
-      await widget.onSend();
+      done = await widget.onSend();
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -372,7 +375,9 @@ class _ReportConfirmScreenState extends State<ReportConfirmScreen> {
     //   →再（2026-10-14・便BJ・見本 v1 の ②）: 今日の日報の _submit は例外を受けて、この画面に枠「送信できません」を出す
     //   （bottomNoticeOf＝送るボタンの真上・ボタンはまた押せる）。写真が読めない時も同じ枠で止める。
     //   どちらも _todayReportDone が立たない＝ここでは閉じない。
-    if (widget.isDone()) Navigator.pop(context);
+    //   →再（2026-10-21・便BN・(D4)）: 閉じるのは onSend が true を返した時（この送るで箱に入れた時）だけ。止まった道
+    //   （移動手段・駐車の写真・氏名・写真が読めない・例外）は false＝ここでは閉じない（二重に閉じない決まりは今のまま）。
+    if (done) Navigator.pop(context);
   }
 
   @override

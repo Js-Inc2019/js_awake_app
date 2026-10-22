@@ -477,7 +477,9 @@ void main() {
       final flat = _flat(src);
       for (final p in [
         'pendingReadFailed: view.readFailed,',
-        'otherRows: pendingOtherRows(view, shiftType: _shiftType, now: now),',
+        // 元: 'otherRows: pendingOtherRows(view, shiftType: _shiftType, now: now),'。
+        // →再（2026-10-21・便BN・下調べの (D3)）: 出している印（shown）の勤務の種類と業務日で分ける。
+        'otherRows: pendingOtherRows(view, shiftType: shown.shift, now: now, bizDate: shown.bizDate),',
         'unreadableCount: view.unreadableRows,',
         'unreadableUnknown: view.unreadableBoxes > 0,',
         'onRemoveRow: _confirmRemovePending,',
@@ -854,7 +856,8 @@ void main() {
       expect((await readDeviceErrors())!.map((e) => e.kind), ['net_watch'], reason: '読めない鍵のまま、二度と残せない');
     });
 
-    test('(BK-c2) 種類の名簿：決まった20の鍵と字（題｜代わりにした事）・どの鍵にも残す所が在る・残す所の鍵は全部名簿に在る（ソースの字）', () {
+    // →再（2026-10-21・便BN・見つけた事 (53)・【Q160】＝１・見本 claude/field_unread_unwritten_mock_v1.html）: 'today_mark_save' を足した（20→21）。
+    test('(BK-c2) 種類の名簿：決まった21の鍵と字（題｜代わりにした事）・どの鍵にも残す所が在る・残す所の鍵は全部名簿に在る（ソースの字）', () {
       const want = <String, String>{
         'photo_keep': '写真の保存｜元の写真のまま送信',
         'photo_path': '写真の読み込み｜覚えた道のまま読む',
@@ -865,6 +868,7 @@ void main() {
         'shift_restore': '勤務区分の読み込み｜日勤で表示',
         'shift_save': '勤務区分の保存｜選んだ区分で表示',
         'done_mark_read': '送信記録の読み込み｜日報のフォームを表示',
+        'today_mark_save': '送信記録の保存｜印を残さずに続行',
         'today_marks_clear': '別の人の印の掃除｜使わずに続行',
         'unowned_marks_clear': '前の形の印の掃除｜残したまま続行',
         'pending_read': '送信状況の読み込み｜前の表示のまま',
@@ -966,29 +970,38 @@ void main() {
     test('(BK-c6) シェルの繋ぎ：勤務区分・送った印・別の人の印の失敗を、※と控えに出す・保存できたら※を消す（ソースの字）', () {
       final src = _codeOnly(_home);
       final today = _flat(_bodyOf(src, '  Future<void> _restoreTodayState() async {'));
+      // →再（2026-10-21・便BN・下調べの (D1)(D6)）: 送った印の写しと※は、勤務の種類と業務日を持つ形（_setMark・_clearMark・
+      //   _setDoneMarkFail）になった。勤務の種類を戻せなかった時は、決めた時の業務日も覚える（(D6)）。
       for (final p in [
         "await recordDeviceError('today_marks_clear');",
-        "if (mounted && _shiftType == 'day') setState(() => _shiftReadFailed = true); await recordDeviceError('shift_restore');",
-        "if (mounted) setState(() => _doneMarkReadFailed = true); await recordDeviceError('done_mark_read');",
+        'final shift = _shiftType; final biz = businessDateForShift(shift, businessNow()); '
+            'try { await _initTodayReportDone(shift, biz); }',
+        "if (mounted) setState(() => _setDoneMarkFail(shift, biz)); await recordDeviceError('done_mark_read');",
       ]) {
         expect(today.contains(p), isTrue, reason: '開く時の失敗に「$p」が無い');
       }
+      // 勤務の種類を戻せなかった時：※（日勤で表示している時だけ）→ 決めた時の業務日を覚える（(D6)）→ 控えに残す、の並び。
+      final iFlag = today.indexOf("if (mounted && _shiftType == 'day') setState(() => _shiftReadFailed = true);");
+      final iDecide = today.indexOf('if (_shiftDecidedBiz == null) { _shiftDecidedBiz = businessDateForShift(_shiftType, businessNow()); '
+          '_maybeReturnToDayShift();');
+      final iRecord = today.indexOf("await recordDeviceError('shift_restore');");
+      expect(iFlag >= 0 && iFlag < iDecide && iDecide < iRecord, isTrue,
+          reason: '勤務の種類を戻せなかった時の、※・覚える・控えの並びが違う（どれかが無い）');
       final re = _flat(_bodyOf(src, '  Future<void> _reevaluateReportDone() async {'));
       // 読めなかった時（catch の中）＝フォームへ戻し・※を立て・控えに残して終わる。
       final iCatch = re.indexOf('} catch (e) {');
-      final iAfter = re.indexOf('final done = _isReportDoneStatus(s);');
+      final iAfter = re.indexOf('_setMark(shift, biz, s);');
       expect(iCatch >= 0 && iAfter > iCatch, isTrue);
       final onFail = re.substring(iCatch, iAfter);
       for (final p in [
-        '_todayReportDone = false;',
-        '_todayClosed = false;',
-        '_doneMarkReadFailed = true;',
+        '_clearMark();',
+        '_setDoneMarkFail(shift, biz);',
         "await recordDeviceError('done_mark_read');",
         'return;',
       ]) {
         expect(onFail.contains(p), isTrue, reason: '切り替えの時に読めない時の「$p」が無い（前の勤務の種類の送った後の画面が残る）');
       }
-      expect(re.substring(iAfter).contains('_doneMarkReadFailed = false;'), isTrue, reason: '読めた時に※を消さない');
+      expect(re.substring(iAfter).contains('_setDoneMarkFail(null, null);'), isTrue, reason: '読めた時に※を消さない');
       final chosen = _flat(_bodyOf(src, '  Future<void> _onShiftTypeChosen(String v) async {'));
       expect(chosen.contains('if (await _saveShiftType(v) && mounted && _shiftReadFailed) { setState(() => _shiftReadFailed = false); }'),
           isTrue, reason: '保存できた時に※を消さない');

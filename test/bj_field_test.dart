@@ -348,11 +348,12 @@ void main() {
       final flat = _flat(src);
       expect(src.contains('_lastSentOk'), isFalse, reason: '送った直後の成否の欄が残っている');
       // →再（2026-10-14・便BK・見本 v3 の ⑮）: 頭の字と3行目は、今日の分の日報で決める。
+      // →再（2026-10-21・便BN・下調べの (D3)）: 「今日の分」は出している印（shown）の勤務の種類と業務日（今は businessNow()）。
       expect(
           flat.contains('return ValueListenableBuilder<PendingView>( '
               'valueListenable: ReportStore.instance.pendingView, '
-              'builder: (_, view, __) { final now = DateTime.now(); '
-              'final today = pendingTodayRows(view, shiftType: _shiftType, now: now); '
+              'builder: (_, view, __) { final now = businessNow(); '
+              'final today = pendingTodayRows(view, shiftType: shown.shift, now: now, bizDate: shown.bizDate); '
               'return AfterReportBody( '
               'workerName: _userName, sent: today.isEmpty, refusedMessage: firstRefusedMessageOf(today),'),
           isTrue,
@@ -727,7 +728,7 @@ void main() {
       final strip = _flat(_codeOnly('lib/widgets/photo_strip_field.dart'));
       expect(strip.contains('final kept = await keepReportPhoto(f.path); onChanged(<String>[...paths, kept]);'), isTrue);
       expect(strip.contains('f.path]'), isFalse, reason: '一時の置き場の道をそのまま入れている');
-      final submit = _flat(_bodyOf(_codeOnly(_home), '  Future<void> _submit() async {\n    if (_submitting) return;\n    if (_userName.isEmpty)'));
+      final submit = _flat(_bodyOf(_codeOnly(_home), '  Future<bool> _submit() async {\n    final sendNow = _snapshotNow ?? businessNow();\n    if (_submitting) return false;\n    if (_userName.isEmpty)'));
       final iCheck = submit.indexOf('final photos = await reportPhotosFor(item);');
       final iFrame = submit.indexOf('_sendFrame(kPhotoUnreadableText)');
       final iAdd = submit.indexOf('await ReportStore.instance.addReport(item);');
@@ -826,14 +827,16 @@ void main() {
 
     test('(BJ-c2) 今日の日報・出し直し・休憩の短縮：例外を受けて字を出す（ソースの字）', () {
       final home = _codeOnly(_home);
-      final submit = _flat(_bodyOf(home, '  Future<void> _submit() async {\n    if (_submitting) return;\n    if (_userName.isEmpty)'));
+      final submit = _flat(_bodyOf(home, '  Future<bool> _submit() async {\n    final sendNow = _snapshotNow ?? businessNow();\n    if (_submitting) return false;\n    if (_userName.isEmpty)'));
       expect(submit.contains('await ReportStore.instance.addReport(item); stored = true;'), isTrue);
       expect(
           submit.contains("} catch (e) { debugPrint('日報の送信に失敗: \$e'); "
               'if (!stored && mounted) setState(() => _sendNotice = _sendFrame(kSendFailedText)); }'),
           isTrue,
           reason: '端末に残る前の失敗で枠を出していない');
-      expect(submit.contains('if (!stored || !mounted) return;'), isTrue,
+      // 元: 'if (!stored || !mounted) return;'。→再（2026-10-21・便BN・下調べの (D4)）: 返りが真偽になった（残せなかった時は false・
+      //   残した後に画面が消えていた時は true）。
+      expect(submit.contains('if (!stored) return false; if (!mounted) return true;'), isTrue,
           reason: '端末に残った後に完了の画面へ進む道が無い');
       final rev = _flat(_codeOnly('lib/screens/revision_edit_screen.dart'));
       expect(rev.contains("} catch (e) { debugPrint('出し直しの送信に失敗: \$e'); if (mounted) { "
@@ -860,8 +863,7 @@ void main() {
                     builder: (_) => ReportConfirmScreen(
                           initial: snap,
                           currentOf: () => snap,
-                          onSend: () async {},
-                          isDone: () => false,
+                          onSend: () async => false,
                           noticeOf: bottom ? null : () => const Text('枠の字'),
                           bottomNoticeOf: bottom ? () => const Text('枠の字') : null,
                         ))),
@@ -1005,7 +1007,7 @@ void main() {
               onPressed: () async {
                 await Navigator.of(ctx).push<void>(MaterialPageRoute(
                     builder: (_) => ReportConfirmScreen(
-                        initial: snap, currentOf: () => snap, onSend: () async {}, isDone: () => false)));
+                        initial: snap, currentOf: () => snap, onSend: () async => false)));
                 closed = true;
               },
               child: const Text('ひらく'),
@@ -1446,17 +1448,21 @@ void main() {
         expect(src.contains("'report_done_"), isFalse, reason: '印の鍵の字を写している');
         expect(src.contains("'shift_business_date'"), isFalse, reason: '業務日の鍵の字を写している');
       }
-      final submit = _flat(_bodyOf(home, '  Future<void> _submit() async {\n    if (_submitting) return;\n    if (_userName.isEmpty)'));
-      expect(submit.contains("_saveWorkStatus('done', owner: item.ownerUserId);"), isTrue,
+      final submit = _flat(_bodyOf(home, '  Future<bool> _submit() async {\n    final sendNow = _snapshotNow ?? businessNow();\n    if (_submitting) return false;\n    if (_userName.isEmpty)'));
+      // →再（2026-10-21・便BN・(48)）: 送った印は、日報の持ち主と、日報の勤務の種類と業務日で書く。
+      expect(submit.contains("_saveWorkStatus('done', owner: item.ownerUserId, shiftType: sentShift, bizDate: sentBizDate);"), isTrue,
           reason: '送った印を日報の持ち主で書いていない');
-      final save = _flat(_bodyFrom(home, '  Future<void> _saveWorkStatus(String status, {String? owner}) async {'));
+      // →再（2026-10-21・便BN・下調べの ■1・(53)）: 書く勤務の種類と業務日を受ける形になり、投げない（try の中）。
+      final save = _flat(_bodyFrom(home, '  Future<void> _saveWorkStatus(String status,\n      {String? owner, String? shiftType, String? bizDate}) async {'));
       expect(save.contains('if (who.isEmpty) return;'), isTrue, reason: '書いた人が分からないのに書く');
-      expect(save.contains('reportDoneValue(bizDate, status, who)'), isTrue);
-      final read = _flat(_bodyOf(home, '  Future<String?> _readWorkStatusToday() async {'));
+      expect(save.contains('reportDoneValue(biz, status, who)'), isTrue);
+      // →再（2026-10-21・便BN・(D1)）: 読む口は勤務の種類と業務日を受ける（_readWorkStatusToday → _readWorkStatusOn）。
+      final read = _flat(_bodyOf(home, '  Future<String?> _readWorkStatusOn(String shift, String bizDate) async {'));
       expect(read.contains('return reportDoneStatusOf('), isTrue);
       // →再（2026-10-14・便BK・見本 v3 の ⑰①）: 返りが「書けたか」になった（Future<bool>）。
+      // →再（2026-10-21・便BN・下調べの ■4）: 今は businessNow()。
       final shift = _flat(_bodyOf(home, '  Future<bool> _saveShiftType(String v) async {'));
-      expect(shift.contains('shiftDateValue(businessDateForShift(v, DateTime.now()), who)'), isTrue);
+      expect(shift.contains('shiftDateValue(businessDateForShift(v, businessNow()), who)'), isTrue);
       final push = _flat(_bodyOf(mainSrc, '  Future<void> _pushWorker(BuildContext context) async {'));
       expect(push.contains('final workStatus = reportDoneStatusOf(prefs.getString(reportDoneKeyOf(shiftType)),'), isTrue);
       expect(push.contains('final shiftType = await savedShiftTypeForNow();'), isTrue,
@@ -1468,7 +1474,7 @@ void main() {
       final today = _flat(_bodyOf(home, '  Future<void> _restoreTodayState() async {'));
       final iClear = today.indexOf('await clearOtherOwnersTodayMarks(await SharedPreferences.getInstance());');
       final iShift = today.indexOf('await _restoreShiftType();');
-      final iDone = today.indexOf('await _initTodayReportDone();');
+      final iDone = today.indexOf('await _initTodayReportDone(shift, biz);');
       expect(iClear >= 0 && iClear < iShift && iShift < iDone, isTrue,
           reason: '開く時の並びが違う（勤務の種類を戻す前に送った印を読むと、夜勤の人の送った後の画面が出ない）');
       final init = _flat(_bodyOf(home, '  void initState() {\n    super.initState();\n    WidgetsBinding.instance.addObserver(this);'));
@@ -1538,7 +1544,8 @@ void main() {
 
     test('(BJ-k3) カレンダーの箱の「今日」は、今の勤務の種類の業務日（ソースの字）', () {
       final open = _flat(_bodyOf(_codeOnly(_home), '  Future<void> _openDaySheet(String ds) async {'));
-      expect(open.contains('final today = businessDateForShift(await savedShiftTypeForNow(), DateTime.now());'), isTrue);
+      // →再（2026-10-21・便BN・下調べの ■4）: 今は businessNow()。
+      expect(open.contains('final today = businessDateForShift(await savedShiftTypeForNow(), businessNow());'), isTrue);
       expect(open.contains('today: today,'), isTrue);
       expect(open.contains('jstDateString'), isFalse);
     });

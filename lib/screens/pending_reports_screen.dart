@@ -11,11 +11,15 @@
 //   （refreshPendingCount・投げない）。読めなかった時は頭に※（前に読めた時の行は出したまま・「ありません」とは言わない）。
 // ★外す・今すぐ再送の口は呼び手（lib/screens/home_screen.dart のシェル）が渡す＝送った後の画面と同じ口
 //   （窓と知らせを2つに書き分けない）。
+// →再（2026-10-21・便BN・見つけた事 (47)・下調べの (D5)）: 業務日の切り替わりの知らせ（lib/utils/business_day_tick.dart）でも、今日の分と
+//   ほかの日を分け直す（端末は読まない）。今は businessNow() で読む。勤務の種類は開いた時の物（widget.shiftType）のまま。
 import 'package:flutter/material.dart';
 
 import '../core/report_send_texts.dart';
 import '../core/theme/field_tokens.dart';
 import '../main.dart' show ReportStore;
+import '../utils/business_date.dart';
+import '../utils/business_day_tick.dart';
 import '../utils/pending_view.dart';
 import '../widgets/pending_report_parts.dart';
 
@@ -48,6 +52,18 @@ class _PendingReportsScreenState extends State<PendingReportsScreen> {
     super.initState();
     // 開いた時の箱の姿に合わせる（★投げない＝読めなかった時は readFailed が立ち、頭に※が出る）。
     ReportStore.instance.refreshPendingCount();
+    BusinessDayTick.changes.addListener(_onBusinessDayTick);
+  }
+
+  // 便BN (D5): 業務日が替わったら、今日の分とほかの日を分け直す（描き直すだけ）。
+  void _onBusinessDayTick() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    BusinessDayTick.changes.removeListener(_onBusinessDayTick);
+    super.dispose();
   }
 
   @override
@@ -57,7 +73,7 @@ class _PendingReportsScreenState extends State<PendingReportsScreen> {
       body: ValueListenableBuilder<PendingView>(
         valueListenable: ReportStore.instance.pendingView,
         builder: (_, view, __) {
-          final now = DateTime.now();
+          final now = businessNow();
           final today = pendingTodayRows(view, shiftType: widget.shiftType, now: now);
           final others = pendingOtherRows(view, shiftType: widget.shiftType, now: now);
           final todayIds = {for (final r in today) r.id};

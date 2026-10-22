@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show fetchGpsAddress, showJsSnackbar;
+import '../services/api_result.dart';
 import '../services/work_mode_service.dart';
 import '../services/reports_service.dart';
 import '../core/theme/field_tokens.dart';
 import '../core/report_send_texts.dart';
 import '../utils/business_date.dart';
 import '../utils/rest_day_refresh.dart';
+import '../widgets/business_day_dialog_guard.dart';
 import '../widgets/deny_reason_line.dart' show denyReasonText;
+import '../widgets/pending_report_parts.dart' show kPendingReadFailedNoteDialogView;
 import 'rest_day_screen.dart';
 import 'rest_day_done_screen.dart';
 import 'substitute_detail_screen.dart'
@@ -80,7 +83,16 @@ class PunchScreen extends StatefulWidget {
     this.pendingReportsCount,
     this.onOpenPendingReports,
     this.isTodayPending,
+    this.businessDayTick = 0,
+    this.isPendingReadFailed,
   });
+  /// 業務日の切り替わりの番号（便BN・下調べの (D5)・見つけた事 (47)(f)）。親（シェル）の時計が次の切り替わりの時刻に鳴った時だけ +1 する。
+  ///   ★この数が進んだ時だけ、打刻の行と本日休みの状態を読み直す（_busy は立てない＝(P2)）。アプリへ戻った時は、この画面が自分で読む
+  ///     （didChangeAppLifecycleState＝親は番号を進めない＝2回引かない）。既定 0＝今の呼び手は1文字も変わらない。
+  final int businessDayTick;
+  /// 未送信の箱を読めなかったか（便BN・見つけた事 (46)・【Q155】＝１）。本日休みの窓の本文の下に※を出すためだけに、押した瞬間に
+  ///   親の真実（ReportStore.instance.pendingView の readFailed）を読む（isTodayPending と同じ流儀）。既定 null＝読めた事にする（今の窓のまま）。
+  final bool Function()? isPendingReadFailed;
   /// 本日休みの状態をもう一度読んでほしいときに親（シェル）が +1 する通し番号（便F13）。
   ///   ★前例＝management_history_screen.dart の segmentRequestId（「今もう一度開いてほしい」の番号）。
   ///   ★この数が【進んだとき】だけ didUpdateWidget で読み直す（同じ数のままの再描画では読まない）。
@@ -100,6 +112,8 @@ class PunchScreen extends StatefulWidget {
   // ── N7: ホームの「⏰ 追加の申告」（完了ビューの同ボタンとは別の増設・あちらは不変）──
   // 締め済みか。真実源は home_screen の _todayClosed（'closed' を読む _readWorkStatusToday /
   //   _initTodayReportDone / _reevaluateReportDone / _onCloseToday が唯一の書き手）。
+  //   →再（2026-10-21・便BN・下調べの (D1)）: _todayClosed は読み口（写しの勤務の種類と業務日が今の物の時だけ立つ）。写しを書くのは
+  //   home_screen の _setMark と _clearMark だけ（読む口は _readWorkStatusToday から _readWorkStatusOn へ名前が替わった）。
   //   ★ここでは判定を作らず受けた真偽だけを見る。
   //   ★素の値で下ろす（bool Function() にしない）: この値は build 中に読むため。
   //     isReportDone は既存のコールバックのままだが N8 で build 中にも読んでいる。
@@ -125,7 +139,10 @@ class PunchScreen extends StatefulWidget {
   // N3: 退勤打刻の実行口を親へ渡す。親（完了ビューの「今日はここまで」）が
   //   打刻ロジックを複製せず既存 _doPunch('out') 経路を呼べるようにするためだけの配線。
   //   initState で1回だけ通知する（値を渡すだけ・親側で setState はしない）。
-  final void Function(Future<void> Function() punchOut)? onPunchOutHandlerReady;
+  //   →再（2026-10-21・便BN・見つけた事 (50)・【Q156】＝１・下調べの (Z1)）: 口は呼んだ時にその場で答える（PunchOutStart）＝最中（_busy）で
+  //   打たない（busy）・打ち始めた（started・done で打ち終わりを待てる）・この画面が無い（absent）。元は Future<void> で、最中の時は
+  //   黙って打たなかった（親は打てたか分からずに閉じた）。
+  final void Function(PunchOutStart Function() punchOut)? onPunchOutHandlerReady;
   final Widget? weatherPanel;
   // K1: 打刻状態を親(JsMainShell)へ上げる唯一の口。真実源は fetchToday(work_mode_service.dart)
   //   ＝この画面が受け取った値をそのまま流すだけで、判定式は親に複製しない。
@@ -133,6 +150,7 @@ class PunchScreen extends StatefulWidget {
   final void Function(bool isActual, bool punchedIn, bool punchedOut)? onPunchStateChanged;
   // K5(Q9): 当日ぶんの報告が済んでいるか。親が持つ真実を読むだけ
   //   （home_screen.dart の `isDone: () => _todayReportDone` と同じ流儀。prefs 直読みはしない）。
+  //   （元の説明の isDone の口は、便BN の (D4) で確かめの画面から外した＝流儀は「親の真実を関数で読む」のまま）
   final bool Function()? isReportDone;
   // 便BM（見本 claude/field_refused_today_mock_v1.html の ②③・【Q150】＝１）:
   //   ・pendingReportsCount … 要対応の一番上の「未送信日報」の行の数（null＝行を出さない）。数の決まりは親が
@@ -183,6 +201,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   // 本日休み状態（_RestDayButton から持ち上げ）。ボタン表示と日報報告ゲートが
   // 単一の状態を共有する（照会失敗は fail-open＝rested=false）。
+  //   →再（2026-10-21・便BN・見つけた事 (54)・【Q159】＝１・下調べの (S3)）: 照会の失敗は、同じ日に前に読めた値のまま（無い時は今の
+  //   fail-open の初めの値）にして、「読めなかった」の印（_restReadFailed）を立てる＝下のボタンの下に※。
   // ★本番は今までどおり ReportsService()。差し替えを渡すのは検査だけ。
   late final ReportsService _reports = widget.reports ?? ReportsService();
   bool _restLoading = true;
@@ -197,6 +217,50 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   pending_substitute_cannot_agree_reason をそのまま）。照会の失敗は「同意できる」（枠そのものを出さない）。
   bool _pendingSubstituteCanAgree = true;
   String? _pendingSubstituteCannotAgreeReason;
+
+  // ── 便BN（下調べの (D5) の (P1)〜(P4)・(D10)・■7 の (R1)〜(R11)・■8 の (S1)〜(S5)・(O1)）──
+  //   読みに番号を付け、打刻の行は出した時の「行」（勤務区分と業務日）と比べて入れる。読めなかった事は※で出す（黙らない）。
+  /// 今の行（勤務区分と業務日＝打刻の行はサーバで (人, 業務日, 勤務区分) の1行・(R1)）。
+  ({String shift, String bizDate}) _rowNow() => (
+        shift: widget.shiftType,
+        bizDate: businessDateForShift(widget.shiftType, businessNow()),
+      );
+  // 打刻の行の読みの番号（(P1)）。_rowIssuedNo＝一番新しく出した番号・_rowEnteredNo＝入れた番号（取れた答えと (R5) で作った時だけ
+  //   覚える）・_rowAnsweredNo＝一番新しく出した番号の答えが着いた時のその番号（(R8)＝「取得中...」は、これが _rowIssuedNo より小さい間）。
+  int _rowIssuedNo = 0;
+  int _rowEnteredNo = 0;
+  int _rowAnsweredNo = 0;
+  bool get _rowReading => _rowAnsweredNo < _rowIssuedNo;
+  // 出している状態の行（(R2)・null＝初めの値＝未出勤のまま・読めた答えを入れた時に、その答えの行にする）。
+  ({String shift, String bizDate})? _shownRow;
+  // 打刻の状態を読めなかった印（(R3)・立っている間、実勤務の時だけ状態の下に※）。
+  bool _punchReadFailed = false;
+  // 会社の休憩の設定（standard_break_min）を、この画面で一度でも読めたかと、その値（(R5)・null も「読めた値」）。
+  bool _breakMinEverRead = false;
+  int? _readBreakMin;
+  // 勤務の形の読みの番号（(P1)・_init 同士）と、この画面で勤務の形を一度でも入れたか。
+  int _settingsIssuedNo = 0;
+  int _settingsEnteredNo = 0;
+  bool _settingsEver = false;
+  // 今の行の読み（勤務の形と打刻の行の答えがどちらも着き、打刻の行を (R1) で捨てなかった読み）が在るか（(P1) の _loading）。
+  bool _rowReadSettled = false;
+  // (O1) 勤務の形を読めずに（投げて）、この画面で一度も入れていない印（立っている間、回る印の代わりに (お) の字）。
+  bool _settingsFailed = false;
+  // (O1) _init の番号（一番新しく出した _init が終わるまでの間、(お) の字は「取得中...」）。
+  int _initIssuedNo = 0;
+  int _initDoneNo = 0;
+  bool get _initReading => _initDoneNo < _initIssuedNo;
+  // (P3) _busy の間に見送った打刻の行の読み直し（_busy を下ろした後に1回、_reloadForShiftChange で読む）。
+  bool _rowReloadPending = false;
+  // 本日休みの読みの番号（(S2)）。_restEnteredNo＝取れた答えを入れた番号・_restReadDay＝その時の日（日本の日）・
+  //   _restAnsweredNo＝一番新しく出した番号の答えが着いた時のその番号（(S4) の「取得中...」）。
+  int _restIssuedNo = 0;
+  int _restEnteredNo = 0;
+  int _restAnsweredNo = 0;
+  bool get _restReading => _restAnsweredNo < _restIssuedNo;
+  String? _restReadDay;
+  // 本日休みの状態を読めなかった印（(S3)・立っている間、下のボタンの下に※＝どの姿でも）。
+  bool _restReadFailed = false;
 
   // 実勤務モードか。判定式はこの1本だけ（build:_isActual / K1の通知 / K5のガードが共有する）。
   bool get _isActual => _settings.mode == WorkModeType.actual;
@@ -223,26 +287,53 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     if (mounted) _loadRestStatus();
   }
 
+  // 本日休みの状態を読む。
+  //   →再（2026-10-21・便BN・見つけた事 (54)・【Q159】＝１・下調べの (S1)〜(S4)）: 元は、取れなかった時に知らせ無しで「休みでない」に
+  //   倒し、同じ日に前に読めた値も消した（投げた時は誰にも見えなかった）。読みに番号と、出した時の日（日本の日＝サーバの
+  //   businessDate() と同じ日）を付け、答えは「出した日が着いた時の日と同じ」で「もう入れた取れた答えより新しい番号」の時だけ入れる
+  //   （取れなかった答えは番号を覚えない＝後に着いた、それより前に出した取れた答えは入る）。取れなかった時は、同じ日に前に読めた値の
+  //   まま（無い時は今の初めの値）にして、「読めなかった」の印を立てる。投げた時も取れなかった時と同じ。捨てた答えでは何もしない
+  //   （「取得中...」だけ下ろす＝日をまたいだ時は、時計か戻った時の読みが続く）。
   Future<void> _loadRestStatus() async {
-    final res = await _reports.getRestDayToday();
+    final no = ++_restIssuedNo;
+    final day = jstDateString(businessNow());
+    if (_restReadFailed && mounted) setState(() {});   // (S4) 読む間は※の字を「取得中...」に
+    ApiResult<RestDayToday>? res;
+    try {
+      res = await _reports.getRestDayToday();
+    } catch (e) {
+      debugPrint('本日休みの状態を読めませんでした: $e');
+    }
     if (!mounted) return;
+    final r = res;
+    final rest = r?.data;
     setState(() {
-      _restLoading = false;
-      final rest = res.data;
-      if (res.ok && rest != null) {
+      // (S4) 「取得中...」は、一番新しく出した読みの答えが着いた時に下ろす（入れても捨てても）。
+      if (no == _restIssuedNo) _restAnsweredNo = no;
+      // (S2) 日をまたいだ答えと、もう入れた取れた答えより古い答えは捨てる（値・_restLoading・印を替えない）。
+      if (day != jstDateString(businessNow()) || no <= _restEnteredNo) return;
+      _restLoading = false;   // (S1) 門を通った答えなら、取れても取れなくても下ろす
+      if (r != null && r.ok && rest != null) {
         _rested      = rest.rested;
         _restReason  = rest.reason as String?;
         _restPortion = rest.portion;
         _pendingSubstituteRestDayId = rest.pendingSubstituteRestDayId;
         _pendingSubstituteCanAgree = rest.pendingSubstituteCanAgree;
         _pendingSubstituteCannotAgreeReason = rest.pendingSubstituteCannotAgreeReason;
+        _restEnteredNo = no;
+        _restReadDay = day;
+        _restReadFailed = false;
       } else {
-        _rested      = false; // fail-open
-        _restReason  = null;
-        _restPortion = 'full';
-        _pendingSubstituteRestDayId = null;
-        _pendingSubstituteCanAgree = true;
-        _pendingSubstituteCannotAgreeReason = null;
+        // (S3) 同じ日に前に読めていれば、その値のまま（同意待ちの枠も）。読めていない時（読めた事が無い・日が替わった）は今の初めの値。
+        if (_restReadDay != day) {
+          _rested      = false; // fail-open
+          _restReason  = null;
+          _restPortion = 'full';
+          _pendingSubstituteRestDayId = null;
+          _pendingSubstituteCanAgree = true;
+          _pendingSubstituteCannotAgreeReason = null;
+        }
+        _restReadFailed = true;
       }
     });
   }
@@ -264,9 +355,13 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
       widget.onNavigateToReport?.call();
       return;
     }
+    // 便BN（見つけた事 (47)(g)・下調べの (D8)）: 開いたまま業務日が替われば閉じる（「戻る」を押した時と同じ＝何もしない）。
     final proceed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CloseOnBusinessDayChange(
+        shiftType: widget.shiftType,
+        closeValue: false,   // (D8) 「戻る」と同じ値（休みの取り消しの窓）
+        child: AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
         title: const Text('本日は休み登録済みです',
             style: TextStyle(color: FieldTokens.textBody, fontSize: 16)),
@@ -283,6 +378,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                 style: TextStyle(color: FieldTokens.accent)),
           ),
         ],
+        ),
       ),
     );
     if (proceed != true) return;
@@ -311,6 +407,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   // ★（元）前に戻ったとき（resumed）は _init だけで、本日休みの状態は読み直さなかった。
   //   →再（2026-09-29・便F13）: 本日休みの状態も読み直す（日が変わった後や、別の端末での
   //   同意に追いつくため）。要対応の件数はシェルの resumed が読み直す。
+  //   ★（便BN・下調べの (P1)）: _busy を見ずに読む（打刻か読み直しの最中でも読む・答えは番号の口で、もう入れた答えより新しい時だけ入る）。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -329,12 +426,21 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   発火元: _ShiftTypeSelector → widget.onShiftTypeChanged
   //          → home_screen.dart の setState(_shiftType) → ここ。
   //   起動時の勤務区分復元（home_screen.dart:_restoreShiftType）で値が変わる場合も同じ経路で通る。
+  //   →再（2026-10-21・便BN・下調べの (D5) の (P2)(P4)）: 親の時計の番号（businessDayTick）が進んだ時は、戻った時と同じく _busy を立てずに
+  //   打刻の行と本日休みの状態を読み直す（_busy が立っていれば、打刻の分は (P3) の印を立てて見送る・本日休みは見送らない）。同じ描きで
+  //   勤務区分と時計の番号の両方が替わった時は、打刻の行は _reloadForShiftChange の1回・本日休みは1回だけ読む。
   @override
   void didUpdateWidget(covariant PunchScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.shiftType != oldWidget.shiftType) _reloadForShiftChange();
+    final dayTicked = widget.businessDayTick != oldWidget.businessDayTick;
+    if (widget.shiftType != oldWidget.shiftType) {
+      _reloadForShiftChange();
+    } else if (dayTicked) {
+      _reinitNoBusy();
+    }
     // 親が「もう一度読んで」の番号を進めたときだけ本日休みの状態を読み直す（便F13）。
-    if (widget.restStatusRequestId != oldWidget.restStatusRequestId) {
+    //   便BN (D5): 時計の番号が進んだ時も（同じ描きで両方進んでも1回）。
+    if (widget.restStatusRequestId != oldWidget.restStatusRequestId || dayTicked) {
       _loadRestStatus();
     }
   }
@@ -346,41 +452,177 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   // 競合防御: 取得が終わるまで既存の _busy を立てる。_busy は打刻の入口
   //   （_confirmPunch / _doPunch）と打刻ボタンの disabled 判定が
   //   既に見ている単一のフラグなので、新しい排他機構は作らない。
+  //   →再（2026-10-21・便BN・下調べの (P3)・(D10)）: 元は _busy の時に読み直しを捨てた（_doPunch が完了時に読むのは、打った後の読み直しを
+  //   呼ぶ前に替わった分だけ＝その後に替わった分は、どこでも読まれなかった）。_busy の間は「読み直し待ち」の印を立てて見送り、
+  //   _busy を下ろした後に1回、ここで読む（_afterBusyDown・読む間は _busy＝打刻を押せない）。
   Future<void> _reloadForShiftChange() async {
-    if (_busy) return;   // 打刻処理中は触らない（_doPunch が完了時に取り直す）
+    if (_busy) {
+      _rowReloadPending = true;   // 打刻処理中は触らない（下ろした後に1回読む＝_afterBusyDown）
+      return;
+    }
     setState(() => _busy = true);
     try {
       await _init();
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        _afterBusyDown();
+      }
     }
   }
 
+  // (P3) _busy を下ろした後：見送った打刻の行の読み直しが在れば、1回だけ読む（_busy を立てて読む）。
+  void _afterBusyDown() {
+    if (!mounted || !_rowReloadPending) return;
+    _rowReloadPending = false;
+    _reloadForShiftChange();
+  }
+
+  // (P2)(R4) _busy を立てずに _init を呼ぶ（_busy が立っていれば (P3) の印を立てて見送る）。
+  void _reinitNoBusy() {
+    if (_busy) {
+      _rowReloadPending = true;
+      return;
+    }
+    _init();
+  }
+
+  // ※と (お) の字を押した時（(R4)・(S4)・(O1)）：読めなかった分をまとめて読み直す（どちらの※を押しても同じ）。
+  //   本日休みは _busy でも見送らない（(P2) と同じ）。
+  void _onRereadTap() {
+    if (_punchReadFailed || _settingsFailed) _reinitNoBusy();
+    if (_restReadFailed) _loadRestStatus();
+  }
+
+  //   →再（2026-10-21・便BN・下調べの (P1)・(R1)〜(R3)・(R11)・(O1)）: 元は2つの答えを .wait で一緒に受け（どちらかが投げると両方とも
+  //   入らず、_loading も下りずに回る印が回り続けた）、打刻の行は取れなかった時に前回値を据え置くだけ（読めなかった事は出なかった）。
+  //   勤務の形と打刻の行の答えを1つずつ受け（投げた方だけ取れなかった扱い）、それぞれ番号の口を通して入れる（もう入れた答えより
+  //   新しい番号の時だけ）。打刻の行は、出した時の行（勤務区分と業務日）が今の行と同じ時だけ入れる（_takeRowAnswer）。勤務の形が
+  //   投げた時は前の値のまま（入れない）。_loading は「今の行の読みが在る」と「勤務の形を一度でも入れた」がそろった時に下ろす
+  //   （一度も入れられないうちは、回る印の代わりに (お) の字＝build）。
   Future<void> _init() async {
-    final (settings, todayRes) = await (
-      WorkModeService().fetchFromServer(),
-      // K6: 勤怠行は (person, 業務日, shift_type) で1行。見るシフトを明示する。
-      WorkModeService().fetchToday(shiftType: widget.shiftType),
-    ).wait;
+    final initNo = ++_initIssuedNo;
+    final settingsNo = ++_settingsIssuedNo;
+    if (_settingsFailed && mounted) setState(() {});   // (O1) 読む間は (お) の字を「取得中...」に
+    // K6: 勤怠行は (person, 業務日, shift_type) で1行。見るシフトを明示する（_issueRowRead の中・出した時の行で読む）。
+    final rowRead = _issueRowRead();
+    WorkModeSettings? settings;
+    var settingsThrew = false;
+    try {
+      settings = await WorkModeService().fetchFromServer();
+    } catch (e) {
+      debugPrint('勤務の設定を読めませんでした: $e');
+      settingsThrew = true;
+    }
+    final read = await rowRead;
+    // (O1) 一番新しく出した _init が終わった時に「取得中...」を下ろす（投げても・捨てても）。
+    if (initNo == _initIssuedNo) _initDoneNo = initNo;
     if (!mounted) return;
     setState(() {
-      _settings = settings;
-      // ★取得できなかった（ok:false）ときは前回値を据え置く。統一前も
-      //   fetchToday は非200・例外とも null を返し、同じ扱いだった。
-      final today = todayRes.data;
-      if (todayRes.ok && today != null) {
-        _record           = today.record;
-        _punchedIn        = today.punchedIn;
-        _punchedOut       = today.punchedOut;
-        _standardBreakMin = today.standardBreakMin;
+      if (settings != null && settingsNo > _settingsEnteredNo) {
+        _settings = settings;
+        _settingsEnteredNo = settingsNo;
+        _settingsEver = true;
+        _settingsFailed = false;
+      } else if (settingsThrew && !_settingsEver) {
+        _settingsFailed = true;
       }
-      _loading = false;
+      if (_takeRowAnswer(read.no, read.row, read.res)) _rowReadSettled = true;
+      if (_rowReadSettled && _settingsEver) _loading = false;
     });
-    _notifyPunchState();
-    if (_punchedIn && !_punchedOut) _startTimer();
+    _afterPunchStateSet();
     fetchGpsAddress().then((r) {
       if (mounted) setState(() => _gpsAddress = r.address);
     });
+  }
+
+  // 打刻の行の読みを1つ出す（(P1) の番号と、(R1) の出した時の行を付ける）。投げた時は res＝null（取れなかった扱い＝(R11)・
+  //   投げた事は、今の作りのほかの所と同じく debugPrint だけ）。読む所＝_init・打った後（_doPunch）・断られた後（(R6)）。
+  Future<({int no, ({String shift, String bizDate}) row, ApiResult<TodayAttendance>? res})>
+      _issueRowRead() async {
+    final row = _rowNow();
+    final no = ++_rowIssuedNo;
+    if (_punchReadFailed && mounted) setState(() {});   // (R8) 読む間は※の字を「取得中...」に
+    ApiResult<TodayAttendance>? res;
+    try {
+      res = await WorkModeService().fetchToday(shiftType: row.shift);
+    } catch (e) {
+      debugPrint('打刻の状態を読めませんでした: $e');
+    }
+    return (no: no, row: row, res: res);
+  }
+
+  // 打刻の行の答えを入れる（(R1)(P1)(R3)(R8)・★setState の中で呼ぶ）。返り＝(R1) で捨てなかったか（_loading の「今の行の読み」に数える）。
+  //   ・一番新しく出した読みの答えなら「取得中...」を下ろす（入れても捨てても）。
+  //   ・出した時の行が今の行と違えば捨てる（取れた答えも取れなかった答えも）。
+  //   ・もう入れた答えより古い番号は入れない（取れていても・取れていなくても）。
+  //   ・取れた答え＝値と出している状態の行を入れ、番号を覚え、読めなかった印を下ろす。
+  //   ・取れなかった答え（ok:false・投げた＝res が null）＝番号を覚えずに、読めなかった印を立てる（_markPunchReadFailed）。
+  bool _takeRowAnswer(int no, ({String shift, String bizDate}) row, ApiResult<TodayAttendance>? res) {
+    if (no == _rowIssuedNo) _rowAnsweredNo = no;   // (R8) 一番新しく出した読みの答え
+    if (row != _rowNow()) return false;
+    if (no <= _rowEnteredNo) return true;
+    final today = res?.data;
+    if (res != null && res.ok && today != null) {
+      _record           = today.record;
+      _punchedIn        = today.punchedIn;
+      _punchedOut       = today.punchedOut;
+      _standardBreakMin = today.standardBreakMin;
+      _readBreakMin     = today.standardBreakMin;
+      _breakMinEverRead = true;
+      _shownRow         = row;
+      _rowEnteredNo     = no;
+      _punchReadFailed  = false;
+    } else {
+      _markPunchReadFailed();
+    }
+    return true;
+  }
+
+  // 打った後の読み直しが取れなかった時（(R5)・★setState の中で呼ぶ）。(R1)(P1) を通した上で、押した時の行が今の行と同じで、
+  //   打てた時の答えに行（record）が在り、会社の休憩の設定をこの画面で一度でも読めていれば、打てた時の答えで状態を作る
+  //   （打った後の読み直しの番号を入れた事にする＝後に着いた古い番号の答えは入らない）。作らない時は (R3) と同じ※。
+  //   ★比べるのは端末の押した時の行（答えの record の work_date は使わない）。
+  void _takeRowAnswerAfterPunch(int no, ({String shift, String bizDate}) row,
+      ({String shift, String bizDate}) pressedRow, Map<String, dynamic>? rec) {
+    if (no == _rowIssuedNo) _rowAnsweredNo = no;   // (R8)（打った後の読み直し）
+    final now = _rowNow();
+    if (row != now) return;
+    if (no <= _rowEnteredNo) return;
+    if (pressedRow == now && rec != null && _breakMinEverRead) {
+      _record           = rec;
+      _punchedIn        = rec['punch_in'] != null;    // GET /attendance/today の punched_in と同じ決め方
+      _punchedOut       = rec['punch_out'] != null;   // 同 punched_out
+      _standardBreakMin = _readBreakMin;              // 前に読めた値のまま
+      _shownRow         = now;
+      _rowEnteredNo     = no;
+      _punchReadFailed  = false;
+      return;
+    }
+    _markPunchReadFailed();
+  }
+
+  // 読めなかった印を立てる（(R3)）。出している状態の行が今の行でない時は、値を初めの値（未出勤）に戻し、出している状態の行を
+  //   「無し」にする（前の行の状態を出さない＝※の字は「未出勤で表示しています」）。今の行の時は値をそのまま（「前に読めた状態」）。
+  void _markPunchReadFailed() {
+    _punchReadFailed = true;
+    if (_shownRow != _rowNow()) {
+      _record           = null;
+      _punchedIn        = false;
+      _punchedOut       = false;
+      _standardBreakMin = null;
+      _shownRow         = null;
+    }
+  }
+
+  // 打刻の値を替えた後（親の写し＝K1・経過の時計）。
+  void _afterPunchStateSet() {
+    _notifyPunchState();
+    if (_punchedIn && !_punchedOut) {
+      _startTimer();
+    } else {
+      _timer?.cancel();
+    }
   }
 
   void _startTimer() {
@@ -416,15 +658,30 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //     呼び元が完了ビュー＝既に報告済みの文脈なので、そこから報告フォームを開き直さない。
   //   ★親は関数参照を保持し続けるため、この画面が破棄された後に呼ばれても
   //     unmounted への setState にならないよう入口で mounted を見る（fail-safe）。
-  Future<void> _punchOutForClose() async {
-    if (!mounted) return;
-    await _doPunch('out', allowGoReport: false);
+  //   →再（2026-10-21・便BN・見つけた事 (50)・【Q156】＝１・下調べの (Z1)）: その場で答える。最中（_busy）なら打たずに busy・
+  //   打ち始めたら started（done＝打ち終わりの結果＝_doPunch が _busy を下ろした時に返る）・この画面が無ければ absent
+  //   （親は取れなかった時と同じに扱い、既定の字で知らせる）。
+  PunchOutStart _punchOutForClose() {
+    if (!mounted) return (kind: PunchOutStartKind.absent, done: null);
+    if (_busy) return (kind: PunchOutStartKind.busy, done: null);
+    return (kind: PunchOutStartKind.started, done: _doPunch('out', allowGoReport: false));
   }
 
   // allowGoReport: 既定 true＝従来どおり「退勤成功→_onReportTap で日報へ直行」。
   //   false は N3（完了ビュー経由の退勤）だけが渡す。
-  Future<void> _doPunch(String type, {bool allowGoReport = true}) async {
-    if (_busy) return;
+  //   →再（2026-10-21・便BN・下調べの (D10)・(R5)(R6)・(52)・(Z1)）:
+  //   ・返り＝打てたか（締めの窓の退勤が待つ）。最中（_busy）の時は false（呼び手の _punchOutForClose が先に見る）。
+  //   ・押した時の勤務の種類と業務日（行）は頭で1回だけ取り、打つ所だけに使う（GPS を待つ間に勤務の種類が替わっても、押した時の
+  //     種類で打つ）。打った後の読み直しは、終わった時の勤務の種類で読む（_reloadForShiftChange の「打刻処理中は触らない」の約束＝
+  //     画面と親の打刻の状態は今の種類の行）。
+  //   ・打つ所（GPS と送る所）が投げた時は、取れなかった時と同じ（既定の字で知らせる・_busy は finally で下ろす）＝(52)。
+  //   ・打った後の読み直しが取れなかった時は、打てた時の答えで状態を作る（(R5)・_takeRowAnswerAfterPunch）。
+  //   ・断られた時（すでに出勤・すでに退勤・出勤の打刻が無い）は、知らせの後に、_busy を下ろす前に読み直す（(R6)）。
+  //   ・退勤の後に日報のフォームを開くかは「この打刻の答え」（読めた時は読み直しの答え・読めなかった時は打てた時の答え）が退勤済みで、
+  //     押した時と今の勤務の種類が同じ時だけ（替わっていた時は開かない＝反映漏れの時と同じ）。
+  Future<bool> _doPunch(String type, {bool allowGoReport = true}) async {
+    if (_busy) return false;
+    final pressedRow = _rowNow();   // (D10) 押した時の行（勤務の種類と業務日）
     setState(() => _busy = true);
     // 裁定(b): 退勤スライド確定直後は日報へ直行する（ホームに戻さない）。
     // 遷移先の出し分け（未提出=日報フォーム / 提出済=完了ビュー）は既存資産に委ねる:
@@ -432,54 +689,89 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     //   → そのフォームの中の `if (_todayReportDone) AfterReportBody`（提出済判定は
     //     home_screen の _todayReportDone（読む時は _readWorkStatusToday の印を _isReportDoneStatus で見る）が単一の真実源）。
     //     判定式はここに複製しない。
+    //   →再（2026-10-21・便BN・下調べの (D1)(D3)）: フォームの中の出し分けは「出している印」（home_screen の _shownMark＝今日の写しか、
+    //     またいで送った印）。読む口は _readWorkStatusOn（勤務の種類と業務日を受ける）。
     //   （元の説明は「_setTab(1)」＝フォームを日報タブに置いていた頃の作り＝便BM で今の作りに合わせた・見つけた事 (43)。
     //   元の説明の「home_screen:_readReportDone」は今は無い名前＝便BM の検分 a329 の R1 で今の名前にした）
     // _busy 解除後に呼ぶため finally の外へ出す（ゲート内のダイアログ中も操作可）。
     bool goReport = false;
+    var punched = false;
     try {
-      final gps    = await fetchGpsAddress();
-      final result = await WorkModeService().punch(
-        type,
-        lat:  gps.lat,
-        lng:  gps.lon,
-        addr: gps.address,
-        shiftType: widget.shiftType,   // S5b: 勤務区分をBEへ送出（夜勤は始業日1行に収まる）
-      );
-      if (!mounted) return;
-      if (result.ok) {
+      ({String address, double? lat, double? lon, String status, String? failReason})? gps;
+      ApiResult<Map<String, dynamic>>? result;
+      try {
+        gps = await fetchGpsAddress();
+        result = await WorkModeService().punch(
+          type,
+          lat:  gps.lat,
+          lng:  gps.lon,
+          addr: gps.address,
+          shiftType: pressedRow.shift,   // S5b: 勤務区分をBEへ送出（夜勤は始業日1行に収まる）・便BN (D10): 押した時の種類
+        );
+      } catch (e) {
+        debugPrint('打刻を送れませんでした: $e');   // (52) 投げた事は debugPrint だけ（知らせは下の既定の字）
+      }
+      if (!mounted) return false;
+      final g = gps;
+      final r = result;
+      if (g == null || r == null) {
+        showJsSnackbar(context, kPunchErrorText, isError: true);
+        return false;
+      }
+      if (r.ok) {
+        punched = true;
         // 出勤打刻で取れた現在地を端末にも残す（日報フォームの初期表示が読む既存3キーへ）。
         // 新しいキーは作らない。退勤(out)では上書きしない＝現場の記録は出勤時の位置を残す。
-        if (type == 'in') await _persistPunchGps(gps);
-        final todayRes = await WorkModeService().fetchToday(shiftType: widget.shiftType);
-        if (!mounted) return;
+        if (type == 'in') await _persistPunchGps(g);
+        // (P3) 下の読み直しが今の勤務の種類で読む＝この前に見送った読み直しは、ここで読む（2回読まない）。
+        _rowReloadPending = false;
+        final read = await _issueRowRead();
+        if (!mounted) return true;
+        final readRes = read.res;
+        final today = readRes?.data;
+        final rec = r.data;
+        final readOk = readRes != null && readRes.ok && today != null;
         setState(() {
-          final today = todayRes.data;
-          if (todayRes.ok && today != null) {
-            _record           = today.record;
-            _punchedIn        = today.punchedIn;
-            _punchedOut       = today.punchedOut;
-            _standardBreakMin = today.standardBreakMin;
+          if (readOk) {
+            _takeRowAnswer(read.no, read.row, readRes);
+          } else {
+            _takeRowAnswerAfterPunch(read.no, read.row, pressedRow, rec);
           }
         });
-        _notifyPunchState();
-        if (_punchedIn && !_punchedOut) {
-          _startTimer();
-        } else {
-          _timer?.cancel();
-        }
+        _afterPunchStateSet();
         // 退勤打刻がサーバに反映された時だけ立てる（出勤時・反映漏れ時は従来どおり）
-        goReport = allowGoReport && type == 'out' && _punchedOut;
+        //   →再（便BN (D10)(R5)）: 「この打刻の答え」で決める（読めた時は読み直しの答え・読めなかった時は打てた時の答えの行）。
+        //   押した時と今で勤務の種類が違えば開かない。
+        final outByThis = readOk
+            ? today.punchedOut
+            : (rec != null && rec['punch_out'] != null);
+        goReport = allowGoReport &&
+            type == 'out' &&
+            outByThis &&
+            pressedRow.shift == widget.shiftType;
       } else {
         showJsSnackbar(
           context,
-          result.errorMessage ?? 'エラーが発生しました',
+          r.errorMessage ?? kPunchErrorText,
           isError: true,
         );
+        // (R6) 断られた時（今の行の状態が画面と違う）は、知らせの後に、_busy を下ろす前に読み直す（打った後の読み直しと同じ口）。
+        if (kPunchRefusalRereadCodes.contains(r.errorCode)) {
+          _rowReloadPending = false;
+          final read = await _issueRowRead();
+          if (!mounted) return false;
+          setState(() => _takeRowAnswer(read.no, read.row, read.res));
+          _afterPunchStateSet();
+        }
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        _afterBusyDown();   // (P3)
+      }
     }
     if (goReport && mounted) await _onReportTap();
+    return punched;
   }
 
   // 出勤打刻時のGPSを端末へ保存する。保存条件は home_screen.dart:_fetchGps(971-982) と同一:
@@ -487,6 +779,8 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   ・住所は status=='ok'（住所の構築に成功）のときだけ
   //     ＝'GPS取得失敗' / '位置情報の権限がありません' / 座標フォールバックを住所として焼かない
   //       （キャッシュ焼き付きの停止。理由は home_screen.dart の _readWorkStatusToday のコメントと同じ）。
+  //       （元の説明の「_readWorkStatusToday のコメント」は場所の違い＝理由が書いてあるのは home_screen.dart の _fetchGps の
+  //       「キャッシュ焼き付きの停止」の説明・_readWorkStatusToday は便BN で _readWorkStatusOn に替わった）
   // 失敗しても打刻の成立は覆さない（例外は握って握り潰さずログのみ・秘匿値は出さない）。
   Future<void> _persistPunchGps(
       ({String address, double? lat, double? lon, String status, String? failReason}) gps) async {
@@ -622,19 +916,33 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
   //   ・false を返した場合、_RestDayButton は画面遷移しない（袋小路を作らずその場に留まる）
   //   →再（2026-10-19・便BM・見本 claude/field_refused_today_mock_v1.html の ③・【Q150】＝１）: 今日の分に未送信の日報が在る時
   //   （widget.isTodayPending・親の真実）だけ、題と本文を事実に合わせる（「提出済みです」と言わない）。全部届いている時は今の字。
+  //   →再（2026-10-21・便BN・見つけた事 (46)・【Q155】＝１）: 未送信の箱を読めなかった時（widget.isPendingReadFailed・押した瞬間に読む）
+  //   だけ、本文の下に※（kPendingReadFailedNote・左寄せ）。題と本文は今の決まりのまま（前に読めた姿で決まる）。
+  //   →再（2026-10-21・便BN・見つけた事 (47)(g)・下調べの (D8)）: 開いたまま業務日が替われば閉じる（「戻る」を押した時と同じ）。
   Future<bool> _restDayGuard() async {
     if (_isActual) return true;
     if (widget.isReportDone?.call() != true) return true;
     final pending = widget.isTodayPending?.call() == true;
+    final readFailed = widget.isPendingReadFailed?.call() == true;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CloseOnBusinessDayChange(
+        shiftType: widget.shiftType,
+        closeValue: false,   // (D8) 「戻る」と同じ値（本日休みの窓）
+        child: AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
         title: Text(pending ? kTodayPendingTitle : '本日は報告済みです',
             style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-        content: Text(
-            pending ? kRestDayPendingBody : '本日は既に日報を提出済みです。休みとして登録しますか？',
-            style: const TextStyle(color: FieldTokens.textBody)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+                pending ? kRestDayPendingBody : '本日は既に日報を提出済みです。休みとして登録しますか？',
+                style: const TextStyle(color: FieldTokens.textBody)),
+            if (readFailed) kPendingReadFailedNoteDialogView,
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -646,6 +954,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                 style: TextStyle(color: FieldTokens.accent)),
           ),
         ],
+        ),
       ),
     );
     return ok == true;
@@ -653,15 +962,26 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // (O1)（便BN・見つけた事 (51) の (お)・【Q161】＝１）: 勤務の形を一度も入れられないまま読みが投げた時は、回る印の代わりに字を出す
+    //   （押すと「取得中...」にして読み直す・読めれば今の画面・読めなければまた同じ字）。初めの値（みなし）の姿では描かない。
     if (_loading) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: _bg,
-        body: Center(child: CircularProgressIndicator(color: _accent)),
+        body: Center(
+          child: _settingsFailed
+              ? _RereadNote(
+                  text: _initReading ? kRereadingText : kSettingsReadFailedText,
+                  fontSize: 14,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  onTap: _onRereadTap,
+                )
+              : const CircularProgressIndicator(color: _accent),
+        ),
       );
     }
 
     final isActual = _settings.mode == WorkModeType.actual;
-    final now = DateTime.now();
+    final now = businessNow();
     final dow = '日月火水木金土'[now.weekday % 7];
     final dateLabel =
         '${now.year}年'
@@ -785,7 +1105,19 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                       deemedEnd:     _settings.deemedEnd,
                       breakMinutes:  _settings.breakMinutes,
                     ),
-                    const SizedBox(height: 28),
+                    // (51)（便BN・【Q157】＝１・見本 claude/field_punch_read_failed_mock_v1.html・下調べの (R3)(R4)(R8)(R9)）: 実勤務で打刻の状態を
+                    //   読めなかった時だけ、状態の下に※（押すと読み直す・読む間は「取得中...」）。上下は 8 と 12（※が無い時は今の 28）。
+                    if (isActual && _punchReadFailed) ...[
+                      const SizedBox(height: 8),
+                      _RereadNote(
+                        text: _rowReading
+                            ? kRereadingText
+                            : (_shownRow == null ? kPunchReadFailedResetNote : kPunchReadFailedKeptNote),
+                        onTap: _onRereadTap,
+                      ),
+                      const SizedBox(height: 12),
+                    ] else
+                      const SizedBox(height: 28),
                     // 勤務区分（日勤/夜勤・1タップ）＋ 送信される業務日
                     // N2: 旧 K4 の表示条件 `if (!isActual || !_punchedIn)` を撤去し無条件表示へ戻す。
                     //   打刻済みシフトの記録は切替で変わらない＝状態はシフト別に独立管理されている:
@@ -799,7 +1131,7 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
                     _ShiftTypeSelector(
                       selected: widget.shiftType,
                       businessDate: businessDateForShift(
-                          widget.shiftType, DateTime.now()),
+                          widget.shiftType, businessNow()),
                       onChanged: widget.onShiftTypeChanged,
                       readFailed: widget.shiftReadFailed,
                     ),
@@ -810,7 +1142,22 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
             // ── 操作エリア（親指ゾーン・固定） ───────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: _buildOperationArea(isActual),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildOperationArea(isActual),
+                  // (54)（便BN・【Q159】＝１・見本 claude/field_unread_unwritten_mock_v1.html・下調べの (S4)(S5)）: 本日休みの状態を読めなかった
+                  //   時だけ、下のボタンの下に※（どの姿でも・押すと読み直す・読む間は「取得中...」・上は 6）。ボタンは止めない。
+                  if (_restReadFailed) ...[
+                    const SizedBox(height: 6),
+                    _RereadNote(
+                      text: _restReading ? kRereadingText : kRestReadFailedNote,
+                      onTap: _onRereadTap,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
@@ -853,6 +1200,9 @@ class _PunchScreenState extends State<PunchScreen> with WidgetsBindingObserver {
     //   ★このコールバックは build 中にも読む。_todayReportDone の書き換えは全て親の setState
     //     経由（home_screen.dart の _todayReportDone を書く全ての setState）なので、値が変われば
     //     親が rebuild し、ここも読み直される。
+    //   →再（2026-10-21・便BN・下調べの (D1)(D5)）: _todayReportDone は読み口になった（写しの勤務の種類と業務日が今の物の時だけ
+    //     立つ・写しを書くのは親の _setMark と _clearMark＝setState の中）。業務日が替わった時は、業務日の切り替わりの時計と
+    //     戻った時が親を描き直す＝ここも読み直される。
     final reportDone = widget.isReportDone?.call() == true;
 
     // 「日報を報告」を隠す条件。対象は裁定どおり
@@ -983,6 +1333,81 @@ const double _kOpButtonHeight = 52;
 
 /// 勤務の種類を読み込めなかった時の※（便BK・見本 claude/field_report_fix_mock_v3.html の ⑰①）。
 const String kShiftReadFailedNote = '※勤務区分を読み込めませんでした。日勤で表示しています。';
+
+// ── 便BN の字（見本 claude/field_punch_read_failed_mock_v1.html・claude/field_unread_unwritten_mock_v1.html・【Q157】【Q159】【Q161】＝１）──
+/// 打刻の状態を読めなかった時の※（実勤務の時だけ・状態の下）。出している状態が今の行（勤務区分と業務日）の物の時。
+const String kPunchReadFailedKeptNote =
+    '※最新の打刻状態を確認できませんでした。前に読めた状態で表示しています（タップで再取得）';
+/// 同じ※の、今の行の状態を出していない時（未出勤の姿にした時）。
+const String kPunchReadFailedResetNote =
+    '※最新の打刻状態を確認できませんでした。未出勤で表示しています（タップで再取得）';
+/// 本日休みの状態を読めなかった時の※（どの姿でも・下のボタンの下）。
+const String kRestReadFailedNote = '※本日休みの登録状況を確認できませんでした（タップで再取得）';
+/// 開いた時に勤務の設定を一度も読めない時の字（回る印の所・(お)）。
+const String kSettingsReadFailedText = '勤務の設定を読み込めませんでした（タップで再取得）';
+/// 読み直す間の字（上の3つの※と (お) の字・前例＝home_screen.dart の _GpsBar の「取得中...」）。
+const String kRereadingText = '取得中...';
+/// 打刻の既定の知らせ（サーバの理由の字が無い時・打つ所が投げた時・締めの窓から打てる画面が無い時）。
+const String kPunchErrorText = 'エラーが発生しました';
+/// 打ってサーバに断られた時に、打刻の行を読み直す符号（便BN・下調べの (R6)＝すでに出勤・すでに退勤・出勤の打刻が無い）。
+///   ★サーバの符号の字（routes/attendance.js の POST /punch の 409・400）。ほかの断りでは読み直さない。
+const Set<String?> kPunchRefusalRereadCodes = {
+  'ALREADY_PUNCHED_IN',
+  'ALREADY_PUNCHED_OUT',
+  'NO_PUNCH_IN',
+};
+
+/// 締めの窓の退勤の口（PunchScreen.onPunchOutHandlerReady）が、呼んだ時に返す種類（便BN・下調べの (Z1)・見つけた事 (50)）。
+enum PunchOutStartKind {
+  /// 打刻か打刻の行の読み直しの最中（_busy）で、打たなかった。
+  busy,
+
+  /// 打ち始めた（done で打ち終わりを待てる＝true は打てた・false は取れなかった＝理由の知らせは打刻の画面が出した）。
+  started,
+
+  /// 打刻の画面が無かった（取れなかった時と同じに扱う＝知らせは呼び手が kPunchErrorText で出す）。
+  absent,
+}
+
+/// 締めの窓の退勤の口の答え（done は started の時だけ在る）。
+typedef PunchOutStart = ({PunchOutStartKind kind, Future<bool>? done});
+
+// ── _RereadNote（便BN）──────────────────────────────────────────────
+// 読めなかった時の※と (お) の字（押すと読み直す）。押せる高さ 44 以上・中寄せ・statusWarning（見本の .note＝11.5・.tapfail＝14）。
+//   前例＝home_screen.dart の _GpsBar の押す所（GestureDetector・HitTestBehavior.opaque）。
+class _RereadNote extends StatelessWidget {
+  const _RereadNote({
+    required this.text,
+    required this.onTap,
+    this.fontSize = 11.5,
+    this.padding = EdgeInsets.zero,
+  });
+  final String text;
+  final VoidCallback onTap;
+  final double fontSize;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44, minWidth: double.infinity),
+        child: Padding(
+          padding: padding,
+          child: Center(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: FieldTokens.statusWarning, fontSize: fontSize),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // ─────────────────────────────────────────────
 // ⓪ 勤務区分 2択（日勤 / 夜勤）＋ 業務日表示
@@ -1610,6 +2035,7 @@ class _ReportOutlineButton extends StatelessWidget {
 // 親 _PunchScreenState が単一の真実源として保持し、日報報告ゲートと共有する。
 //   rested=true → 「本日休み 登録済み」＋タップでねぎらい画面
 //   rested=false（or 照会失敗=fail-open）→ 「本日休み」＋タップで休み登録画面
+//   （→再（2026-10-21・便BN・(54)）: 照会失敗の時は、同じ日に前に読めた値のまま（無い時は fail-open）。読めなかった事は親の※が出す）
 // 序列は日報報告より下（OutlinedButton・textSupport系の控えめ配色）。
 class _RestDayButton extends StatelessWidget {
   const _RestDayButton({

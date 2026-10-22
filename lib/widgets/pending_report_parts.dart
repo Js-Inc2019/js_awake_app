@@ -20,6 +20,17 @@ const Widget kPendingReadFailedNoteView = Padding(
       style: TextStyle(color: FieldTokens.statusWarning, fontSize: 11.5)),
 );
 
+/// 窓の本文の下の同じ※（便BN・見つけた事 (46)・【Q155】＝１・見本 claude/field_read_failed_windows_mock_v1.html）。
+///   字・色・大きさ・上の 6 は kPendingReadFailedNoteView と同じ。窓の本文が左寄せなので※も左寄せ。
+///   使う窓＝2件目の窓（lib/screens/home_screen.dart の _confirmSecondReportIfNeeded）と本日休みの窓（lib/screens/punch_screen.dart の
+///   _restDayGuard）。
+const Widget kPendingReadFailedNoteDialogView = Padding(
+  padding: EdgeInsets.only(top: 6),
+  child: Text(kPendingReadFailedNote,
+      textAlign: TextAlign.start,
+      style: TextStyle(color: FieldTokens.statusWarning, fontSize: 11.5)),
+);
+
 /// 「今すぐ再送する」のカード（意味の色＝FieldTokens.statusWarning・字と形は1つ）。
 Widget pendingRetryCard(VoidCallback? onRetry) => ReportActionCard(
       icon: Icons.refresh,

@@ -92,9 +92,11 @@ bool _isTodayRow(PendingReportRow r, String shiftType, String today) =>
 
 /// 今の人の未送信の日報のうち、今日の分（並びは箱の並びのまま）。
 ///   今日の分＝row.shiftType が shiftType と同じで、row.businessDate が businessDateForShift(shiftType, now) と同じ物。
+///   →再（2026-10-21・便BN・下調べの (D3)）: bizDate を渡した時は、その業務日を「今日の分」の日にする（送った後の画面が
+///   出している印の日で分ける・呼び手は送った後の画面）。渡さない時は今のとおり。
 List<PendingReportRow> pendingTodayRows(PendingView v,
-    {required String shiftType, required DateTime now}) {
-  final today = businessDateForShift(shiftType, now);
+    {required String shiftType, required DateTime now, String? bizDate}) {
+  final today = bizDate ?? businessDateForShift(shiftType, now);
   return [
     for (final r in v.own)
       if (_isTodayRow(r, shiftType, today)) r,
@@ -102,9 +104,10 @@ List<PendingReportRow> pendingTodayRows(PendingView v,
 }
 
 /// 今日の分でない、今の人の未送信の日報（並びは箱の並びのまま）。
+///   bizDate は pendingTodayRows と同じ（同じ日を渡す＝2つの関数で分け方が食い違わない）。
 List<PendingReportRow> pendingOtherRows(PendingView v,
-    {required String shiftType, required DateTime now}) {
-  final today = businessDateForShift(shiftType, now);
+    {required String shiftType, required DateTime now, String? bizDate}) {
+  final today = bizDate ?? businessDateForShift(shiftType, now);
   return [
     for (final r in v.own)
       if (!_isTodayRow(r, shiftType, today)) r,

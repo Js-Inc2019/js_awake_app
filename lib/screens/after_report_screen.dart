@@ -50,9 +50,14 @@ class AfterReportBody extends StatefulWidget {
     this.unreadableUnknown = false,
     this.onRemoveRow,
     this.onRemoveUnreadable,
+    this.bizDate,
+    this.showOvertime = true,
+    this.closeBusy = false,
   });
   // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ＝出し分けの引数を持たない。
   //   （旧 showMoveToNextSite / showShiftContinue / onMoveToNextSite / onShiftContinue は撤去）
+  //   →再（2026-10-21・便BN・下調べの (D3)(Y1)）: 出し分けの引数 showOvertime（またいで送った印の時は見出し「続けて報告」と
+  //   ［追加の申告］を出さない）と、［今日はここまで］の回る印の closeBusy を足した（アクションは今も2つだけ）。
   final String workerName;
   final bool sent;                       // 頭の字（便BK: 今日の分の未送信の日報が無いか＝lib/utils/pending_view.dart の pendingTodayRows）
   final String shiftType;                // 'day'|'night'（ヘッダのサブ行 _headerSubtitle に使う）
@@ -75,6 +80,15 @@ class AfterReportBody extends StatefulWidget {
   // 「外す」を押した時（確かめの窓と、外した後の知らせは呼び手＝home_screen.dart が出す）。null＝「外す」を出さない。
   final Future<void> Function(PendingReportRow row)? onRemoveRow;
   final Future<void> Function()? onRemoveUnreadable;
+  // 頭の日付の業務日（便BN・下調べの (D3)・見つけた事 (48)）。呼び手（home_screen.dart）が「出している印」の業務日を渡す。
+  //   null の時は今の業務日（businessDateForShift(shiftType, 今)＝元の決め方）。
+  final String? bizDate;
+  // ［⏰ 追加の申告］と、その見出し「続けて報告」を出すか（便BN・(D3)(48)）。またいで送った印の時は false
+  //   （休憩の短縮の日も残業の日報の時刻も今の業務日に当たるため＝前の業務日の申告は、業務日が替わった後の今と同じ道しか無い）。
+  final bool showOvertime;
+  // ［今日はここまで］から退勤を打っている間か（便BN・見つけた事 (50)・【Q156】＝１・下調べの (Y1)）。true の間、［今日はここまで］は
+  //   回る印で押せない（ホームの［退勤］の打つ間と同じ姿）。ほかのボタンは今のまま押せる。既定 false＝今の呼び手は1文字も変わらない。
+  final bool closeBusy;
 
   @override
   State<AfterReportBody> createState() => _AfterReportBodyState();
@@ -85,8 +99,9 @@ class _AfterReportBodyState extends State<AfterReportBody> {
   // 業務日は送信時と同じ物差し（businessDateForShift）で出す＝黙って日付を変えない。
   //   →再（2026-10-14・便BK・検分 a260 の N5）: 「☀日勤 M/D分」の組み方は lib/core/report_send_texts.dart の pendingRowTitle の
   //   1本（「未送信日報」の行の題と同じ・出る字は元と同じ）。
+  //   →再（2026-10-21・便BN・(D3)）: 業務日は呼び手が渡した物（出している印の日）。渡さない時は今の業務日。
   String get _headerSubtitle =>
-      '${pendingRowTitle(widget.shiftType, businessDateForShift(widget.shiftType, DateTime.now()))}を送信しました';
+      '${pendingRowTitle(widget.shiftType, widget.bizDate ?? businessDateForShift(widget.shiftType, businessNow()))}を送信しました';
 
   bool get _hasUnreadable => widget.unreadableCount > 0 || widget.unreadableUnknown;
 
@@ -171,8 +186,11 @@ class _AfterReportBodyState extends State<AfterReportBody> {
             _PrimaryOutlineButton(
               label: '今日はここまで',
               onTap: () => widget.onClose?.call(),
+              busy: widget.closeBusy,
             ),
 
+            // 便BN (D3)(48): またいで送った印の時は、区切りと「続けて報告」と［⏰ 追加の申告］を出さない（中身の無い見出しを残さない）。
+            if (widget.showOvertime) ...[
             const SizedBox(height: 24),
             // 区切りは1px線＋余白のみ（カード・塗り面は使わない）
             const Divider(height: 1, thickness: 1, color: FieldTokens.outline),
@@ -194,6 +212,7 @@ class _AfterReportBodyState extends State<AfterReportBody> {
               subtitleMaxLines: 2,
               onTap: () => widget.onOvertime(),
             ),
+            ],
             // N4: 「🚗 次の現場へ移動」「☀/🌙 シフト切替」の2カードは撤去した。
             //   2件目の作成に入る導線はホーム(punch_screen)へ一本化（N5）。
 
@@ -299,30 +318,40 @@ Future<bool> confirmRemovePendingDialog(
 // 色は FieldTokens.textBody(#EAE3D0)。field_tokens.dart の同トークンの doc が
 // 「生成り抜きボタンの枠1.5px＋文字にも使う」と明記しており、
 // home_screen.dart が同じ width:1.5 で使っている既存様式に揃えた。
+//   →再（2026-10-21・便BN・(Y1)）: busy の間は回る印で押せない（ホームの［退勤］の打つ間＝punch_screen.dart の _PunchPrimaryButton と
+//   同じ姿＝枠は textFaint の 1.5・回る印 20×20・textFaint・太さ 2.5）。
 class _PrimaryOutlineButton extends StatelessWidget {
-  const _PrimaryOutlineButton({required this.label, required this.onTap});
+  const _PrimaryOutlineButton({required this.label, required this.onTap, this.busy = false});
   final String label;
   final VoidCallback onTap;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) => Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
+          onTap: busy ? null : onTap,
           borderRadius: BorderRadius.circular(10),
           child: Container(
             height: 56,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: FieldTokens.textBody, width: 1.5),
+                  color: busy ? FieldTokens.textFaint : FieldTokens.textBody, width: 1.5),
             ),
             child: Center(
-              child: Text(label,
-                  style: const TextStyle(
-                      color: FieldTokens.textBody,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
+              child: busy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: FieldTokens.textFaint, strokeWidth: 2.5),
+                    )
+                  : Text(label,
+                      style: const TextStyle(
+                          color: FieldTokens.textBody,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold)),
             ),
           ),
         ),

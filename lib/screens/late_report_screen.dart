@@ -465,7 +465,6 @@ class _LateReportScreenState extends State<LateReportScreen> {
           initial: _buildSnapshot(),
           currentOf: _buildSnapshot,
           onSend: _submit,
-          isDone: () => _done,
           heading: 'この内容で提出します',
           sendLabel: '提出する',
           band: _band(),
@@ -493,16 +492,18 @@ class _LateReportScreenState extends State<LateReportScreen> {
       );
 
   // ── 提出（確認の画面の「提出する」）──────────────────────────────
-  Future<void> _submit() async {
-    if (_submitting) return;
+  //   →再（2026-10-21・便BN・下調べの (D4)）: 返り＝この提出で出せたか（確かめの画面は true の時だけ閉じる＝isDone の口は外した）。
+  //   true は _done を立てる2つの道（届いた時と、届いたか分からなかった後の ALREADY_SUBMITTED＝1回目が届いていた時）だけ。
+  Future<bool> _submit() async {
+    if (_submitting) return false;
     if (_userName.isEmpty) {
       showJsSnackbar(context, '氏名が取得できていません', isError: true);
-      return;
+      return false;
     }
     if (_transports.isEmpty) {
       showJsSnackbar(context, '移動手段を選択してください', isError: true);
       _jumpToStep(2);
-      return;
+      return false;
     }
     setState(() => _submitting = true);
     try {
@@ -515,7 +516,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
         if (!proceed) {
           if (mounted) setState(() => _submitting = false);
           _jumpToStep(2);
-          return;
+          return false;
         }
       }
       // ホームの _submit と同じ値の関数で組む。
@@ -552,7 +553,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
       );
       // ★読めない写真を黙って落とさない（今日の日報は飛ばして送る＝ここでは送らずに知らせる）。
       final photos = await reportPhotosFor(item);
-      if (!mounted) return;
+      if (!mounted) return false;
       // 数えるのは出す写真だけ（item の並び・便BK＝隠れた帯の写真は数えない）。
       if (photos.length < item.workPhotoPaths.length + item.parkingPhotoPaths.length) {
         setState(() {
@@ -560,7 +561,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
               heading: '提出できません');
           _closeOnly = false;
         });
-        return;
+        return false;
       }
       final body = permittedReportBodyFor(item, confirmationId: widget.confirmationId);
       // この回に送る内容（写真を足す前の本文の字と、写真のパスの並び）。届いたか分からなかった回と比べる。
@@ -572,19 +573,20 @@ class _LateReportScreenState extends State<LateReportScreen> {
       ]);
       if (photos.isNotEmpty) body['photos'] = photos;
       final res = await _api.submitPermittedReport(body);
-      if (!mounted) return;
-      _applyAnswer(res, sent);
+      if (!mounted) return false;
+      return _applyAnswer(res, sent);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
   // 答えで分ける（見本 H6）。
-  void _applyAnswer(ApiResult<Map<String, dynamic>> res, String sent) {
+  //   →再（2026-10-21・便BN・(D4)）: 返り＝出せたか（_done を立てた時だけ true＝確かめの画面はその時だけ閉じる）。
+  bool _applyAnswer(ApiResult<Map<String, dynamic>> res, String sent) {
     if (res.ok) {
-      // ★確認の画面を閉じるのは ReportConfirmScreen の isDone の道（ここでは閉じない＝二重に閉じない）。
+      // ★確認の画面を閉じるのは ReportConfirmScreen の道（_submit の返りの true・ここでは閉じない＝二重に閉じない）。
       setState(() => _done = true);
-      return;
+      return true;
     }
     // 届いたか分からない回＝サーバまで届かなかった（0）／本文が JSON でない 500 以上（中継の 502・503・504 など。
     //   サーバが書き終えた後に返る事もある）／200 台なのに本文を読めなかった（runApiCall の「応答の解析に失敗しました」）。
@@ -597,7 +599,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
         _notice = _frame('通信エラーが発生しました');
         _closeOnly = false;
       });
-      return;
+      return false;
     }
     final code = res.errorCode;
     // もう出している：届いたか分からなかった回が在り、その全部が今の内容と同じ＝1回目が届いていた（今の内容が出ている）。
@@ -606,7 +608,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
         _unknownSent.isNotEmpty &&
         _unknownSent.every((s) => s == sent)) {
       setState(() => _done = true);
-      return;
+      return true;
     }
     if (code == 'PERMIT_NOT_FOUND' ||
         code == 'PERMIT_DEADLINE_PASSED' ||
@@ -615,7 +617,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
         _notice = _frame(res.errorMessage ?? '', heading: '提出できません');
         _closeOnly = true;
       });
-      return;
+      return false;
     }
     // ほかの失敗（直せば通る物が在る＝ボタンはそのまま）。文はサーバが JSON で返した時だけ。
     final err = res.errorDetails?['error'];
@@ -626,6 +628,7 @@ class _LateReportScreenState extends State<LateReportScreen> {
       _notice = _frame(text, heading: '提出できません');
       _closeOnly = false;
     });
+    return false;
   }
 
   // ── 閉じ方（見本 H1 の※・H5）──────────────────────────────────

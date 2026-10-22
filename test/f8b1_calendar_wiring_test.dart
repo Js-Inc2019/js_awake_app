@@ -61,6 +61,7 @@ void main() {
       // 渡す7つを、並びごと見る。
       //   今日＝箱を開く時に、今の勤務の種類の業務日（businessDateForShift(await savedShiftTypeForNow(), DateTime.now())）を
       //   読んで today に入れて渡す（決まった字にしない）。
+      //   →再（2026-10-21・便BN・下調べの ■4）: 今は businessNow()（savedShiftTypeForNow と同じ今の口）。
       expect(
           _flat(_callOf(src, 'dayRequestEntryOrNull')),
           'dayRequestEntryOrNull( '
@@ -77,7 +78,7 @@ void main() {
       expect(
           _flat(src).contains('Future<void> _openDaySheet(String ds) async { '
               'final info = _dayInfoOf(ds); '
-              'final today = businessDateForShift(await savedShiftTypeForNow(), DateTime.now()); '
+              'final today = businessDateForShift(await savedShiftTypeForNow(), businessNow()); '
               'if (!mounted) return; '
               'await showCalendarDaySheet( context, info: info, '
               'maxHeight: _sheetMaxHeight(), myCompanyId: _myCompanyId, '

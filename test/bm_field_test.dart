@@ -447,25 +447,34 @@ void main() {
       final i = src.indexOf('bool get _todayHasPending =>');
       expect(i, greaterThan(0), reason: '今日の分に未送信が在るかを読む所が無い');
       final g = _flat(src.substring(i, src.indexOf(';', i) + 1));
-      expect(g, contains('pendingTodayRows(ReportStore.instance.pendingView.value, shiftType: _shiftType, now: DateTime.now()) .isNotEmpty;'));
+      // 元: now: DateTime.now()。→再（2026-10-21・便BN・下調べの ■4）: 今は businessNow()（業務日の真実源の本の今の口）。
+      expect(g, contains('pendingTodayRows(ReportStore.instance.pendingView.value, shiftType: _shiftType, now: businessNow()) .isNotEmpty;'));
     });
 
     test('(BM-e2) 締めの窓の1行目：締める業務日と勤務区分（_saveWorkStatus が書く物と同じ物差し）（ソースの字）', () {
       final f = _flat(_bodyOf(_codeOnly(_home), 'Future<void> _onCloseToday()'));
-      expect(f, contains(r"'${closeTodayLine1(_shiftType, businessDateForShift(_shiftType, DateTime.now()))}\n'"));
+      // 元: 窓の字は窓を組む時の業務日（closeTodayLine1(_shiftType, businessDateForShift(_shiftType, DateTime.now()))）で、締める印は
+      //   _saveWorkStatus の中で押した時の業務日＝窓を開いたまま業務日が替わると、字と違う日を締めた（見つけた事 (45)）。
+      // →再（2026-10-21・便BN・下調べの ■1）: 窓の字と締める印の両方を、出している印（_shownMark）の1つの値で出す＝同じ物差し。
+      expect(f, contains('final m = _shownMark;'));
+      expect(f, contains(r"'${closeTodayLine1(m.shift, m.bizDate)}\n'"));
+      expect(f, contains("await _saveWorkStatus('closed', shiftType: m.shift, bizDate: m.bizDate);"));
+      expect(f, contains("setState(() => _setMark(m.shift, m.bizDate, 'closed'));"));
       expect(f, contains("'残業や休憩の申告はこのあとも行えます。'"));
       expect(f, isNot(contains('次の現場へ移動')), reason: '今の作りと違う字が残っている');
       final src = _codeOnly(_home);
-      final i = src.indexOf('Future<void> _saveWorkStatus(String status, {String? owner}) async {');
+      final i = src.indexOf('Future<void> _saveWorkStatus(String status,');
       expect(i, greaterThan(0));
-      final w = _flat(src.substring(i, src.indexOf('Future<String?> _readWorkStatusToday()', i)));
-      expect(w, contains('final bizDate = businessDateForShift(_shiftType, DateTime.now());'));
-      expect(w, contains("await prefs.setString(reportDoneKey(_shiftType), reportDoneValue(bizDate, status, who));"));
+      final w = _flat(src.substring(i, src.indexOf('Future<String?> _readWorkStatusOn(', i)));
+      // 渡さない時は今のとおり、今の _shiftType と今の業務日（業務日の真実源の本の今の口）。
+      expect(w, contains('final shift = shiftType ?? _shiftType; final biz = bizDate ?? businessDateForShift(shift, businessNow());'));
+      expect(w, contains("final ok = await prefs.setString(reportDoneKey(shift), reportDoneValue(biz, status, who));"));
     });
 
     test('(BM-e3) 上の段の日付：どのタブも暦の日（管理・履歴のタブだけ業務日にしない）（ソースの字）', () {
       final f = _flat(_bodyOf(_codeOnly(_home), 'String get _dateLabel'));
-      expect(f, contains("final ds = businessDateForShift('day', DateTime.now());"));
+      // 元: DateTime.now()。→再（2026-10-21・便BN・下調べの ■4）: 今は businessNow()。
+      expect(f, contains("final ds = businessDateForShift('day', businessNow());"));
       expect(f, isNot(contains('_tabIndex')), reason: 'タブで日付の物差しを替えている');
     });
 

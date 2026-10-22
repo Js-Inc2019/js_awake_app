@@ -120,6 +120,10 @@ const String kRemoveUnreadableLine2 = '日報の無い日は、管理・履歴�
 /// 送っている途中の日報を外そうとした時の知らせ。
 const String kRemoveInFlightText = '送信中のため外せません。少し待ってから、もう一度お試しください。';
 
+/// 送った後の画面の［今日はここまで］の「退勤して締める」で、ホームの打刻の画面が打刻か読み直しの最中だった時の知らせ
+///   （便BN・見つけた事 (50)・【Q156】＝１・見本 claude/field_close_busy_mock_v1.html・出し方は kRemoveInFlightText と同じ＝isWarning・2秒）。
+const String kCloseBusyText = '処理中のため退勤できません。少し待ってから、もう一度お試しください。';
+
 /// 外せなかった時（端末の箱に書けない）の知らせ。
 const String kRemoveFailedText = '外せませんでした。もう一度お試しください。';
 

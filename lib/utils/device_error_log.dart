@@ -29,6 +29,9 @@ const Map<String, ({String title, String fallback})> kDeviceErrorKinds = {
   'shift_restore': (title: '勤務区分の読み込み', fallback: '日勤で表示'),
   'shift_save': (title: '勤務区分の保存', fallback: '選んだ区分で表示'),
   'done_mark_read': (title: '送信記録の読み込み', fallback: '日報のフォームを表示'),
+  // 便BN（見つけた事 (53)・見本 claude/field_unread_unwritten_mock_v1.html・【Q160】＝１）: 今日の印（送った・締めた ほか）を
+  //   端末に書けなかった時（home_screen.dart の _saveWorkStatus）。続けて書けない間は1件だけ。
+  'today_mark_save': (title: '送信記録の保存', fallback: '印を残さずに続行'),
   'today_marks_clear': (title: '別の人の印の掃除', fallback: '使わずに続行'),
   'unowned_marks_clear': (title: '前の形の印の掃除', fallback: '残したまま続行'),
   'pending_read': (title: '送信状況の読み込み', fallback: '前の表示のまま'),

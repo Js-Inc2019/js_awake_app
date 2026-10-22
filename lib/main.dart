@@ -34,6 +34,7 @@ import 'firebase_options.dart';
 import 'services/fcm_service.dart';
 import 'services/api_result.dart';
 import 'services/reports_service.dart';
+import 'utils/app_route_observer.dart';
 import 'utils/business_date.dart';
 import 'utils/session_lockout.dart';
 // 便BJ：場所を測れなかった時の字（ホームの現在地の帯）と符号の表・写真の置き場・ログアウトの掃除の後の口。
@@ -105,6 +106,8 @@ class JsAwakeApp extends StatelessWidget {
       title: "J's FIELD",
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
+      // 便BN（下調べの (D6)）: 画面の重なりの見張り（シェルと日報のフォームの全画面が、上の物が閉じた時を受ける）。
+      navigatorObservers: [appRouteObserver],
       home: const LoginScreen(),
       routes: {
         '/login':   (_) => const LoginScreen(),
@@ -1511,7 +1514,7 @@ class _GateScreenState extends State<GateScreen> {
     //   ほかは 'day'）で読む（元: 'shift_type' を業務日も人も見ずに読んだ・検分 a253 の N8）。
     final prefs = await SharedPreferences.getInstance();
     final shiftType  = await savedShiftTypeForNow();
-    final bizDate    = businessDateForShift(shiftType, DateTime.now());
+    final bizDate    = businessDateForShift(shiftType, businessNow());   // 便BN: savedShiftTypeForNow と同じ今の口
     final workStatus = reportDoneStatusOf(prefs.getString(reportDoneKeyOf(shiftType)),
             bizDate: bizDate, me: todayMarkOwnerOf(prefs)) ??
         'idle';

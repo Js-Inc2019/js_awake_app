@@ -71,6 +71,10 @@ import '../utils/report_cancel_gate.dart'
 // （本日休みの画面の日付の窓2つと同じ上限・便F12）。
 import '../utils/future_date_limit.dart' show canGoToNextMonth;
 import '../utils/rest_day_refresh.dart';
+import '../utils/business_day_tick.dart';
+import '../utils/app_route_observer.dart';
+import '../widgets/business_day_dialog_guard.dart';
+import '../widgets/pending_report_parts.dart' show kPendingReadFailedNoteDialogView;
 import 'day_reports_screen.dart';
 import 'management_history_screen.dart';
 import 'profile_screen.dart';
@@ -367,7 +371,7 @@ class JsMainShell extends StatefulWidget {
   State<JsMainShell> createState() => _JsMainShellState();
 }
 
-class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
+class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver, RouteAware {
   // ─── タブ ───
   int _tabIndex = 0;
 
@@ -387,6 +391,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   ★アプリが前に戻ったとき（resumed）は進めない。PunchScreen が自分の
   //     didChangeAppLifecycleState で読み直す（2回引かない）。
   int _restStatusRequestId = 0;
+
+  // 業務日の切り替わり（便BN・見つけた事 (47)・下調べの (D5)）。時計は次の切り替わりの時刻（日本の時刻の次の 0 時と 12 時の早い方）に
+  //   1回鳴る（鳴ったら掛け直す・アプリへ戻った時は今から掛け直す・dispose で止める）。掛けるのは initState＝PunchScreen を作る build より前
+  //   （開いた時の最初の読みが境をまたいでも、その境で鳴る）。鳴った時は _onBusinessDayTick。
+  late final BusinessDayClock _dayClock = BusinessDayClock(_onBusinessDayTick);
+  // 「打刻と本日休みを読み直して」を PunchScreen へ届ける番号（時計が鳴った時だけ +1・戻った時は PunchScreen が自分で読む＝進めない）。
+  int _businessDayTick = 0;
 
   // ─── ユーザー情報 ───
   bool _initialLoading = true;
@@ -525,12 +536,45 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   ※（punch_screen.dart の kShiftReadFailedNote）を出す。消すのは、選び直して保存できた時（_onShiftTypeChosen）
   //   だけ（次に開いた時は、新しい画面が読み直す）。
   bool _shiftReadFailed = false;
+  // (D6)（便BN・見つけた事 (47)(d)）: _shiftType を決めた時の業務日（決めた時の今で数えた業務日・覚えるまで null＝見ない）。覚える所＝
+  //   開いた時（_restoreShiftType・戻せなかった時は _restoreTodayState）・選び直した時・日勤へ戻した時（_maybeReturnToDayShift）。
+  //   今の業務日がこれと違えば、打っている字の勤務の種類を替えない時だけ日勤へ戻す（端末の保存は触らない）。
+  String? _shiftDecidedBiz;
+  // (D6)(い) 日報のフォームの全画面が「送った後の画面からその場でフォームに替わった・まだ替えていない」印と、それを見つけるための
+  //   「前に描いた時は送った後の画面だったか」の覚え（全画面ごと＝_pushReportForm で空にする・器が描くたびに覚え直す）。
+  bool _formSwitchedInPlace = false;
+  bool? _formLastDrawnAfter;
+  // (D6) シェルの route（一番上か＝isCurrent を見る・appRouteObserver の見張り）。
+  ModalRoute<void>? _shellRoute;
 
   // ─── 送信 ───
   bool _submitting = false;
   // 完了ビュー（送った後の画面）を出すか。true の間、日報のフォームの全画面（_pushReportForm）は送った後の画面を出し、
   // フォームへ到達不能＝二重報告防止の要（元の説明「日報タブ(index1)を占有中か」＝便BM で今の作りに合わせた・見つけた事 (43)）
-  bool _todayReportDone = false;
+  //   →再（2026-10-21・便BN・見つけた事 (47)・下調べの (D1)）: 元は真偽だけの写しで、業務日と勤務の種類を持たなかった
+  //   （アプリを閉じずに業務日が替わると、前の業務日の印のまま残った）。画面の中の写しは「勤務の種類・業務日・状態」の3つ
+  //   （今日の印の形＝utils/today_marks.dart と同じ物差し）にし、_todayReportDone・_todayClosed は読み口にする：写しの勤務の
+  //   種類が _shiftType と同じで、写しの業務日が今の業務日（businessDateForShift(_shiftType, 今)）と同じ時だけ立つ（替われば
+  //   端末を読まずに下りる）。写しを書くのは _setMark と _clearMark だけ（端末に書いた・読んだ勤務の種類と業務日をそのまま写す）。
+  String? _markShift;
+  String? _markBizDate;
+  String? _markStatus;
+  bool get _markIsToday =>
+      _markShift != null &&
+      _markShift == _shiftType &&
+      _markBizDate == businessDateForShift(_shiftType, businessNow());
+  bool get _todayReportDone => _markIsToday && _isReportDoneStatus(_markStatus);
+  void _setMark(String shift, String bizDate, String? status) {
+    _markShift = shift;
+    _markBizDate = bizDate;
+    _markStatus = status;
+  }
+
+  void _clearMark() {
+    _markShift = null;
+    _markBizDate = null;
+    _markStatus = null;
+  }
   // K1: 打刻状態のミラー。真実源は PunchScreen が fetchToday から受け取った値で、
   //   onPunchStateChanged(punch_screen.dart) 経由で流れてくるだけ＝ここで判定は作らない。
   //   初期値は「実打刻でない・未打刻」＝完了ビューの出し分けが最も緩い側（従来と同じ見え方）。
@@ -540,17 +584,51 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // N3: 退勤打刻の実行口。PunchScreen が initState で自分の _doPunch('out') 経路を
   //   渡してくる（onPunchOutHandlerReady）。ここは受け皿であって打刻ロジックではない
   //   ＝判定式もAPI呼び出しもこちら側には作らない。未マウント時は null のまま。
-  Future<void> Function()? _punchOutFromHome;
+  //   →再（2026-10-21・便BN・下調べの (Z1)）: 口は呼んだ時にその場で答える（PunchOutStart＝最中で打たない・打ち始めた・画面が無い）。
+  PunchOutStart Function()? _punchOutFromHome;
+  // (Y1)（便BN・【Q156】＝１）: 送った後の画面の［今日はここまで］から退勤を打っている間（打ち終わりの結果を待つ間）。立っている間、
+  //   ［今日はここまで］は回る印で押せない（AfterReportBody の closeBusy）。
+  bool _closePunching = false;
 
   // K3(Q8): みなしの「締め」。work_status == 'closed' の日は true。
   //   done と同じく報告済み扱い（_isReportDoneStatus）だが、完了ビューのアクションを
   //   「追加の申告」だけに絞るために done と区別して保持する。
   //   （元の説明の「_readReportDone」は今は無い名前＝便BM の検分 a329 の R1 の続きで今の名前にした）
-  bool _todayClosed = false;
+  //   →再（2026-10-21・便BN・(D1)）: 読み口（写しの状態が 'closed' で、写しが今日の物の時だけ立つ）。
+  bool get _todayClosed => _markIsToday && _markStatus == 'closed';
 
   // 送った印を読めなかった時（便BK・見本 v3 の ⑰②）。立っている間、日報のフォームの「今日の報告」の下に
   //   ※（kDoneMarkReadFailedNote）を出す。消すのは、次に読めた時（_reevaluateReportDone）。
-  bool _doneMarkReadFailed = false;
+  //   →再（2026-10-21・便BN・(D1)）: 読めなかった勤務の種類と業務日を持ち、それが今と同じ時だけ立つ（業務日が替われば下りる）。
+  String? _doneMarkFailShift;
+  String? _doneMarkFailBizDate;
+  bool get _doneMarkReadFailed =>
+      _doneMarkFailShift != null &&
+      _doneMarkFailShift == _shiftType &&
+      _doneMarkFailBizDate == businessDateForShift(_shiftType, businessNow());
+  void _setDoneMarkFail(String? shift, String? bizDate) {
+    _doneMarkFailShift = shift;
+    _doneMarkFailBizDate = bizDate;
+  }
+
+  // (D3)（便BN・見つけた事 (48)）: またいで送った印＝その全画面で送れた時に、日報の勤務の種類と業務日が今の物と違った時だけ
+  //   置く（全画面が閉じ終わった時に消す＝_pushReportForm）。送った後の画面は、今日の写しが立っていない間、この印の日で出す。
+  ({String shift, String bizDate})? _crossedSentMark;
+
+  // (D3) 送った後の画面の「出している印」：今日の写しが立っていれば今日の写し、立っていなければ、またいで送った印。
+  //   isToday＝今日の写しか（またいで送った印の時は false＝［追加の申告］を出さない）。
+  ({String shift, String bizDate, bool isToday})? get _shownMark {
+    if (_todayReportDone) {
+      return (shift: _markShift!, bizDate: _markBizDate!, isToday: true);
+    }
+    final c = _crossedSentMark;
+    if (c != null) return (shift: c.shift, bizDate: c.bizDate, isToday: false);
+    return null;
+  }
+
+  // (53)（便BN・見つけた事 (53)・【Q160】＝１）: 今日の印を端末に書けなかった印（シェルごと＝開き直すか、ログインし直すと
+  //   下りた形で始まる）。立っている間は、書けなくても端末の失敗の控えを足さない（続けて書けない間は1件だけ）。書けたら下ろす。
+  bool _todayMarkSaveFailed = false;
 
   // 完了ビューに渡す送信成否（元: _lastSentOk）は便BJ で撤去した。
   //   元: 送信直後経路は実成否、復元経路は暫定 true（送り直しで送れても「未送信」のまま・開き直すと残っていても「報告完了」）。
@@ -593,6 +671,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   ///   ・pop 後も _ReportConfirmScreenState は退場アニメ中 mounted のままだが、
   ///     ②③の中断経路は _todayReportDone が false のため
   ///     `if (widget.isDone()) Navigator.pop(context);` は発火せず二重popしない。
+  ///     →再（2026-10-21・便BN・下調べの (D4)）: isDone の口は外した。②③の中断経路は _submit が false を返すため、
+  ///     確かめの画面の `if (done) Navigator.pop(context);` は発火せず二重popしない。
   void _jumpToStep(int s) {
     if (!mounted) return;
     final nav = Navigator.of(context);
@@ -610,6 +690,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 便BN (D5): 業務日の切り替わりの時計（PunchScreen を作る build より前に掛ける）。
+    _dayClock.restart();
     ReportTabNavigator.register(_openReportTabCb);
     PunchRemindDialogNavigator.register(_punchRemindCb);
     // ★読み直しの知らせ（lib/utils/rest_day_refresh.dart・便F13）。休みや振替がどの道で
@@ -684,12 +766,28 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   owner＝書いた人（渡さなければ今ログインしている人）。分からない時（ログインしている人が居ない）は書かない。
   //   ★今日の日報を送った後の印は、日報の持ち主で書く（送る途中に締め出されて今の人が居なくなっても、
   //     同じ人がログインし直した時に送った後の画面が出る＝検分 a251 の N7）。
-  Future<void> _saveWorkStatus(String status, {String? owner}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final who = owner ?? todayMarkOwnerOf(prefs);
-    if (who.isEmpty) return;
-    final bizDate = businessDateForShift(_shiftType, DateTime.now());
-    await prefs.setString(reportDoneKey(_shiftType), reportDoneValue(bizDate, status, who));
+  //   →再（2026-10-21・便BN・下調べの ■1・(D1)）: 書く勤務の種類と業務日を、呼び手が渡せる（渡さない時は今のとおり、今の
+  //   _shiftType と今の業務日）。窓の字の日で締める・送った日報の業務日で送った印を書く（(45)(48)）。
+  //   →再（2026-10-21・便BN・見つけた事 (53)・【Q160】＝１）: 投げない。端末が「書けなかった」と答えた時（setString が false）と
+  //   投げた時は、開発の記録と端末の失敗の控え（'today_mark_save'）に残して、画面は今のとおり進める（締めの後も閉じる）。
+  //   続けて書けない間は控えを足さない（_todayMarkSaveFailed・書けたら下ろす）。
+  Future<void> _saveWorkStatus(String status,
+      {String? owner, String? shiftType, String? bizDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final who = owner ?? todayMarkOwnerOf(prefs);
+      if (who.isEmpty) return;
+      final shift = shiftType ?? _shiftType;
+      final biz = bizDate ?? businessDateForShift(shift, businessNow());
+      final ok = await prefs.setString(reportDoneKey(shift), reportDoneValue(biz, status, who));
+      if (!ok) throw StateError('今日の印を端末に書けませんでした');
+      _todayMarkSaveFailed = false;
+    } catch (e) {
+      debugPrint('今日の印を端末に書けませんでした: $e');
+      if (_todayMarkSaveFailed) return;
+      _todayMarkSaveFailed = true;
+      await recordDeviceError('today_mark_save');
+    }
   }
 
   // 現 _shiftType のキーを読み、業務日が一致するときだけ status 文字列を返す。
@@ -699,10 +797,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 送信済みデータはBEにあるため、ここで無理に移行するより開ける方を選ぶ。
   // →再（2026-10-14・便BJ・【Q141】）: 読み方（業務日が同じ・書いた人が今の人・前の形は今の人の物・不正値は null）は
   //   utils/today_marks.dart の reportDoneStatusOf の1本。
-  Future<String?> _readWorkStatusToday() async {
+  //   →再（2026-10-21・便BN・(D1)）: 読む勤務の種類と業務日は、呼び手が1回求めて渡す（読んだ物をそのまま写しに写す）。
+  Future<String?> _readWorkStatusOn(String shift, String bizDate) async {
     final prefs = await SharedPreferences.getInstance();
-    return reportDoneStatusOf(prefs.getString(reportDoneKey(_shiftType)),
-        bizDate: businessDateForShift(_shiftType, DateTime.now()),
+    return reportDoneStatusOf(prefs.getString(reportDoneKey(shift)),
+        bizDate: bizDate,
         me: todayMarkOwnerOf(prefs));
   }
 
@@ -713,14 +812,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 起動時: 現在のシフトの業務日ぶんが報告済み(done/closed)なら、日報のフォームの全画面を開いた時に完了ビューを出す。
   //   （元の説明「完了ビューを日報タブに出す」＝便BM で今の作りに合わせた・見つけた事 (43)）
   // closed かどうかも同時に拾う＝再起動しても「締めた日」のアクション制限が維持される。
-  Future<void> _initTodayReportDone() async {
-    final s = await _readWorkStatusToday();
+  //   →再（2026-10-21・便BN・(D1)）: 読む勤務の種類と業務日は呼び手（_restoreTodayState）が1回求めて渡す。
+  Future<void> _initTodayReportDone(String shift, String bizDate) async {
+    final s = await _readWorkStatusOn(shift, bizDate);
     final done = _isReportDoneStatus(s);
     if (mounted && done) {
-      setState(() {
-        _todayReportDone = true;
-        _todayClosed = s == 'closed';
-      });
+      setState(() => _setMark(shift, bizDate, s));
     }
   }
 
@@ -732,10 +829,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ignore: unused_element
   Future<void> _onContinueReport() async {
     _workCtrl.clear();
-    await _saveWorkStatus('working');
+    final shift = _shiftType;
+    final biz = businessDateForShift(shift, businessNow());
+    await _saveWorkStatus('working', shiftType: shift, bizDate: biz);
     if (!mounted) return;
     setState(() {
-      _todayReportDone = false;
+      _setMark(shift, biz, 'working');
       _workPhotoPaths = [];
       _parkingPhotoPaths = [];
     });
@@ -747,30 +846,29 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   元: 読めなかった時は投げて（待たずに呼ばれる＝誰にも見えない）、前の勤務の種類の送った後の画面が残った。
   //   →再（2026-10-14・便BK・見本 v3 の ⑰②）: 読めなかった時は、開いた時と同じく日報のフォームを出し、
   //   見出しの下に※を出す（_doneMarkReadFailed）。端末の失敗の控えにも残す。読めたら※を消す。★投げない。
+  //   →再（2026-10-21・便BN・(D1)）: 読む勤務の種類と業務日は頭で1回求め、読んだ物をそのまま写しに写す（読めなかった時は写しを
+  //   空にして、読めなかった勤務の種類と業務日を持つ＝今と同じ間だけ※が立つ）。
   Future<void> _reevaluateReportDone() async {
+    final shift = _shiftType;
+    final biz = businessDateForShift(shift, businessNow());
     final String? s;
     try {
-      s = await _readWorkStatusToday();
+      s = await _readWorkStatusOn(shift, biz);
     } catch (e) {
       debugPrint('送った印を読めませんでした: $e');
       if (mounted) {
         setState(() {
-          _todayReportDone = false;   // 読めない時はフォーム（便BK・⑰②）
-          _todayClosed = false;
-          _doneMarkReadFailed = true;
+          _clearMark();   // 読めない時はフォーム（便BK・⑰②）
+          _setDoneMarkFail(shift, biz);
         });
       }
       await recordDeviceError('done_mark_read');
       return;
     }
-    final done = _isReportDoneStatus(s);
-    final closed = s == 'closed';
-    if (mounted &&
-        (done != _todayReportDone || closed != _todayClosed || _doneMarkReadFailed)) {
+    if (mounted) {
       setState(() {
-        _todayReportDone = done;
-        _todayClosed = closed;   // 切替先シフトの締め状態に追随（未締めなら false へ戻る）
-        _doneMarkReadFailed = false;
+        _setMark(shift, biz, s);   // 切替先シフトの締め状態に追随（未締めなら下りる）
+        _setDoneMarkFail(null, null);
       });
     }
   }
@@ -780,15 +878,18 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // 移しただけ（中身は1文字も変えていない）。完了ビューからカードは消えたが、
   // N5 の「2件目の入口＝ホーム」がこれを流用する＝リセットの定義を2つに増やさない。
   //   ・完了ビュー解除（_todayReportDone=false）＋ prefs を 'working' へ
+  //     （→再（2026-10-21・便BN・(D1)）: 写しを 'working' にする＝_setMark・_todayReportDone は読み口）
   //   ・現場/GPS/移動手段/本文まわりを白紙にし、ステップを「現場」から入り直す
   Future<void> _resetForNextReport() async {
     _parkingCtrl.clear();
     _carpoolNameCtrl.clear();
     _transportMemoCtrl.clear();
-    await _saveWorkStatus('working');
+    final shift = _shiftType;
+    final biz = businessDateForShift(shift, businessNow());
+    await _saveWorkStatus('working', shiftType: shift, bizDate: biz);
     if (!mounted) return;
     setState(() {
-      _todayReportDone = false;
+      _setMark(shift, biz, 'working');
       _gpsAddress = '';
       _gpsFailReason = null;   // 便BJ: 場所の字と理由の符号は一緒に白紙にする
       _transports = {};
@@ -815,7 +916,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     _workCtrl.clear();
     setState(() {
       _shiftType = next;
-      _todayReportDone = false;
+      _shiftDecidedBiz = businessDateForShift(next, businessNow());   // 便BN (D6): 決めた時の業務日
+      _clearMark();
       _workPhotoPaths = [];
       _parkingPhotoPaths = [];
       // 4ステップ化：新しいシフトも「現場」ステップから入り直す
@@ -841,19 +943,32 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   →再（2026-10-19・便BM・見本 claude/field_refused_today_mock_v1.html の ③・【Q150】＝１）: 今日の分に未送信の日報が在る時
   //   （_todayHasPending）だけ、題と本文を事実に合わせる（受け付けられていないのに「提出済みです」と言わない）。
   //   全部届いている時は今の字のまま。
+  //   →再（2026-10-21・便BN・見つけた事 (46)・【Q155】＝１）: 未送信の箱を読めなかった時だけ、本文の下に※（kPendingReadFailedNote・左寄せ）。
+  //   →再（2026-10-21・便BN・見つけた事 (47)(g)・下調べの (D8)）: 開いたまま業務日が替われば閉じる（「キャンセル」を押した時と同じ）。
   Future<bool> _confirmSecondReportIfNeeded() async {
     if (!_todayReportDone) return true;
     if (_todayClosed) return true;
     final pending = _todayHasPending;
+    final readFailed = ReportStore.instance.pendingView.value.readFailed;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CloseOnBusinessDayChange(
+        shiftType: _shiftType,
+        closeValue: false,
+        child: AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Text(pending ? kTodayPendingTitle : '本日は報告済みです',
             style: const TextStyle(color: FieldTokens.textBody, fontSize: 16)),
-        content: Text(pending ? kSecondReportPendingBody : '本日の日報は提出済みです。2件目を作成しますか？',
-            style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(pending ? kSecondReportPendingBody : '本日の日報は提出済みです。2件目を作成しますか？',
+                style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
+            if (readFailed) kPendingReadFailedNoteDialogView,
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -866,6 +981,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 style: TextStyle(color: FieldTokens.statusWarning)),
           ),
         ],
+        ),
       ),
     );
     if (ok != true) return false;
@@ -892,6 +1008,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   みなし … 打刻という確定点が無いので、ここで確認して 'closed' を刻む＝1日の締めにする。
   //            締めた日は完了ビューのアクションが「追加の申告」だけになり、再起動しても維持される
   //            （_initTodayReportDone が closed を読み直す）。
+  //   →再（2026-10-21・便BN・見つけた事 (50)・【Q156】＝１（案１）・見本 claude/field_close_busy_mock_v1.html・下調べの (Z1)〜(Z4)(Y1)〜(Y4)）:
+  //   元は「退勤して締める」の後に退勤を待って maybePop した（打刻か読み直しの最中は黙って打たれずに閉じ・打つ間は何も出ず・
+  //   一番上の物を閉じた）。退勤の口はその場で答える：最中なら打たず閉じずに知らせ（kCloseBusyText）・打ち始めたら、打ち終わりを
+  //   待つ間は［今日はここまで］を回る印にして（_closePunching）、打てた時は、その全画面が一番上の時だけ閉じる（上に窓が在れば閉じない
+  //   ＝もう一度押すと、退勤済みの写しなので窓なしで閉じる）・取れなかった時は閉じない（理由の知らせは打刻の画面が出す）・打刻の画面が
+  //   無い時は取れなかった時と同じ（既定の字で知らせる）。待つ間にシェルが消えた時（ログインし直し）は何もしない。窓の字は替えない。
+  //   →再（便BN・(D8)）: 窓「退勤して今日を締めますか？」は、開いたまま業務日が替われば閉じる（「キャンセル」を押した時と同じ）。
   Future<void> _onCloseToday() async {
     if (_punchIsActual) {
       // N3: 出勤中のまま締めようとしている＝退勤打刻がまだ無い。
@@ -901,7 +1024,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       if (_punchedInToday && !_punchedOutToday && punchOut != null) {
         final ok = await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
+          builder: (ctx) => CloseOnBusinessDayChange(
+            shiftType: _shiftType,
+            closeValue: false,
+            child: AlertDialog(
             backgroundColor: FieldTokens.surfaceCard,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             title: const Text('退勤して今日を締めますか？',
@@ -921,12 +1047,45 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                     style: TextStyle(color: FieldTokens.statusWarning)),
               ),
             ],
+            ),
           ),
         );
-        if (ok != true) return;          // キャンセル＝何も変えずその場に留まる
-        await punchOut();                // 既存 _doPunch('out') 経路（打刻ロジックは複製しない）
-        if (!mounted) return;
+        if (ok != true || !mounted) return;   // キャンセル＝何も変えずその場に留まる
+        // 打つのは既存 _doPunch('out') 経路（打刻ロジックは複製しない・打つ種類は (D10) のとおり押した時の種類）。
+        final route = _reportFormRoute;          // 閉じる全画面（打ち終わりの時に一番上か見る）
+        final start = punchOut();
+        switch (start.kind) {
+          case PunchOutStartKind.busy:
+            showJsSnackbar(context, kCloseBusyText, isWarning: true);   // (Z2) 打たず・閉じず
+            return;
+          case PunchOutStartKind.absent:
+            showJsSnackbar(context, kPunchErrorText, isError: true);    // (Z1) 取れなかった時と同じ・閉じない
+            return;
+          case PunchOutStartKind.started:
+            break;
+        }
+        setState(() => _closePunching = true);   // (Y1)
+        var punched = false;
+        try {
+          punched = await start.done!;
+        } finally {
+          if (mounted) setState(() => _closePunching = false);
+        }
+        if (!mounted) return;                    // (Y4)
+        if (!punched) return;                    // (Y3) 取れなかった時は閉じない（知らせは打刻の画面が出した）
+        // (Y2) 打てた時は、その全画面が一番上の時だけ閉じる（上の窓や、閉じた後のホームの上の物を閉じない）。
+        if (route != null && route.isCurrent) Navigator.of(context).pop();
+        return;
       }
+      Navigator.of(context).maybePop();
+      return;
+    }
+    // (45)（便BN・下調べの ■1）: 窓の業務日と勤務の種類は、送った後の画面が出している印（_shownMark）から1回だけ取り、
+    //   窓の字と締める印（_saveWorkStatus・写し）の両方に使う（元: 窓の字は窓を組む時の業務日・締める印は押した時の業務日＝
+    //   窓を開いたまま業務日が替わると、字と違う日を締めた）。出している印が無い時は、窓を出さずに今のとおり閉じるだけ。
+    //   ★締めの窓は字に日付が在るので、業務日が替わっても閉じない（下調べの (D8) の外）。
+    final m = _shownMark;
+    if (m == null) {
       Navigator.of(context).maybePop();
       return;
     }
@@ -941,7 +1100,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   （見つけた事 (41)）。→再（2026-10-19・便BM・【Q151】＝１・見本 claude/field_close_date_remove_mock_v1.html の (41)）:
         //   締める業務日と勤務区分（_saveWorkStatus('closed') が書く物と同じ）で、締めた後にできなくなる事だけを言う。
         content: Text(
-            '${closeTodayLine1(_shiftType, businessDateForShift(_shiftType, DateTime.now()))}\n'
+            '${closeTodayLine1(m.shift, m.bizDate)}\n'
             '残業や休憩の申告はこのあとも行えます。',
             style: const TextStyle(color: FieldTokens.textSupport, height: 1.6)),
         actions: [
@@ -959,9 +1118,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       ),
     );
     if (ok != true) return;                 // キャンセル＝何も変えずその場に留まる
-    await _saveWorkStatus('closed');
+    await _saveWorkStatus('closed', shiftType: m.shift, bizDate: m.bizDate);
     if (!mounted) return;
-    setState(() => _todayClosed = true);
+    setState(() => _setMark(m.shift, m.bizDate, 'closed'));
     Navigator.of(context).maybePop();
   }
 
@@ -978,7 +1137,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     if (who.isEmpty) return false;
     final ok = await prefs.setString(kShiftTypeKey, v) &&
         await prefs.setString(kShiftBusinessDateKey,
-            shiftDateValue(businessDateForShift(v, DateTime.now()), who));
+            shiftDateValue(businessDateForShift(v, businessNow()), who));
     if (!ok) throw StateError('勤務の種類を端末に書けませんでした');
     return true;
   }
@@ -996,6 +1155,68 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       await recordDeviceError('shift_save');
     }
   }
+
+  // ─── (D6) 夜勤のまま業務日が替わった時（便BN・見つけた事 (47)(d)・下調べの (D6)）───
+  //   決まり（1本・その場で決める・端末を読まない・書かない）：今の業務日（businessDateForShift(_shiftType, 今)）が、_shiftType を決めた時の
+  //   業務日（_shiftDecidedBiz）と違い、かつ打っている字の勤務の種類を替えない時（_canSwitchShiftNow）だけ、_shiftType を 'day' にして、
+  //   決めた時の業務日をその今の 'day' の業務日にする（夜勤の時だけ替わる＝開いた時の決まり lib/utils/saved_shift_type.dart の
+  //   shiftTypeIfSameBusinessDate と同じ物差し）。種類が替わった時は、選び直した時と同じく _reevaluateReportDone で日勤の今日の印を読む
+  //   （PunchScreen は didUpdateWidget で読み直す）。端末の保存（kShiftTypeKey・kShiftBusinessDateKey）と※（_shiftReadFailed）は触らない。
+  //   ★その場で決めるので、同じ知らせの中で2回見ても、2回目は「決めた時の業務日＝今」で何もしない。
+  //   ★見る所＝知らせの時（時計・戻った時）・シェルの route の didPopNext・全画面の見張りの didPopNext・全画面が閉じ終わった後・器が
+  //     「その場で替わった」を見つけて描いた後・覚えた時。
+  void _maybeReturnToDayShift() {
+    if (!mounted) return;
+    final decided = _shiftDecidedBiz;
+    if (decided == null) return;   // 覚えるまでは見ない
+    final now = businessNow();
+    if (businessDateForShift(_shiftType, now) == decided) {
+      _formSwitchedInPlace = false;   // 見て業務日が同じだった時は「その場で替わった」の印を消す
+      return;
+    }
+    if (!_canSwitchShiftNow()) return;   // 上に画面・窓・シートが在る間は見送る（閉じた時に見る）
+    final changed = _shiftType != 'day';
+    setState(() {
+      _shiftType = 'day';
+      _shiftDecidedBiz = businessDateForShift('day', now);
+      _formSwitchedInPlace = false;
+    });
+    if (changed) _reevaluateReportDone();
+  }
+
+  // (D6) 打っている字の勤務の種類を替えない時か：
+  //   (あ) ホームの画面が一番上で、日報の全画面が開いていない（_reportFormOpen は全画面が閉じ終わるまで下ろさない）。
+  //   (い) 日報の全画面が一番上で、その全画面が「送った後の画面からその場でフォームに替わった・まだ替えていない」（打った字が無い）。
+  //   上に別の画面・窓・シートが在る時は替えない（それらは開いた時の勤務の種類を使い続ける）。
+  bool _canSwitchShiftNow() {
+    if (!_reportFormOpen) return _shellRoute?.isCurrent ?? false;
+    final r = _reportFormRoute;
+    return r != null && r.isCurrent && _formSwitchedInPlace;
+  }
+
+  // 業務日の切り替わりの時計が鳴った時（便BN・(D5)）：シェルを描き直し（全画面のフォームも描き直る）、PunchScreen の番号を進め
+  //   （打刻と本日休みを読み直す）、知らせを鳴らし（「未送信日報」の画面・今日を前に置く字の窓）、(D6) を見る。
+  void _onBusinessDayTick() {
+    if (!mounted) return;
+    setState(() => _businessDayTick++);
+    BusinessDayTick.ring();
+    _maybeReturnToDayShift();
+  }
+
+  // シェルの route を見張る（(D6)・上の画面や窓が閉じた時＝didPopNext に見る）。
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of<void>(context);
+    if (route != null && !identical(route, _shellRoute)) {
+      if (_shellRoute != null) appRouteObserver.unsubscribe(this);
+      _shellRoute = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() => _maybeReturnToDayShift();
 
   // 開いた時の今日の印（便BJ・見本 v2 の ⑫・ボスの裁定【Q141】・検分 a253 の S2・S3）。この順で、1つずつ待つ：
   //   (1) 別の人の送った・締めた印を消す（utils/today_marks.dart の clearOtherOwnersTodayMarks）
@@ -1017,13 +1238,21 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       debugPrint('勤務の種類を戻せませんでした（今の種類のまま進める）: $e');
       // ※の字は「日勤で表示しています」＝日勤で表示している時だけ立てる（先に夜勤を選んで保存した時は出さない）。
       if (mounted && _shiftType == 'day') setState(() => _shiftReadFailed = true);
+      // 便BN (D6): 決めた時の業務日は、今の種類（戻せない時は初めの 'day'）でその時の今で数える（先に選び直していれば、その時の物のまま）。
+      if (_shiftDecidedBiz == null) {
+        _shiftDecidedBiz = businessDateForShift(_shiftType, businessNow());
+        _maybeReturnToDayShift();   // 覚えた時（戻せない）
+      }
       await recordDeviceError('shift_restore');
     }
+    // (D1)（便BN）: 読む勤務の種類と業務日は、ここで1回だけ求めて渡す（読めなかった時の※も、その勤務の種類と業務日で立てる）。
+    final shift = _shiftType;
+    final biz = businessDateForShift(shift, businessNow());
     try {
-      await _initTodayReportDone();
+      await _initTodayReportDone(shift, biz);
     } catch (e) {
       debugPrint('送った印を読めませんでした: $e');
-      if (mounted) setState(() => _doneMarkReadFailed = true);
+      if (mounted) setState(() => _setDoneMarkFail(shift, biz));
       await recordDeviceError('done_mark_read');
     }
   }
@@ -1034,22 +1263,37 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // 起動時: 保存時の業務日と「いま同じ勤務区分で計算した業務日」が一致する場合のみ復元。
   // 不一致・欠落・不正値は 'day' にリセットし prefs も掃除する（引きずり防止）。
+  //   →再（2026-10-21・便BN・(D6)）: 決まりに使う今を1回だけ取り、同じ今で「決めた時の業務日」を覚える（覚えた時にも (D6) を見る＝
+  //   待つ間に境が来た時）。
   Future<void> _restoreShiftType() async {
     final prefs = await SharedPreferences.getInstance();
+    final now = businessNow();
     // 決まり（保存した業務日と、今その種類で数えた業務日が同じ時だけ）は utils/saved_shift_type.dart の1本（便BJ・
     //   日報漏れの申告の口も同じ1本で今の勤務の種類を読む）。
     //   →再（2026-10-14・便BJ・【Q141】）: 書いた人が今の人でない保存は、無い物として読む（下で消す＝別の人の印を使わない）。
     final savedType = shiftTypeIfSameBusinessDate(
         prefs.getString(kShiftTypeKey),
         shiftDateOf(prefs.getString(kShiftBusinessDateKey), me: todayMarkOwnerOf(prefs)),
-        DateTime.now());
+        now);
     if (savedType != null) {
-      if (mounted) setState(() => _shiftType = savedType);
+      if (mounted) {
+        setState(() {
+          _shiftType = savedType;
+          _shiftDecidedBiz = businessDateForShift(savedType, now);
+        });
+        _maybeReturnToDayShift();   // 覚えた時（戻せた）
+      }
       return;
     }
     await prefs.remove(kShiftTypeKey);
     await prefs.remove(kShiftBusinessDateKey);
-    if (mounted && _shiftType != 'day') setState(() => _shiftType = 'day');
+    if (mounted) {
+      setState(() {
+        _shiftType = 'day';
+        _shiftDecidedBiz = businessDateForShift('day', now);
+      });
+      _maybeReturnToDayShift();   // 覚えた時（日勤）
+    }
   }
 
   // ─── 現場の引き継ぎ（裁定A）───
@@ -1258,6 +1502,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     RestDayRefresh.changes.removeListener(_onRestDayChanged);
     ReportStore.instance.droppedPhotoCount.removeListener(_onDroppedPhotos);
     _autoRetry.stop();
+    _dayClock.stop();                        // 便BN (D5)
+    appRouteObserver.unsubscribe(this);      // 便BN (D6)
+    _formWatcher?.stop();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1281,6 +1528,12 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       // ★要対応の件数も読み直す（便F13）。本日休みの状態は PunchScreen が自分の
       //   didChangeAppLifecycleState で読み直す（番号は進めない＝2回引かない）。
       _loadSubstituteCount();
+      // 便BN (D5): 業務日の切り替わりの時計を、前の時計を止めて今から掛け直す（裏や端末が眠る間の時計の進み方に頼らない）。描き直し
+      //   （全画面のフォームも）・知らせ（「未送信日報」の画面・今日を前に置く字の窓）・(D6) を見る。PunchScreen の番号は進めない。
+      _dayClock.restart();
+      setState(() {});
+      BusinessDayTick.ring();
+      _maybeReturnToDayShift();   // 戻った時
     }
   }
 
@@ -1586,7 +1839,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         'o:$_originType',
         'oa:$originAddr',                                   // 実際に使った起点住所
         _routeDestKey,                                      // 目的地
-        'd:${businessDateForShift(_shiftType, DateTime.now())}',  // 取得日（業務日）
+        'd:${businessDateForShift(_shiftType, businessNow())}',  // 取得日（業務日）
       ].join('|');
 
   Future<void> _calculateRoutes() async {
@@ -1743,16 +1996,22 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         body: Text(text, style: kPastDayFrameBody),
       );
 
-  Future<void> _submit() async {
-    if (_submitting) return;
+  //   →再（2026-10-21・便BN・下調べの (D2)(D4)・見つけた事 (48)(49)）: 返り＝この送るで箱に入れたか（確かめの画面は true の時だけ
+  //   閉じる＝isDone の口は外した）。日報の時刻は「報告を送信」を押した時の今を1つだけ使う（確かめの画面が押した時に
+  //   currentOf＝_buildSnapshot で差を見て、同じ流れでここを呼ぶ＝_buildSnapshot が「日付」の字に使った今を、一番頭で手元に移す・
+  //   駐車の写真の窓を待つ間に業務日が替わっても、日報の業務日は押した時の日＝見せた日付と同じ）。送った印と写しも、その日報の
+  //   勤務の種類と業務日で書く（(48)）。
+  Future<bool> _submit() async {
+    final sendNow = _snapshotNow ?? businessNow();
+    if (_submitting) return false;
     if (_userName.isEmpty) {
       showJsSnackbar(context, '氏名が取得できていません', isError: true);
-      return;
+      return false;
     }
     if (_transports.isEmpty) {
       showJsSnackbar(context, '移動手段を選択してください', isError: true);
       _jumpToStep(2);   // 直せる場所（移動ステップ）へ戻す。条件式・文言は不変
-      return;
+      return false;
     }
     // 便BJ（見本 v1 の ②）: 前の回の枠を消してから始める。
     setState(() {
@@ -1765,6 +2024,9 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     //   →再（2026-10-14・便BJ・見本 v1 の ②）: 残る前に止まった時だけ、確認の画面に枠「送信できません」を出して
     //   「報告を送信」をまた押せるようにする。残った後は、何で止まっても完了の画面へ進む（2枚目を作らせない）。
     var stored = false;
+    // 送った日報の勤務の種類と業務日（送れた後の送った印と写しに使う・(48)）。
+    String? sentShift;
+    String? sentBizDate;
     try {
       // 元: 窓を出す式は「車か その他」かつ写真0枚（相乗りで帯が無くても窓が出た）で、窓は try の外だった。
       // →再（2026-10-14・便BJ・見本 v1 の ④）: 帯を出す式（reportParkingVisible）と同じ1本＋写真0枚。
@@ -1775,7 +2037,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         if (!proceed) {
           if (mounted) setState(() => _submitting = false);
           _jumpToStep(2);   // 駐車場写真の帯は移動ステップにある。条件式・ダイアログ本文は不変
-          return; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
+          return false; // 「戻って撮影する」→送信中断。駐車場写真は帯の「＋撮影」から追加してもらう
         }
       }
       final name = _userName;
@@ -1821,6 +2083,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         gpsFailReason: _gpsFailReason,
         // 提出座標（_fetchGps が置いた最新値）。null なら main.dart が送らない。
         // ★diffKey（差異検知の7要素）には入れない＝確認画面の判定は1文字も変えていない。
+        //   （→再（2026-10-21・便BN・(D7)）: 今の diffKey は8要素＝日付の字を足した・座標は今も入れない）
         gpsLat: _lat,
         gpsLon: _lon,
         originType: _originType,
@@ -1835,21 +2098,27 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // 作業2: 相乗り相手（構造化）
         carpoolCompany: carpoolCompany,
         carpoolName:    carpoolName,
+        // (D2)（便BN）: 日報の時刻は押した時の今（作った時の今ではない）。
+        timestamp: sendNow,
       );
       // 便BJ（見本 v1 の ③）: 写真が全部読めるか、送る前に確かめる（元: 読めない写真を黙って外して送った）。
       //   読めなければ送らずに枠を出す（後から出す日報と同じ字）。
       final photos = await reportPhotosFor(item);
-      if (!mounted) return;
+      if (!mounted) return false;
       if (photos.length < item.workPhotoPaths.length + item.parkingPhotoPaths.length) {
         setState(() => _sendNotice = _sendFrame(kPhotoUnreadableText));
-        return;
+        return false;
       }
       await ReportStore.instance.addReport(item);
       stored = true;
+      // 日報の業務日＝送る report_date と同じ物差し（main.dart の reportBodyFor＝businessDateForShift(item.shiftType, item.timestamp)）。
+      sentShift = item.shiftType;
+      sentBizDate = businessDateForShift(item.shiftType, item.timestamp);
       // ここから先は片付け（便BJ: ここで止まっても、日報は端末に残っている＝下で完了の画面へ進む）。
       await ReportStore.instance.retryPending();
       // 送った印は日報の持ち主で書く（送る途中に締め出された時も、同じ人の印になる＝【Q141】・検分 a251 の N7）。
-      _saveWorkStatus('done', owner: item.ownerUserId);
+      //   →再（2026-10-21・便BN・(48)）: 日報の勤務の種類と業務日で書く（送る間に業務日が替わっても、送った日に書く）。
+      _saveWorkStatus('done', owner: item.ownerUserId, shiftType: sentShift, bizDate: sentBizDate);
       _clearDraft();
       NotificationManager.instance.cancelOvertimeReminder();
     } catch (e) {
@@ -1858,7 +2127,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
-    if (!stored || !mounted) return;
+    if (!stored) return false;
+    if (!mounted) return true;
     // 送信完了の snackbar は撤去。直後に出る完了ビュー(AfterReportBody)が
     // 「報告完了 / ☀日勤 7/22分を送信しました」または「未送信（再送待ち）」を
     // バッジ付きで正面に出しており、同じ事実の二重表示だった。
@@ -1883,11 +2153,19 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       // 全画面push(AfterReportScreen)は廃止。完了ビューは、日報のフォームの全画面（_pushReportForm）の中で出す。
       //   （元の説明「完了ビューを日報タブ(index1)に出す」＝便BM で今の作りに合わせた・見つけた事 (43)）
       // ＝日報フォームへ到達不能にして二重報告を防止する不変条件。
-      _todayReportDone = true;
-      // K3: 直前に刻んだ work_status は 'done'＝締め済みではない。
-      //   prefs とミラーがズレないようここでも false に揃える。
-      _todayClosed = false;
+      // K3: 直前に刻んだ work_status は 'done'＝締め済みではない（写しの状態も 'done'）。
+      //   →再（2026-10-21・便BN・(D1)(D3)・見つけた事 (48)）: 写しは送った日報の勤務の種類と業務日で書く。それが今の物でない時
+      //   （送る間に業務日が替わった時）は、またいで送った印を置く＝送った後の画面は、その日（頭の日付・行の分け方・締める日）で
+      //   出し、［追加の申告］は出さない（全画面が閉じ終わった時に消す）。
+      if (sentShift != null && sentBizDate != null) {
+        _setMark(sentShift, sentBizDate, 'done');
+        if (!_markIsToday) _crossedSentMark = (shift: sentShift, bizDate: sentBizDate);
+      }
+      // (D2)（便BN）: 送れた後に段を 1 へ戻す（業務日が替わった後の1件目が段3で開かない・_resetForNextReport と同じ）。
+      //   目安（_routeComparisons）は空にしない（今いる所の物＝現場と同じく残す）。
+      _reportStep = 1;   // (D2) 送れた後は段1
     });
+    return true;
   }
 
   // 作業現場の選択ボトムシート（getSites をサルベージ・「対象なし」を最上段固定）
@@ -1955,7 +2233,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   食い違っていた。
   //   業務日は、ホームの勤務区分の下の「業務日」の行と、日報のフォームの頭が出す（今のまま）。
   String get _dateLabel {
-    final ds = businessDateForShift('day', DateTime.now());
+    final ds = businessDateForShift('day', businessNow());
     final d  = DateTime.parse(ds);
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     final w = weekdays[d.weekday - 1];
@@ -1965,8 +2243,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ─── 日報フォームv2 ヘッダの日付（M月d日（曜））───
   // 既存の _dateLabel（AppBar用・YYYY/MM/DD）は改変せず、フォーム専用に別途組む。
   // 物差しは同じ businessDateForShift（送信される report_date と一致）。
-  String get _formDateLabel {
-    final d = DateTime.parse(businessDateForShift(_shiftType, DateTime.now()));
+  //   →再（2026-10-21・便BN・(D2)）: 字は「今」を受ける _formDateLabelAt の1本（確かめの画面の日付の字と、日報の時刻を同じ今から出す）。
+  String get _formDateLabel => _formDateLabelAt(businessNow());
+  String _formDateLabelAt(DateTime now) {
+    final d = DateTime.parse(businessDateForShift(_shiftType, now));
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
     return '${d.month}月${d.day}日（${weekdays[d.weekday - 1]}）';
   }
@@ -2004,18 +2284,23 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
           initial:   _buildSnapshot(),
           currentOf: _buildSnapshot,
           onSend:    _submit,
-          isDone:    () => _todayReportDone,
           bottomNoticeOf: () => _sendNotice,
         ),
       ),
     );
   }
 
-  // 確認画面の表示材料と差異検知キーを一度に作る。読むだけ・stateは変えない。
+  // 確認画面の表示材料と差異検知キーを一度に作る。
   //   組み方（出発地の字・移動手段の鍵と字・相乗りの2つ・空白の扱い）は reportSnapshotFrom
   //   （lib/widgets/report_form_steps.dart）に在る。ここは、今の欄の値を渡すだけ。
-  ReportSnapshot _buildSnapshot() => reportSnapshotFrom(
-        dateLabel: _formDateLabel,
+  //   元: 「読むだけ・stateは変えない」。→再（2026-10-21・便BN・下調べの (D2)(D7)）: 「日付」の字に使った今を _snapshotNow に覚える
+  //   （画面は描き直さない＝setState は呼ばない）。_submit は一番頭でそれを手元に移して日報の時刻にする。日付の字は差の見張りの
+  //   鍵に入る（確かめの画面を開いたまま業務日が替われば、送らずに見せ直す＝report_form_parts.dart の diffKey）。
+  ReportSnapshot _buildSnapshot() {
+    final now = businessNow();
+    _snapshotNow = now;
+    return reportSnapshotFrom(
+        dateLabel: _formDateLabelAt(now),
         shiftLabel: _shiftLabel,
         siteId: _selectedSiteId,
         siteName: _selectedSiteName,
@@ -2030,6 +2315,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         workPhotoCount: _workPhotoPaths.length,
         parkingPhotoCount: _parkingPhotoPaths.length,
       );
+  }
+
+  // (D2)（便BN）: 確かめの画面の「日付」の字に使った今（_buildSnapshot が覚え、_submit が一番頭で手元に移す）。
+  DateTime? _snapshotNow;
 
   // ─── ページタイトル（ボトム4タブと1:1・役割で変えない）───
   String get _pageTitle {
@@ -2083,6 +2372,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         },
         // K5(Q9): 「本日休み」を押した瞬間のガードが読む真実（done/closed）。
         //   isDone(:確認画面) と同じ「関数を下ろす」流儀。prefs 直読みはさせない。
+        //   （元の説明の isDone の口は、便BN の (D4) で確かめの画面から外した＝流儀は「親の真実を関数で読む」のまま）
         isReportDone: () => _todayReportDone,
         // N5: 日報フォームへ入る直前の親側ゲート（判定と確認文言は親が持つ）。
         //   「日報を報告」経路 → 報告済み(未締め)なら2件目の確認＋リセット。
@@ -2091,6 +2381,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         onBeforeMoveToNextSite: _prepareMoveToNextSite,
         // N3: 完了ビュー「今日はここまで」から退勤を打つための実行口を受け取る。
         onPunchOutHandlerReady: (fn) => _punchOutFromHome = fn,
+        // 便BN (D5): 時計が鳴った時だけ進む番号（打刻と本日休みを読み直す）。
+        businessDayTick: _businessDayTick,
         // N7: ホームへ増設した「⏰ 追加の申告」（完了ビュー側の同ボタンは不変・こちらは増設）。
         //   ・todayClosed … みなしの締め状態。判定は当State（_todayClosed）が唯一の真実源で、
         //     PunchScreen は受けた真偽で表示を出し分けるだけ（判定式を複製しない）。
@@ -2107,7 +2399,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         //   時だけ出す（夜勤へ切り替えて保存できなかった時に、事実と違う字を出さない・検分 a260 の K2）。
         shiftReadFailed: _shiftReadFailed && _shiftType == 'day',
         onShiftTypeChanged: (v) {
-          setState(() => _shiftType = v);
+          setState(() {
+            _shiftType = v;
+            _shiftDecidedBiz = businessDateForShift(v, businessNow());   // 便BN (D6): 選んだ時の今で覚える
+          });
           _onShiftTypeChosen(v);    // 業務日スコープで永続化（保存できたら ⑰① の※を消す・便BK）
           _reevaluateReportDone();  // S5b: 複合キーで報告済み判定をやり直す
         },
@@ -2161,6 +2456,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         onOpenPendingReports: _openPendingReports,
         //   本日休みの窓の字（便BM・見本 ③）：今日の分に未送信の日報が在るか（押した瞬間に読む・2件目の窓と同じ _todayHasPending）。
         isTodayPending: () => _todayHasPending,
+        //   本日休みの窓の※（便BN・見つけた事 (46)・【Q155】＝１）：未送信の箱を読めなかったか（押した瞬間に読む・2件目の窓と同じ物）。
+        isPendingReadFailed: () => ReportStore.instance.pendingView.value.readFailed,
         ),
       ),
       ManagementHistoryScreen(
@@ -2201,6 +2498,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   ・当 State の setState をオーバーライド（下記）して push 先も再描画するため、
   //     フォーム内の全ての setState 駆動UI（チップ選択・写真帯・GPS・ルート計算結果・
   //     _todayReportDone による AfterReportBody 差替）は従来どおり動く。
+  //     （→再（2026-10-21・便BN・(D3)）: 差し替えは「出している印」＝_shownMark による）
   bool _reportFormOpen = false;
 
   Future<void> _openReportForm() async {
@@ -2216,12 +2514,23 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       await _pushReportForm();
     } finally {
       _reportFormOpen = false;
+      // 便BN (D6): 全画面が閉じ終わった後に、夜勤のまま業務日が替わっていないか見る（_reportFormOpen を下ろしてから）。
+      _maybeReturnToDayShift();   // 閉じ終わった後
     }
   }
 
+  // 日報のフォームの全画面の route（便BN・下調べの (D6)・(Y2)）。開いている間だけ持つ（一番上か＝isCurrent を見るため）。
+  MaterialPageRoute<void>? _reportFormRoute;
+
+  //   →再（2026-10-21・便BN・(D3)(D6)）: route を手元に持って push し、閉じ終わり（completed＝出ていく動きが終わって外された後）
+  //   まで待つ（_reportFormOpen は、閉じ終わるまで下ろさない）。閉じ終わったら、またいで送った印を消す。
+  //   (D6): 全画面ごとの「その場で替わった」の印と「前に描いた時」の覚えを、開く時に空にする（2件目や現場移動で開き直した全画面の
+  //   最初の描きで、前の全画面の覚えが残らない）。全画面の route にも見張り（_ReportFormRouteWatcher）を付け、上の窓やシートが閉じた時
+  //   （didPopNext）に (D6) を見る（下が全画面の route の時は、シェルの didPopNext は来ない）。閉じ終わったら見張りを外し、印を消す。
   Future<void> _pushReportForm() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
+    _formSwitchedInPlace = false;
+    _formLastDrawnAfter = null;
+    final route = MaterialPageRoute<void>(
         builder: (_) => Scaffold(
           backgroundColor: FieldTokens.bgBase,
           appBar: AppBar(
@@ -2236,9 +2545,22 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
             child: _ReportFormPage(key: _reportPageKey, builder: _buildHomeTabContent),
           ),
         ),
-      ),
     );
+    _reportFormRoute = route;
+    unawaited(Navigator.of(context).push(route));
+    final watcher = _ReportFormRouteWatcher(route, onPopNext: _maybeReturnToDayShift)..start();
+    _formWatcher = watcher;
+    await route.completed;
+    watcher.stop();
+    if (identical(_formWatcher, watcher)) _formWatcher = null;
+    if (identical(_reportFormRoute, route)) _reportFormRoute = null;
+    _formSwitchedInPlace = false;
+    _formLastDrawnAfter = null;
+    if (mounted && _crossedSentMark != null) setState(() => _crossedSentMark = null);
   }
+
+  // 日報のフォームの全画面の route の見張り（(D6)・開いている間だけ）。
+  _ReportFormRouteWatcher? _formWatcher;
 
   // ─── 2段 AppBar ───
   // 共有/設定は Body 化した（ShareHubBody / ProfileBody）ため自前の AppBar を持たない。
@@ -2521,7 +2843,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   //   今日の分＝今の勤務区分（_shiftType）で今の業務日の日報（lib/utils/pending_view.dart の pendingTodayRows の1本）。
   //   2件目の窓と本日休みの窓の字を替えるためだけに読む（読めなかった時は、前に読めた時の姿のまま＝readFailed の★）。
   bool get _todayHasPending => pendingTodayRows(ReportStore.instance.pendingView.value,
-          shiftType: _shiftType, now: DateTime.now())
+          shiftType: _shiftType, now: businessNow())
       .isNotEmpty;
 
   // ─── 「未送信日報」の画面（便BM・見本 ②・ホームの要対応の行から）───
@@ -2550,7 +2872,20 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ─── ホームタブ本体 ───
   Widget _buildHomeTabContent() {
     // 完了ビューが占有中は日報フォームを出さない＝到達不能（二重報告防止の要）
-    if (_todayReportDone) {
+    //   →再（2026-10-21・便BN・下調べの (D3)・見つけた事 (47)(48)）: 出し分けは「出している印」（_shownMark＝今日の写しか、
+    //   またいで送った印）で決める。送った後の画面の頭の日付・今日の分の行と「未送信日報」の行の分け方・締める日は、その印の
+    //   勤務の種類と業務日で出す。またいで送った印の時は［追加の申告］を出さない（押すと今の業務日に当たるため）。
+    //   開いたまま業務日が替わると（またいで送った時のほか）、今日の写しが下りて、今の業務日のフォームに替わる。
+    final shown = _shownMark;
+    // (D6)(い)（便BN）: 前に描いた時は送った後の画面で、今はフォーム＝その場で替わった（業務日が替わって今日の写しが下りた）。印を立てて、
+    //   描いた後に (D6) を見る（描く中では替えない・1回描いた夜勤の頭は次の描き直しで日勤になる＝打つ前）。
+    final drawnAfter = shown != null;
+    if (_formLastDrawnAfter == true && !drawnAfter) {
+      _formSwitchedInPlace = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeReturnToDayShift());
+    }
+    _formLastDrawnAfter = drawnAfter;
+    if (shown != null) {
       // 便BJ（見本 v1 の ①案A）: 頭の字は、端末に残っている今の人の日報の数で決める（0＝「報告完了」）。
       //   送り直し（電波が戻った時・アプリへ戻った時・今すぐ再送）で数が変わると、頭の字も替わる。
       // 便BJ（見本 v2 の ⑬・ボスの裁定【Q142】）: 送り先が受け付けなかった日報が在れば、その答えの字を3行目に出す。
@@ -2560,14 +2895,14 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
       return ValueListenableBuilder<PendingView>(
         valueListenable: ReportStore.instance.pendingView,
         builder: (_, view, __) {
-        final now = DateTime.now();
-        final today = pendingTodayRows(view, shiftType: _shiftType, now: now);
+        final now = businessNow();
+        final today = pendingTodayRows(view, shiftType: shown.shift, now: now, bizDate: shown.bizDate);
         return AfterReportBody(
         workerName: _userName,
         sent: today.isEmpty,
         refusedMessage: firstRefusedMessageOf(today),
         pendingReadFailed: view.readFailed,
-        otherRows: pendingOtherRows(view, shiftType: _shiftType, now: now),
+        otherRows: pendingOtherRows(view, shiftType: shown.shift, now: now, bizDate: shown.bizDate),
         unreadableCount: view.unreadableRows,
         unreadableUnknown: view.unreadableBoxes > 0,
         onRemoveRow: _confirmRemovePending,
@@ -2576,11 +2911,15 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         // maybePop: 閉じられる route が無い場合は何もしない（袋小路もクラッシュも作らない）。
         // K3(Q8): みなしのときだけ「締めますか？」を挟んで 'closed' を刻む（_onCloseToday）。
         //   実打刻はそのまま maybePop＝従来の挙動のまま。
+        //   （元の説明の「実打刻はそのまま maybePop」は N3 より前の作り＝実打刻で出勤中は退勤締めの窓を出す（_onCloseToday）・便BN で直した）
         onClose: _onCloseToday,
+        closeBusy: _closePunching,   // 便BN (Y1): 締めの窓から退勤を打つ間は回る印で押せない
         // N4: アクションは「⏰追加の申告」と「今日はここまで」の2つだけ。
         //   出し分けの引数（showMoveToNextSite / showShiftContinue）も、
         //   「🚗次の現場へ移動」「☀/🌙シフト切替」の2ハンドラも渡さなくなった。
-        shiftType: _shiftType,   // ヘッダのサブ行「☀日勤 7/22分を送信しました」に使う
+        shiftType: shown.shift,   // ヘッダのサブ行「☀日勤 7/22分を送信しました」に使う
+        bizDate: shown.bizDate,   // 便BN (D3): 頭の日付は出している印の業務日
+        showOvertime: shown.isToday,   // 便BN (D3)(48): またいで送った印の時は［追加の申告］を出さない
         // 「今すぐ再送」：既存の再送手段(retryPending)のみ使用。addReport再呼び出しはしない（二重報告防止）
         //   →再（2026-10-14・便BK・検分 a259 の N5）: 残りの数は、送り直しの終わりに読み直した姿（pendingView）から取る
         //   （元: もう一度箱を数えていた＝同じ数を2つの道で持っていた）。姿を読めなかった時は、数を出さない
@@ -2791,10 +3130,13 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   // ── 「追加の申告」種別選択（残業 / 休憩の短縮）─────────────────────────
   //   提出後画面 after_report_screen.dart の続行1行目から onOvertime 経由で来る。
   //   縦2行・暗枠1px・塗りなし（カードは使わない＝_ActionCard 様式は持ち込まない）。
+  //   →再（2026-10-21・便BN・見つけた事 (47)(g)・下調べの (D8)）: 開いたまま業務日が替われば閉じる（「閉じる」を押した時と同じ＝何もしない）。
   Future<void> _openExtraDeclarationPicker() async {
     final choice = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CloseOnBusinessDayChange(
+        shiftType: _shiftType,
+        child: AlertDialog(
         backgroundColor: FieldTokens.surfaceCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('追加の申告',
@@ -2827,6 +3169,7 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                 style: TextStyle(color: FieldTokens.textSupport)),
           ),
         ],
+        ),
       ),
     );
     if (!mounted || choice == null) return;   // 閉じる/背景タップ＝何もしない
@@ -2839,7 +3182,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
 
   // 「休憩の短縮」申告シート。送信は既存 WorkModeService.breakRequest をそのまま使い、
   // ＝夜勤の業務日ズレ（深夜〜午前は始業日=前日）が日報と一致する。
+  //   →再（2026-10-21・便BN・見つけた事 (47)(h)・下調べの (D9)）: workDate と勤務の種類は、シートを開く前に1回だけ求めて渡す（元は builder の
+  //   中で求めた＝開いたまま業務日が替わって描き直ると、開いた日と違う日に当たった）。
   Future<void> _openShortBreakSheet() async {
+    final shift = _shiftType;
+    final workDate = businessDateForShift(shift, businessNow());
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -2848,10 +3195,10 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _ShortBreakSheet(
-        workDate: businessDateForShift(_shiftType, DateTime.now()),
+        workDate: workDate,
         // N6: 申告を当てる勤怠行のシフト。workDate と同じ _shiftType から採る
         //   ＝業務日とシフトが常に同じ勤務を指す（BE は (person, work_date, shift_type) で1行）。
-        shiftType: _shiftType,
+        shiftType: shift,
         onNotify: (message, isError) {
           if (!mounted) return;
           showJsSnackbar(context, message, isError: isError);
@@ -2861,7 +3208,11 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
   }
 
   // ── 残業報告（既存処理。showDialog 以下は1文字も変えず、呼出を1段ラップしただけ）──
+  //   →再（2026-10-21・便BN・見つけた事 (47)(h)・下調べの (D9)）: 日報の時刻は、窓を開いた時の今を渡す（元は送った時の今＝WorkerReportItem の
+  //   既定＝開いたまま業務日が替わると、開いた日と違う業務日の日報になった）。勤務の種類も開いた時の物。
   Future<void> _openOvertimeDialog() async {
+          final openedAt = businessNow();
+          final shift = _shiftType;
           await showDialog(
             context: context,
             barrierDismissible: false,
@@ -2876,7 +3227,8 @@ class _JsMainShellState extends State<JsMainShell> with WidgetsBindingObserver {
                   gpsAddress: _gpsAddress,
                   // 場所を測れなかった時の理由の符号（便BJ・見本 v1 の A＝今日の日報と同じ）。
                   gpsFailReason: _gpsFailReason,
-                  shiftType: _shiftType,   // 残業報告も同じ勤務区分で業務日を揃える
+                  shiftType: shift,   // 残業報告も同じ勤務区分で業務日を揃える（便BN (D9): 開いた時の種類）
+                  timestamp: openedAt,   // 便BN (D9): 開いた時の今（開いた日に当たる）
                 ));
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
@@ -3165,6 +3517,23 @@ class _ReportFormPageState extends State<_ReportFormPage> {
 
   @override
   Widget build(BuildContext context) => widget.builder();
+}
+
+// ─────────────────────────────────────────────
+// 日報フォームの全画面の route の見張り（便BN・下調べの (D6)）
+//   その route の上の窓やシートが閉じた時（didPopNext）に知らせる（シェルの RouteAware とは別の物＝下が全画面の route の時は、
+//   シェルの didPopNext は来ない）。開いている間だけ見張る（_pushReportForm が start・閉じ終わった時に stop）。
+// ─────────────────────────────────────────────
+class _ReportFormRouteWatcher with RouteAware {
+  _ReportFormRouteWatcher(this.route, {required this.onPopNext});
+  final ModalRoute<void> route;
+  final VoidCallback onPopNext;
+
+  void start() => appRouteObserver.subscribe(this, route);
+  void stop() => appRouteObserver.unsubscribe(this);
+
+  @override
+  void didPopNext() => onPopNext();
 }
 
 // ─────────────────────────────────────────────
@@ -6518,7 +6887,7 @@ class _CalendarTabState extends State<CalendarTab> {
     final info = _dayInfoOf(ds);
     // ★今日（便BJ・見本 v1 の B）: 元は日本の暦の日（jstDateString）。夜勤の朝（0〜11時）は、まだ前の日の勤務の中＝
     //   今の勤務の種類（utils/saved_shift_type.dart）の業務日を「今日」にする（サーバの尋ねる口と同じ物差し）。
-    final today = businessDateForShift(await savedShiftTypeForNow(), DateTime.now());
+    final today = businessDateForShift(await savedShiftTypeForNow(), businessNow());
     if (!mounted) return;
     await showCalendarDaySheet(
       context,

@@ -2,6 +2,18 @@
 // 業務日（JST基準の YYYY-MM-DD）を返す単一の真実源。
 // BE の js-office-api/utils/businessDate.js と同一ルール（Asia/Tokyo・DSTなし=固定+9h）。
 // 端末のタイムゾーン設定に依存しないため、海外TZ端末でも日付がBEとズレない。
+//
+// →再（2026-10-21・便BN）: 今を出す口を、業務日の真実源のこの本に置く（今と業務日を1か所から出す）。
+//   画面と業務日の今は DateTime.now() を直に呼ばず businessNow() で読む（検査は businessClock を差し替えて
+//   業務日の切り替わりをまたぐ）。前例＝lib/utils/device_error_log.dart の deviceErrorClock と同じ形。
+import 'package:flutter/foundation.dart';
+
+/// 時計（検査は差し替える・tearDown で戻す）。★本では書き替えない（読むのは businessNow() から）。
+@visibleForTesting
+DateTime Function() businessClock = DateTime.now;
+
+/// 今（businessClock の値）。画面と業務日の今はここから読む。
+DateTime businessNow() => businessClock();
 
 /// 任意の時刻を JST(UTC+9) の 'YYYY-MM-DD' 文字列にする。
 String jstDateString(DateTime d) {

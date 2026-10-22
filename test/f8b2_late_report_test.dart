@@ -1305,8 +1305,7 @@ void main() {
           ReportConfirmScreen(
             initial: snap(),
             currentOf: snap,
-            onSend: () async {},
-            isDone: () => false,
+            onSend: () async => false,
             band: extra ? const Text('帯') : null,
             notes: extra ? const ['※1行目'] : const [],
           ));
